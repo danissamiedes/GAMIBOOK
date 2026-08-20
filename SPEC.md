@@ -39,6 +39,8 @@ Secondary goals, all in the MVP:
 - **select many work orders and email them in one action**, each going to its
   own consultant's configured recipients with its own PDF attached
 - email clients their **invoices**, including **recurring invoices**
+- **migrate the existing spreadsheet history** (§4.4) so the P&L and Balance
+  Sheet cover prior periods, not just business done inside this app
 - let consultants **log in and clock in / clock out**, recorded and displayed in
   **Philippine time (Asia/Manila)**
 
@@ -136,7 +138,8 @@ Normal balance is derived from `type`: `ASSET` and `EXPENSE` are debit-normal;
 - `date` (a **date**, not a timestamp — accounting dates have no time zone)
 - `memo`
 - `sourceType` enum: `MANUAL`, `INVOICE`, `INVOICE_PAYMENT`, `WORK_ORDER`,
-  `CONSULTANT_PAYMENT`, `EXPENSE`, `BANK_TRANSACTION`, `OPENING_BALANCE`
+  `CONSULTANT_PAYMENT`, `EXPENSE`, `BANK_TRANSACTION`, `OPENING_BALANCE`,
+  `MIGRATION` (§4.4)
 - `sourceId` (nullable FK to the originating document)
 - `postedAt`, `createdByUserId`, `reversedByEntryId` (nullable)
 
@@ -250,6 +253,52 @@ opening-balance entry when migrating from a previous system.
 Each of these MUST have a unit test asserting the resulting lines and that
 debits equal credits.
 
+### 4.4 Historical migration
+
+**Confirmed (§16.4): the books do not start empty.** There is existing
+spreadsheet history to bring in, so prior periods must appear in the P&L and in
+retained earnings — opening balances alone are not enough.
+
+Treat migration as a one-off, reviewable import that goes through
+`postJournalEntry` like every other posting. No direct `JournalLine` writes, no
+special-case tables, no exemption from §4.2.
+
+Three layers, in this order:
+
+1. **Open items become real documents.** Every unpaid customer invoice and
+   unpaid work order or bill as of the migration date is created as a proper
+   `ISSUED` / `APPROVED` document dated its real date, so A/R and A/P aging,
+   payment application, and FX settlement all behave normally afterwards. This
+   is the layer that matters most — a summarised A/R balance cannot be paid off.
+2. **Closed periods become summarised journal entries.** For months already
+   fully settled, post one `MIGRATION` entry per month per company summarising
+   income and expense by account, dated the last day of that month. That gives
+   the P&L real prior periods and makes the retained-earnings roll-forward
+   (§12.2) correct, without re-keying every historical transaction. Where the
+   source data is detailed enough and the user wants the detail, individual
+   entries are fine too — the choice is per period, not global.
+3. **Opening balances** for balance-sheet accounts as of the earliest migrated
+   date, through the single `OPENING_BALANCE` entry (§4.3), balancing to
+   Opening Balance Equity.
+
+Rules:
+
+- Same flow as §8.3: upload → parse → validation report → user confirms →
+  commit, with the commit in one transaction and an annotated reject file.
+- The migration is recorded as an `ImportBatch` with `kind = MIGRATION`, so it
+  can be reviewed as a group and — before anything new is posted on top of it —
+  rolled back in one operation. Expect to run it more than once against test
+  data before the real run.
+- After a successful migration, set `booksClosedThrough` to the migration end
+  date so nobody edits history by accident (§4.2 rule 4).
+- The migrated Trial Balance MUST balance and the Balance Sheet at the
+  migration date MUST satisfy `Assets == Liabilities + Equity` before the
+  company is considered live. Do not go live on a migration that does not tie.
+
+**Blocked on input:** the actual spreadsheet and the intended start date. The
+layers above are the shape; the parser cannot be written until the file is in
+hand (§16.4). Build layers 1 and 3 against the seed fixture in the meantime.
+
 ---
 
 ## 5. Currency
@@ -272,10 +321,22 @@ be kept in a different currency. Handle this generally rather than hardcoding:
   difference posts to `Realized FX Gain / Loss`. Do not implement period-end
   revaluation (unrealized FX) in the MVP.
 
-**Note this back to the user:** if the intent is that the *entire* business runs
-on PHP — clients invoiced in PHP too — then set `baseCurrency = PHP` at company
-setup and the FX path above simply never fires. The design supports both without
-change. Flag this in the setup wizard with a clear "this cannot be changed later"
+**Confirmed configuration (§16.1): `baseCurrency = PHP`, with clients invoiced
+in either PHP or USD.** Note carefully which side of the books this puts the FX
+on, because it is the opposite of what the consultant-in-PHP framing suggests:
+
+- **Payables are in base currency.** Consultants are paid in PHP and other
+  expenses are incurred in PHP, so work orders, bills, and their payments never
+  convert. No FX on the A/P side at all in normal operation.
+- **Receivables are where FX lives.** A USD invoice in a PHP-base company
+  carries an `fxRate`, its A/R is relieved at that **historic invoice rate** on
+  payment, and the difference against the payment's rate books to Realized FX
+  Gain/Loss. Partial payments relieve A/R pro rata at the invoice rate (§4.3).
+
+Build and test the FX path in **both** directions regardless — the seed data
+includes a USD-base company with PHP work orders, and the rules in §4.3 are
+symmetric — but the production company is PHP-base and its live FX path is the
+receivables one. The setup wizard still shows the "this cannot be changed later"
 warning, because changing base currency after postings exist is not supported.
 
 Formatting: currency is always displayed with an explicit code (`PHP 12,500.00`,
@@ -484,7 +545,11 @@ and a second sheet listing valid consultant codes, currencies, and expense
 account codes for that company. Most import failures are avoided here.
 
 **Expected columns** (header row required; matching is case- and
-whitespace-insensitive):
+whitespace-insensitive). **Provisional — §16.7: the user has an existing
+spreadsheet and will supply it, and this table must then be reshaped to match
+their real headers.** Keep the column definitions in one place (a single
+`WORK_ORDER_IMPORT_COLUMNS` map driving both the template generator and the
+parser) so adapting to their file is a data change, not a rewrite:
 
 | Column | Required | Notes |
 |---|---|---|
@@ -537,8 +602,9 @@ spreadsheet without review is exactly the kind of thing this system exists to
 prevent. The user reviews and approves them — see bulk approve below.
 
 **The whole import is one database transaction.** A failure part-way through
-leaves nothing behind. Record an `ImportBatch` (`id`, `companyId`, `fileName`,
-`uploadedBy`, `uploadedAt`, `rowCount`, `createdCount`, `skippedCount`) and
+leaves nothing behind. Record an `ImportBatch` (`id`, `companyId`, `kind`
+(`WORK_ORDER` | `BANK` | `MIGRATION`), `fileName`, `uploadedBy`, `uploadedAt`,
+`rowCount`, `createdCount`, `skippedCount`) and
 stamp `importBatchId` on every work order it created, so a bad import can be
 reviewed as a group and — while every work order in it is still an untouched
 `DRAFT` — rolled back in one click.
@@ -876,9 +942,12 @@ login credentials at the end.
 
 **The seeded transactions MUST span a fiscal-year boundary** — roughly 18 months
 of history, not three — so that the retained-earnings roll-forward (§12.2) is
-actually exercised. Include at least one PHP work order in the USD company, one
-partial payment, one payment applied across two invoices, one voided invoice,
-and one time entry that crosses midnight Manila time. The seed is the test
+actually exercised. Include at least one PHP work order in the USD company and
+at least one **USD invoice in the PHP company settled at a different rate** —
+that second one is the FX path the production company actually runs (§5) and it
+must be in the fixture, not just the mirror-image case. Also one partial
+payment, one payment applied across two invoices, one voided invoice, and one
+time entry that crosses midnight Manila time. The seed is the test
 fixture for the trickiest rules in this spec; treat it that way.
 
 ---
@@ -935,11 +1004,15 @@ work order. Test: dry-run mode logs without sending.
   with the right number of lines each; an import with 3 bad rows imports the
   rest and returns an annotated reject file; a bulk send where 2 of 10 fail
   reports exactly those 2 and a retry re-sends only those 2.
-- *8b — Recurring and bank import.* Recurring invoice templates on the Phase 6
-  scheduler, upcoming list, CSV bank import with saved column mappings, dedupe,
-  matching screen with all three match outcomes. Test: scheduler idempotency;
-  re-importing the same CSV creates zero duplicates; linking a bank line to an
-  already-recorded payment posts nothing.
+- *8b — Recurring, bank import, and history migration.* Recurring invoice
+  templates on the Phase 6 scheduler, upcoming list, CSV bank import with saved
+  column mappings, dedupe, matching screen with all three match outcomes, and
+  the historical migration importer (§4.4) — open items as documents,
+  summarised prior periods, opening balances, `booksClosedThrough` set on
+  completion. Test: scheduler idempotency; re-importing the same CSV creates
+  zero duplicates; linking a bank line to an already-recorded payment posts
+  nothing; a migrated fixture spanning two fiscal years ties on the Trial
+  Balance and puts the earlier year's profit in retained earnings.
 
 **Phase 9 — Dashboard and polish.** Dashboard, mobile pass on the time clock,
 empty states, keyboard shortcuts in line editors, full data export, README with
@@ -987,40 +1060,52 @@ The MVP is done when all of these pass, demonstrated against seeded data:
     the GL; settling it at a different rate books an FX gain or loss and leaves
     the A/P control account at exactly zero for that document; and a partial
     payment relieves A/P pro rata at the document's rate.
-13. `npm run seed && npm test && npm run build` all succeed from a clean clone.
-14. The README explains local setup, deployment, backup, and restore.
+13. The historical spreadsheet migrates (§4.4): open invoices and work orders
+    arrive as documents that can still be paid, closed periods appear in the
+    P&L, the Trial Balance ties at the migration date, and the Balance Sheet at
+    that date balances before the company is declared live.
+14. `npm run seed && npm test && npm run build` all succeed from a clean clone.
+15. The README explains local setup, deployment, backup, and restore.
 
 ---
 
-## 16. Open questions for the user
+## 16. Decisions from the user
 
-Do not block on these — pick the noted default, implement it, and list the
-question in `DECISIONS.md` for confirmation.
+All eight questions in this section were put to the user and answered on
+**2026-08-20**. They are settled — build to them. Two carry an outstanding
+**input** (a file the user still owes), noted below; neither blocks the phases
+before it.
 
-1. **Base currency — the one real open question.** The user said consultants are
-   paid in **PHP**. It is not yet confirmed whether *clients* are also invoiced
-   in PHP (so the whole business runs on PHP and no FX ever occurs) or whether
-   the books are kept in USD with PHP only on the consultant side (so the FX
-   path in §5 is live from day one). The design handles both; the setup wizard
-   forces the choice per company. Build and test **both** paths — the seed data
-   requires it — and confirm with the user before the first real company is set
-   up, because base currency cannot be changed after postings exist.
-2. **Sales tax / VAT.** Is tax charged on client invoices (US sales tax,
-   Philippine VAT, none)? Default: build a simple per-line `TaxRate` (name, %,
-   liability account) that can be left unused.
-3. **Consultant classification.** Contractors, so no payroll withholding
-   assumed. Default: treat all consultant payments as contractor expense, no tax
-   withholding fields.
-4. **Existing data.** Is there a spreadsheet of history to migrate, and from
-   what date should the books start? Default: opening balances entered manually
-   as of a user-chosen start date.
-5. **Fiscal year.** Default: January start.
-6. **Approval flow.** Does anyone other than the creator need to approve a work
-   order before it's emailed or paid? Default: no separate approver.
-7. **Excel import layout.** The column set in §8.3 is inferred, not supplied. Ask
-   the user for a real spreadsheet they already use and adapt the template to
-   match it — a template that mirrors their existing file will be adopted; one
-   that doesn't will be ignored. Default meanwhile: the columns as specified.
-8. **Bulk send default grouping.** When a consultant has several work orders in
-   one batch, is one email each or one combined email the norm? Default: one
-   email per work order, with the combine toggle available.
+1. **Base currency — settled: `baseCurrency = PHP`.** Clients may be invoiced in
+   **PHP or USD**; consultants and other expenses are all PHP. So the FX path is
+   live on the **receivables** side and dormant on the payables side — the
+   opposite of what §5 originally assumed. §5 and the seed data now say this.
+   Still build and test both directions; the rules in §4.3 are symmetric and the
+   seed keeps a USD-base company to exercise the mirror case.
+2. **Sales tax / VAT — settled: none, but built.** Ship the per-line `TaxRate`
+   model (name, %, liability account) with no rates configured, so invoices are
+   untaxed. Turning tax on later is a settings change, not a migration.
+3. **Consultant classification — settled: contractors, no withholding.** Every
+   consultant payment is a straight contractor expense. No withholding fields,
+   no 1099/BIR anything (§1 non-goals).
+4. **Existing data — settled: migrate the history, do not just open balances.**
+   See §4.4 for the shape: open items as real documents, closed periods as
+   summarised `MIGRATION` entries, opening balances underneath.
+   **Input still needed:** the actual spreadsheet and the intended start date.
+   The parser cannot be written against a file nobody has seen — layers 1 and 3
+   get built against the seed fixture meanwhile.
+5. **Fiscal year — settled: January start.** Company setting stays at month 1.
+   The prior-fiscal-year Balance Sheet test in §12.2 and Phase 5 still applies.
+6. **Approval flow — settled: no separate approver.** Whoever creates a work
+   order can approve it, and approval is what posts A/P. Bulk approve from the
+   list (§8.3) stands as written.
+7. **Excel import layout — settled: match the user's real spreadsheet.**
+   **Input still needed:** the file (or its header row). The column table in
+   §8.3 is provisional and MUST be reshaped to their headers once it arrives —
+   which is why the columns live in one map that drives both the template
+   generator and the parser. A template that mirrors their existing file gets
+   used; one that does not gets ignored.
+8. **Bulk send grouping — settled: one email per work order.** Each work order
+   goes out with its own PDF to that consultant's configured recipients. The
+   "combine into one email per consultant" toggle (§10.1) is still built and
+   available, just not the default.

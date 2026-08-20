@@ -33,9 +33,11 @@ estimated from a list of categorised transactions.
 
 Secondary goals, all in the MVP:
 
-- email consultants their **work orders** (description, quantity, rate),
-  individually or **in bulk from a multi-select screen** (§8.4)
-- create work orders **in bulk by importing a spreadsheet** (§8.3)
+- email consultants their **work orders** (description, quantity, rate)
+- create **many work orders at once by importing an Excel file**, rather than
+  keying them in one at a time
+- **select many work orders and email them in one action**, each going to its
+  own consultant's configured recipients with its own PDF attached
 - email clients their **invoices**, including **recurring invoices**
 - let consultants **log in and clock in / clock out**, recorded and displayed in
   **Philippine time (Asia/Manila)**
@@ -61,7 +63,7 @@ Three roles. Roles are assigned **per company** (see §3), not globally.
 | Role | Who | Can do |
 |---|---|---|
 | `OWNER` | Business owner | Everything, including managing users, closing periods, and deleting companies |
-| `BOOKKEEPER` | Admin / bookkeeper | Everything financial: customers, consultants, invoices, work orders, expenses, journal entries, reports, imports, bulk email sends. Cannot manage users or delete a company |
+| `BOOKKEEPER` | Admin / bookkeeper | Everything financial: customers, consultants, invoices, work orders, expenses, journal entries, reports, email sending. Cannot manage users or delete a company |
 | `CONSULTANT` | Contractor | **Only** the time clock: clock in, clock out, and view their own recent time entries **read-only**. They may attach a correction request note to an entry; only an admin can change a recorded time. No access to any financial data, no access to other consultants' entries |
 
 `CONSULTANT` is a deliberately narrow role. A consultant logging in MUST land
@@ -89,8 +91,7 @@ The system is **multi-company from day one**.
 
 - An `Organization` owns one or more `Company` records.
 - Every financial row (account, customer, consultant, invoice, journal entry,
-  time entry, import batch, email batch, everything) carries a non-null
-  `companyId`.
+  time entry, everything) carries a non-null `companyId`.
 - The user picks an active company after login; a company switcher sits in the
   top bar. The active company is held in the session, not in a URL param the
   user can tamper with — but every query MUST still filter by `companyId`
@@ -168,8 +169,7 @@ Normal balance is derived from `type`: `ASSET` and `EXPENSE` are debit-normal;
 5. Every posting goes through **one** service function, e.g.
    `postJournalEntry({ companyId, date, memo, sourceType, sourceId, lines })`.
    No other code writes `JournalLine` rows. This is the single most important
-   architectural rule in this spec. Bulk operations (§8.3, §8.4) are no
-   exception: they loop over this one function, they do not batch-insert lines.
+   architectural rule in this spec.
 
 ### 4.3 Posting rules
 
@@ -288,23 +288,20 @@ Formatting: currency is always displayed with an explicit code (`PHP 12,500.00`,
 **Customer:** name, email(s) for invoicing, billing address, default currency,
 default payment terms (Net 15/30/etc.), notes, active flag.
 
-**Consultant:** name, default currency (PHP), default rate, default
-expense/COGS account, notes, active flag, and an optional link to a `User`
-record so they can log in to the time clock. A consultant with no linked user
-simply cannot clock in — that's valid.
+**Consultant:** name, default currency (PHP), default rate, default expense/COGS
+account, notes, active flag, an optional link to a `User` record so they can log
+in to the time clock, and an **email recipient setup**:
 
-Consultant email fields, which the bulk send in §8.4 depends on:
+- `primaryEmail` (required if they are ever to be emailed)
+- `ccEmails` (a list — some consultants want a manager or agency copied)
+- `sendEmails` (boolean; a consultant may be paid but never emailed)
+- `externalRef` — a stable code used to identify this consultant in imported
+  spreadsheets (§8.3). Optional but strongly recommended for anyone in the bulk
+  import flow, because matching on name alone is fragile.
 
-| field | notes |
-|---|---|
-| `email` | primary address, required for an active consultant |
-| `workOrderToEmails` | string list. The **recipients used when emailing work orders**. Empty means "use `email`" — do not duplicate the primary address into this field, or changing the primary address silently stops reaching them |
-| `workOrderCcEmails` | string list, optional (a manager, an agency contact) |
-| `emailOptOut` | boolean. Excluded from bulk sends and shown as excluded, never silently dropped |
-
-The consultant form MUST show the effective recipient list ("Work orders go to:
-…") computed from these fields, because bulk sending is only trustworthy if the
-user can see, per consultant, where mail will land before selecting 40 of them.
+The recipient setup is per consultant and is what the bulk send in §10.1 uses.
+Do not let a consultant with `sendEmails = true` and no `primaryEmail` be saved.
+A consultant with no linked user simply cannot clock in — that's valid.
 
 **Vendor:** name, email, default currency, default expense account, notes,
 active flag. A real table, not free text — A/P aging (§12.6) needs a party to
@@ -391,9 +388,9 @@ A scheduled job (node-cron in-process is fine for the MVP, but put the logic in
 a plain function so it can move to a queue later) runs daily at 06:00 in the
 company's `operatingTimeZone` (a company setting, distinct from the time-clock
 zone in §9 — a US company should not invoice on Manila time), generates due
-invoices, and either emails them or leaves them as drafts. The job MUST be
-idempotent — keyed on `(templateId, scheduledDate)` — so a double-run never
-issues two invoices.
+invoices, and either emails them or
+leaves them as drafts. The job MUST be idempotent — keyed on
+`(templateId, scheduledDate)` — so a double-run never issues two invoices.
 
 Show the user an "Upcoming recurring invoices" list for the next 30 days.
 
@@ -419,7 +416,7 @@ they'll be paid. It is a payable.
 approved), `issueDate`, `approvedAt` (**the date the A/P entry posts** — set on
 approval, defaults to today, editable by the approver), `dueDate`, `currency`
 (usually PHP), `fxRate`, `status`, `memo`, `total`, `amountPaid`, `balanceDue`,
-`lastEmailedAt`, `importBatchId?` (§8.3).
+`lastEmailedAt`.
 
 `WorkOrderLine`: `description`, `quantity`, `rate`, `amount`, `expenseAccountId`.
 
@@ -444,10 +441,9 @@ children pointing at either a `WorkOrder` or an `Expense` recorded as a bill.
 One payment can settle several documents; reversal behaves as in §7.1.
 
 **Time entries do not feed work orders.** The user was explicit: the time clock
-is attendance tracking, and work orders are created manually (or by spreadsheet
-import, §8.3). Do not build an "import hours into work order" flow. (Do put
-`consultantId` and a date range on the work order form so a future version
-*could* — but no UI for it now.)
+is attendance tracking, and work orders are created manually. Do not build an
+"import hours into work order" flow. (Do put `consultantId` and a date range on
+the work order form so a future version *could* — but no UI for it now.)
 
 ### 8.2 Other expenses
 
@@ -472,148 +468,89 @@ be two entry forms sharing one model, not one form with a confusing toggle.
 
 Receipt attachment: store the uploaded file, show a thumbnail, no OCR.
 
-### 8.3 Bulk work order import (Excel)
+### 8.3 Bulk work order creation from an Excel file
 
-Entering work orders one at a time does not scale when a month of work is agreed
-with a dozen consultants at once. The user MUST be able to upload one
-spreadsheet and have the app create many work orders from it.
+The user prepares consultant work in a spreadsheet and needs to turn it into
+many work orders in one go. This is a core workflow, not a convenience feature —
+build it properly, with a review step.
 
-**Formats.** `.xlsx` and `.csv`. `.xls` (the old binary format) is not required;
-reject it with a message telling the user to re-save as `.xlsx`. Multi-sheet
-workbooks get a sheet picker, defaulting to the first sheet. Parse
-**server-side** with a maintained library (SheetJS `xlsx` or ExcelJS) — never
-parse in the browser and trust what it posts back. Limits: 10 MB and 2,000 rows
-per upload, enforced before parsing.
+**Accepted input:** `.xlsx` (primary) and `.csv`. Parse server-side with
+SheetJS or ExcelJS. Read the **first worksheet** by default but let the user
+choose a sheet if the workbook has several.
 
-**A downloadable template** (`/fixtures/work-order-import-template.xlsx`, also
-offered as a button on the import screen) with the expected header row and two
-example rows. It is a convenience, not a requirement: the mapping step below
-must accept a sheet the user already has.
+**Downloadable template.** The import screen MUST offer a "Download template"
+button producing a formatted `.xlsx` with the expected headers, one example row,
+and a second sheet listing valid consultant codes, currencies, and expense
+account codes for that company. Most import failures are avoided here.
 
-**Column mapping.** The same mapping UI as the bank import (§8.5), built once
-and reused: the app guesses each column from its header, the user corrects it,
-and the mapping is **saved per company** and re-offered by name on the next
-import. Recognised fields:
+**Expected columns** (header row required; matching is case- and
+whitespace-insensitive):
 
-| field | required | notes |
+| Column | Required | Notes |
 |---|---|---|
-| Consultant | yes | matched by email, then by exact name, then by a consultant code. Ambiguous or unknown → row error, never a silently created consultant |
-| Group key | no | see grouping below |
-| Issue date | no | defaults to the import date |
-| Due date | no | defaults from the consultant's terms |
-| Currency | no | defaults to the consultant's `defaultCurrency` |
-| FX rate | no | required when currency ≠ base currency and no last-used rate exists |
-| Description | yes | the work order line description |
-| Quantity | yes | |
-| Rate | yes | defaults to the consultant's default rate if the column is absent entirely, but never row-by-row silently |
-| Amount | no | if present it is **checked** against quantity × rate, not trusted; a mismatch over one cent is a row error |
-| Expense account | no | account code or name; defaults to the consultant's default expense/COGS account |
-| Memo | no | work order memo |
+| `Consultant Code` | yes* | Matches `Consultant.externalRef` |
+| `Consultant Name` | yes* | Fallback match if no code; exact, case-insensitive match on active consultants only |
+| `Work Order Ref` | no | A grouping key — see multi-line handling below |
+| `Issue Date` | no | Defaults to the import date |
+| `Due Date` | no | Defaults from the consultant's terms |
+| `Description` | yes | The work order line description |
+| `Quantity` | yes | Numeric, > 0 |
+| `Rate` | yes | Numeric, ≥ 0 |
+| `Currency` | no | Defaults to the consultant's default currency |
+| `FX Rate` | no | Required only if currency ≠ company base currency and no default rate is on file |
+| `Expense Account Code` | no | Defaults to the consultant's default expense account |
+| `Memo` | no | Work order memo |
 
-**Grouping rows into documents.** Rows are grouped into one work order per
-`(consultantId, currency, issueDate, groupKey)`. With no `Group key` column that
-collapses to one work order per consultant per issue date, each spreadsheet row
-becoming one work order line — which is the common case. The preview MUST show
-the grouping ("12 rows → 5 work orders") before anything is created.
+\* At least one of `Consultant Code` / `Consultant Name` must be present.
 
-**Parsing rules that will bite you:**
+**Multi-line work orders.** Consecutive rows sharing the same
+`(Consultant, Work Order Ref)` become **one work order with multiple lines**.
+Rows with a blank `Work Order Ref` become one work order per row. This is the
+single most important behaviour in the import — a consultant with five tasks
+should get one work order listing five lines, not five separate documents.
+Grouping is by the pair, so two consultants may reuse the same ref safely.
 
-- Money and quantities are parsed to `Decimal` from the cell's **raw value**;
-  strip currency symbols, thousands separators, and stray spaces from strings.
-  Never `parseFloat`. A cell that does not parse cleanly is a row error.
-- Dates: use the library's date coercion (`cellDates`) so Excel serial numbers
-  become real dates via the workbook's own date system. A date arriving as a
-  bare string is parsed with the **date format the user picked in the mapping
-  step**, not a guess — `03/04/2026` is ambiguous and must never be resolved by
-  locale luck.
-- Blank rows are skipped; a row with some but not all required fields is an
-  error, not a skip.
+**Mandatory preview and validation step.** Uploading NEVER writes work orders
+directly. The flow is: upload → parse → validation report → user confirms →
+create. The validation report shows, per row:
 
-**Staging and preview.** Import is two steps and never one.
+- unmatched consultant (with a "map this to…" picker that can be remembered for
+  next time via `externalRef`)
+- non-numeric or negative quantity/rate
+- unparseable dates (accept ISO, US, and Excel serial dates; show the
+  interpreted date back to the user so they can catch a D/M vs M/D mistake)
+- unknown expense account code
+- missing FX rate where one is needed
+- a consultant marked inactive
+- **a likely duplicate** — a work order already exists for the same consultant,
+  ref, and total. Warn, do not block.
 
-`ImportBatch`: `companyId`, `kind` (`WORK_ORDER` | `BANK_TRANSACTION`),
-`fileName`, `fileHash`, `fileId` (storage, §13), `mappingId?`, `status`
-(`PARSED`, `COMMITTED`, `DISCARDED`), `rowCount`, `createdWorkOrderCount`,
-`createdByUserId`, `createdAt`.
+Rows are either **valid**, **warning**, or **error**. Errors block only their
+own row. The user chooses "import the N valid rows" or "cancel and fix the
+file"; either way, show the counts before they commit. Rejected rows are
+downloadable as an annotated `.xlsx` with a reason column appended, so the user
+fixes the file rather than hunting through error text.
 
-`ImportRow`: `importBatchId`, `rowNumber`, `rawJson`, `parsedJson`, `status`
-(`VALID`, `ERROR`, `IMPORTED`, `SKIPPED`), `errors` (list of
-`{ column, message }`), `workOrderId?`.
+**What gets created.** Imported work orders are created as **`DRAFT`**, never
+approved and never posted to the ledger. Bulk-posting financial documents from a
+spreadsheet without review is exactly the kind of thing this system exists to
+prevent. The user reviews and approves them — see bulk approve below.
 
-The preview screen shows every row with its resolved consultant, computed
-amount, and target work order, errors highlighted in place. **Partial commit is
-allowed and is the default:** valid rows import, error rows stay in the batch so
-the user can fix the sheet and re-submit just those. The commit itself runs in
-**one DB transaction** — if it fails, nothing is created.
+**The whole import is one database transaction.** A failure part-way through
+leaves nothing behind. Record an `ImportBatch` (`id`, `companyId`, `fileName`,
+`uploadedBy`, `uploadedAt`, `rowCount`, `createdCount`, `skippedCount`) and
+stamp `importBatchId` on every work order it created, so a bad import can be
+reviewed as a group and — while every work order in it is still an untouched
+`DRAFT` — rolled back in one click.
 
-**Imports create `DRAFT` work orders and post nothing.** Approval is what posts
-(§8.1), and approval stays a deliberate act. Bulk-approving an imported batch is
-available from §8.4.
+**Bulk approve.** On the work order list, selecting several `DRAFT` work orders
+and choosing "Approve" posts each one's journal entry (§4.3) individually, each
+in its own transaction, with a results summary naming any that failed and why.
+Cap a single bulk operation at 500 documents.
 
-**Idempotency.** Store `fileHash` per batch and warn loudly when the same file
-is uploaded again for the same company ("this file was imported on 3 Feb,
-creating 12 work orders — import anyway?"). Re-importing after that warning is
-allowed; the user may genuinely be re-running a corrected sheet.
+Limits: 5,000 rows or 10 MB per file. Above that, tell the user to split it.
 
-**Audit.** Each created work order carries `importBatchId`, the batch links back
-to the stored original file, and the commit writes one `AuditLog` row for the
-batch plus the normal per-document rows.
-
-### 8.4 Bulk work order actions and emailing
-
-A screen for operating on many work orders at once — the other half of the
-import above, and the answer to "email this month's work orders to everyone".
-
-**The list.** Work Orders → list view with filters: status, consultant, date
-range, currency, import batch, and two email filters that matter in practice —
-"never emailed" and "changed since last emailed". Multi-select with a
-select-all-matching-the-filter option (which selects the whole filtered set, not
-just the visible page, and says how many).
-
-**Bulk actions:** *Email selected*, *Approve selected*, *Download PDFs (zip)*.
-
-**Email — recipient resolution.** For each selected work order, recipients come
-from the consultant record (§6): `workOrderToEmails` if set, otherwise `email`,
-plus `workOrderCcEmails`. Consultants with no usable address or with
-`emailOptOut` are **listed as excluded in the preview and skipped** — never
-silently dropped, and never substituted with some other address.
-
-**Grouping.** Default: **one email per consultant**, with every selected work
-order for that consultant attached as a separate PDF. A toggle switches to one
-email per work order. If a consultant's attachments would exceed 20 MB total,
-split into several emails and say so in the preview.
-
-**Preview and confirm.** A table with one row per outgoing email: consultant,
-To/Cc addresses, work order numbers (or "DRAFT" where no number is allocated
-yet), totals, attachment filenames, and the rendered subject. The selection may
-include drafts — emailing them posts nothing (§8.1), but the preview MUST warn
-that unapproved work orders are being sent. Sending requires an explicit
-"Send N emails" click (§10), and `EMAIL_DRY_RUN` short-circuits it exactly as
-for single sends.
-
-**Sending.** Every email goes through the same Gmail queue, throttle, and retry
-path as §10 — a bulk send is not allowed its own shortcut. PDFs are rendered at
-send time from the current document state (§11), never from a stale cache.
-
-`EmailBatch`: `companyId`, `kind` (`WORK_ORDER`), `status` (`QUEUED`,
-`SENDING`, `COMPLETED`, `COMPLETED_WITH_FAILURES`), `totalCount`, `sentCount`,
-`failedCount`, `createdByUserId`, `createdAt`, `completedAt`. Each `EmailLog`
-row (§10) carries `emailBatchId`.
-
-**After sending:** a batch progress/result screen, live while it runs and
-permanent afterwards, listing each email with its status and error. Failures are
-individually retryable ("Retry failed"). `lastEmailedAt` on a work order is
-stamped **only** when its email actually succeeds — a failed send must leave the
-document showing as not sent, or the user will believe a consultant was paid
-information they never received.
-
-**Bulk approve** on the same screen approves each selected draft, allocating
-numbers and posting the A/P entry per §4.3 through `postJournalEntry`, each
-document in its own transaction. One document failing (closed period, missing
-account) reports that row as failed and does not abort the rest; the result
-screen lists the outcome per document.
-
-### 8.5 CSV bank import
+### 8.4 CSV bank import
 
 - `BankAccount`: linked to a GL account of subtype `CASH` (or a credit card
   liability account).
@@ -621,7 +558,7 @@ screen lists the outcome per document.
   amount / debit-credit columns / reference) and let the user save the mapping
   per bank account so subsequent imports are one click. Support both the
   single-signed-amount and separate-debit-credit-column layouts, and let the
-  user pick the date format. This is the same mapping component used by §8.3.
+  user pick the date format.
 - `BankTransaction`: `bankAccountId`, `date`, `description`, `amount`,
   `reference`, `importBatchId`, `status` (`UNMATCHED`, `MATCHED`, `EXCLUDED`),
   `matchedJournalEntryId?`, `dedupeHash`.
@@ -726,27 +663,75 @@ so sent mail appears in their Sent folder and replies come back to them.
   with a clear "reconnect required" banner rather than silent failures.
 - Respect Gmail's sending limits (Workspace: ~2,000 recipients/day; consumer:
   ~500). Queue sends, throttle, retry with backoff on 429/5xx, and surface a
-  clear error to the user on hard failure. **Bulk work-order sends (§8.4) are
-  the main way a user will hit these limits** — the queue MUST be shared, the
-  throttle MUST apply per company across all senders, and a bulk send that would
-  exceed the daily quota must be paused with a clear message and resumable,
-  not silently truncated.
+  clear error to the user on hard failure.
 - **`EmailLog`** for every attempt: `companyId`, `toAddresses`, `cc`, `subject`,
-  `bodySnapshot`, `attachmentNames`, `relatedType`/`relatedId`,
-  `emailBatchId?` (§8.4), `status` (`QUEUED`, `SENT`, `FAILED`),
-  `gmailMessageId`, `error`, `sentAt`, `sentByUserId`. Show this log in the UI,
-  filterable by document and by batch.
+  `bodySnapshot`, `attachmentNames`, `relatedType`/`relatedId`, `status`
+  (`QUEUED`, `SENT`, `FAILED`), `gmailMessageId`, `error`, `sentAt`,
+  `sentByUserId`, `emailBatchId?` (§10.1), `attemptCount`. Show this log in the
+  UI, filterable by document and by batch.
 - Templates per company, editable in Settings, with a live preview and a "send
   test to myself" button: `INVOICE`, `INVOICE_REMINDER`, `WORK_ORDER`,
-  `PAYMENT_RECEIPT`. The `WORK_ORDER` template supports
-  `{{consultant_name}}`, `{{work_order_number}}`, `{{total}}`, `{{due_date}}`,
-  and — for the grouped bulk send — `{{work_order_count}}` and
-  `{{work_order_list}}`.
+  `PAYMENT_RECEIPT`.
 - **Every email screen MUST show a preview and require an explicit Send click**,
-  except recurring templates set to `AUTO_SEND`. This applies to bulk sends too:
-  the preview lists every outgoing email before anything leaves. In development,
-  a `EMAIL_DRY_RUN=true` env var MUST short-circuit actual sending and just write
+  except recurring templates set to `AUTO_SEND`. In development, a
+  `EMAIL_DRY_RUN=true` env var MUST short-circuit actual sending and just write
   the log — do not send real email from a dev machine.
+
+### 10.1 Bulk work order send
+
+A dedicated screen for emailing many work orders at once, each to its own
+consultant. This is how the user actually works: a batch of work orders is
+created (often by the Excel import in §8.3), then all of them go out together.
+
+**The screen.** A filterable list of work orders — filter by consultant, date
+range, status, import batch, and **"not yet emailed"** — with a checkbox per row
+and a select-all-matching-the-filter control. Columns: consultant, work order
+number, date, total, status, recipients, last emailed at. Default filter:
+approved work orders never emailed.
+
+**Per-row recipient resolution.** Each work order resolves its own recipients
+from that consultant's setup in §6 — `primaryEmail` plus `ccEmails`. Show the
+resolved addresses in the row so the user can see exactly where each one is
+going before sending. Rows that cannot be sent (no email on file,
+`sendEmails = false`) are shown **greyed out with the reason inline** and are
+excluded from selection rather than silently dropped.
+
+**Confirmation step.** Selecting rows and clicking "Send" opens a summary:
+*"Send 14 work orders to 9 consultants (23 recipients)"*, a full list of
+consultant → addresses, the template that will be used, and a preview of one
+rendered email. Sending requires an explicit confirm. There is no undo on email.
+
+**Sending behaviour:**
+
+- **One email per work order**, with that work order's PDF attached (§11).
+- When one consultant has several selected work orders, default to **one email
+  per work order** but offer a "combine into one email per consultant" toggle,
+  which attaches all their PDFs to a single message. Both paths must be
+  implemented; the combined path is what the user will reach for on a big batch.
+- The batch is **queued and processed in the background**, not sent inside the
+  HTTP request. Throttle to stay inside Gmail's limits (§10), retry transient
+  failures with exponential backoff, and never retry a hard bounce.
+- **A partial failure must not abort the batch.** Each send succeeds or fails
+  independently.
+- Progress UI: a live "12 of 14 sent" indicator, then a results panel listing
+  each success and each failure with its reason and a **"Retry failed only"**
+  button. The retry must not re-send anything that already succeeded — key the
+  queue on `(batchId, workOrderId)` and make it idempotent.
+- Every send writes its own `EmailLog` row (§10) carrying `emailBatchId`, so the
+  batch can be reviewed later from the work order or from a batch history list.
+- Each successfully sent work order gets `lastEmailedAt` stamped.
+
+**Sending does not change accounting status.** Emailing a `DRAFT` work order
+does not approve it and posts nothing (§8.1). Offer "Approve and send" as an
+explicit combined action for the common case, but keep the two operations
+separate underneath, and make the confirmation summary state plainly how many of
+the selected work orders are still drafts.
+
+Cap a single batch at 200 emails and tell the user to split beyond that.
+
+The same screen pattern SHOULD be reused for bulk-sending customer invoices —
+build the list, selection, confirmation, and queue as shared components rather
+than one-off code for work orders.
 
 ---
 
@@ -759,15 +744,9 @@ so sent mail appears in their Sent folder and replies come back to them.
   phone, tax/registration number, footer text (payment instructions,
   bank details). These appear on all three documents.
 - Filenames: `Invoice-{number}-{customer-slug}.pdf`,
-  `WorkOrder-{number}-{consultant-slug}.pdf`. A work order with no number yet
-  (a draft being emailed for confirmation) uses
-  `WorkOrder-DRAFT-{id-short}-{consultant-slug}.pdf`, so bulk attachments never
-  collide.
+  `WorkOrder-{number}-{consultant-slug}.pdf`.
 - The PDF must be downloadable from the document screen as well as attachable to
-  email, and generated in bulk for §8.4 (attachments and the zip download).
-  Bulk generation MUST be bounded — render with a small concurrency limit and a
-  per-render timeout, because a browser-based renderer will happily exhaust the
-  box if you hand it 200 documents at once.
+  email.
 
 ---
 
@@ -820,9 +799,8 @@ Fiscal year start month is a company setting (default January).
 
 **Dashboard** (landing page for OWNER/BOOKKEEPER): cash balances, income vs
 expenses for the last 6 months, A/R outstanding and overdue, A/P outstanding,
-unmatched bank transactions count, consultants currently clocked in, and
-approved-but-never-emailed work orders (the queue that feeds §8.4). Built in
-Phase 9, because its last tiles depend on Phases 6, 7 and 8.
+unmatched bank transactions count, consultants currently clocked in. Built in
+Phase 9, because its last two tiles depend on Phases 6 and 8.
 
 Note that the Trial Balance (Phase 2) initially ships without drill-down; the
 drill-down layer is built once in Phase 5 and applied to every report including
@@ -843,8 +821,6 @@ Unless you have a strong reason otherwise:
   sign-in. Note: app login and the Gmail *sending* connection are separate
   concerns — don't conflate them.
 - **Zod** for validation at every API boundary
-- **SheetJS (`xlsx`) or ExcelJS** for spreadsheet parsing (§8.3), server-side
-  only, plus a CSV parser for the bank import (§8.5)
 - **Vitest** for unit tests, **Playwright** for a handful of end-to-end flows
 - Deployable to a single VPS via `docker compose` (app + Postgres). A
   Vercel + hosted-Postgres path is a `SHOULD`, not a `MUST` — note in the README
@@ -854,45 +830,34 @@ Unless you have a strong reason otherwise:
 
 ### File storage
 
-Receipts, company logos, uploaded import files, and generated PDFs need
-somewhere to live. Put every read and write behind a small `StorageAdapter`
-interface with two implementations: `LocalDiskAdapter` (default, a mounted
-volume in the compose file) and `S3Adapter` (any S3-compatible bucket), chosen
-by env var. No code outside the adapter touches a file path. This is ten minutes
-of work now and is the difference between the two deployment paths above being
-possible or not.
+Receipts, company logos, and generated PDFs need somewhere to live. Put every
+read and write behind a small `StorageAdapter` interface with two
+implementations: `LocalDiskAdapter` (default, a mounted volume in the compose
+file) and `S3Adapter` (any S3-compatible bucket), chosen by env var. No code
+outside the adapter touches a file path. This is ten minutes of work now and is
+the difference between the two deployment paths above being possible or not.
 
 Generated PDFs are **cached, not authoritative** — they must be regenerable from
 the document at any time, so a lost storage volume never loses financial data.
-Uploaded import files are **kept** for audit (an import batch must be able to
-show the original sheet), so they are not disposable in the same way.
 
 ### Non-negotiables
 
 - **Money:** `Decimal` (Prisma `Decimal` / `decimal.js`) or integer minor units.
-  Never floats. A lint rule or code review note enforcing this is welcome. This
-  includes anything parsed out of a spreadsheet cell (§8.3).
+  Never floats. A lint rule or code review note enforcing this is welcome.
 - **Dates:** accounting dates are `DATE` columns with no time zone. Event
   timestamps (clock in/out, email sent) are `TIMESTAMPTZ` in UTC.
 - **Audit log:** an append-only `AuditLog` of who changed what and when for
-  every financial document, every import batch and email batch, and every
-  user/role change.
-- **Bulk operations report per-row outcomes.** Any import, bulk approve, or bulk
-  send MUST end on a result screen listing what succeeded and what failed, with
-  the error per row, and MUST allow retrying just the failures. Partial success
-  is a normal outcome and must never be presented as complete success.
+  every financial document and every user/role change.
 - **Soft delete** for master data (customers, consultants, accounts). Hard
   delete is forbidden for anything referenced by a journal line.
 - **Sequences:** invoice/work-order/journal numbers are gap-free per company and
-  allocated inside the same transaction as the document, safe under concurrency
-  — including when a bulk approval allocates fifty of them at once.
+  allocated inside the same transaction as the document, safe under concurrency.
 - **Backups:** a documented `pg_dump` command in the README and a "download a
   full data export (CSV bundle)" button in Settings. The user must never feel
   their books are trapped in this app.
 - **Security:** rate-limit login, HTTP-only session cookies, CSRF protection on
   mutations, no secrets in the repo, `.env.example` committed with every
-  variable documented. Uploaded files are size- and type-checked before parsing,
-  and are never served back from a path the user controls.
+  variable documented.
 - **Errors:** never swallow a posting error. If a journal entry fails to
   balance, roll back the whole document operation in one DB transaction.
 
@@ -901,20 +866,20 @@ show the original sheet), so they are not disposable in the same way.
 `npm run seed` MUST create: one organization, two companies (one with
 `baseCurrency = USD`, one with `PHP`, to exercise the FX path), a standard chart
 of accounts for each, an owner user, a bookkeeper user, three consultants (two
-with logins, one with a `workOrderToEmails` list that differs from its primary
-`email`, one with `emailOptOut`), four customers, three vendors, ~60 invoices
-and work orders in mixed statuses, ~80 expenses of both kinds, a month of time
-entries, and in `/fixtures`: a sample bank CSV, a work-order import template
-(`work-order-import-template.xlsx`), and a filled sample import sheet with a
-deliberate bad row. Print the seeded login credentials at the end.
+with logins), four customers, three vendors, ~60 invoices and work orders in
+mixed statuses, ~80 expenses of both kinds, a month of time entries, and a
+sample bank CSV in `/fixtures`, and a **sample work order import workbook** in
+`/fixtures` containing ~120 rows: multi-line groups, single-line rows, two
+unmatched consultants, a negative rate, a malformed date, and a duplicate — so
+the validation report in §8.3 has something real to chew on. Print the seeded
+login credentials at the end.
 
 **The seeded transactions MUST span a fiscal-year boundary** — roughly 18 months
 of history, not three — so that the retained-earnings roll-forward (§12.2) is
 actually exercised. Include at least one PHP work order in the USD company, one
 partial payment, one payment applied across two invoices, one voided invoice,
-one time entry that crosses midnight Manila time, and one committed work-order
-import batch whose work orders are still `DRAFT` and unemailed. The seed is the
-test fixture for the trickiest rules in this spec; treat it that way.
+and one time entry that crosses midnight Manila time. The seed is the test
+fixture for the trickiest rules in this spec; treat it that way.
 
 ---
 
@@ -937,11 +902,10 @@ Test: unbalanced entries are rejected; trial balance totals match.
 payments with applications (one-to-many), payment reversal, A/R aging. Test:
 every posting rule in §4.3 for the receivables side.
 
-**Phase 4 — Money out.** Consultants (including the work-order email recipient
-fields, §6), vendors, work orders (description/quantity/rate), bill payments,
-expenses (both `DIRECT` and `BILL`), A/P aging. Test: payables posting rules; FX
-gain/loss on a PHP work order settled at a different rate; the line-rounding
-residual case.
+**Phase 4 — Money out.** Consultants, vendors, work orders
+(description/quantity/rate), bill payments, expenses (both `DIRECT` and `BILL`),
+A/P aging. Test: payables posting rules; FX gain/loss on a PHP work order
+settled at a different rate; the line-rounding residual case.
 
 **Phase 5 — Reports.** P&L and Balance Sheet, GL detail, the drill-down layer
 applied across all reports including the Trial Balance, CSV export and print
@@ -958,22 +922,24 @@ job scheduler (introduced here for the stale-shift auto-close, reused in Phase
 **Phase 7 — Documents and email.** PDF renderer, invoice / work order / receipt
 templates, company branding, PDF export wired into the reports from Phase 5,
 Gmail OAuth, email templates and previews, `EmailLog`, send from invoice and
-work order, and the **bulk work-order screen (§8.4)**: multi-select, recipient
-resolution, preview, `EmailBatch` queueing, per-email result and retry, bulk
-approve, zip download. Test: dry-run mode logs without sending; a bulk send of
-five work orders across three consultants produces three emails with the right
-attachments; a consultant with no address is reported as excluded rather than
-skipped; a failed send leaves `lastEmailedAt` untouched.
+work order. Test: dry-run mode logs without sending.
 
-**Phase 8 — Imports and recurring.** Recurring invoice templates on the Phase 6
-scheduler, upcoming list; the shared column-mapping and staging UI, used by both
-the **Excel work-order import (§8.3)** and the **CSV bank import (§8.5)** with
-saved mappings, dedupe, and the matching screen with all three match outcomes.
-Test: scheduler idempotency; re-importing the same CSV creates zero duplicates;
-linking a bank line to an already-recorded payment posts nothing; a 40-row
-work-order sheet across eight consultants creates eight draft work orders with
-correct line totals and posts **nothing** to the ledger; a sheet with three bad
-rows imports the rest and reports those three.
+**Phase 8 — Batch operations.** The largest phase; consider splitting it into
+8a and 8b if it runs long.
+
+- *8a — Work order batch.* Excel work order import (§8.3): template download,
+  parser, validation report, consultant mapping, `ImportBatch`, bulk approve.
+  Then the bulk send screen (§10.1): filtering, selection, recipient resolution,
+  confirmation summary, background queue, per-row results, retry-failed-only.
+  Test: a 200-row sheet with mixed refs produces the right number of work orders
+  with the right number of lines each; an import with 3 bad rows imports the
+  rest and returns an annotated reject file; a bulk send where 2 of 10 fail
+  reports exactly those 2 and a retry re-sends only those 2.
+- *8b — Recurring and bank import.* Recurring invoice templates on the Phase 6
+  scheduler, upcoming list, CSV bank import with saved column mappings, dedupe,
+  matching screen with all three match outcomes. Test: scheduler idempotency;
+  re-importing the same CSV creates zero duplicates; linking a bank line to an
+  already-recorded payment posts nothing.
 
 **Phase 9 — Dashboard and polish.** Dashboard, mobile pass on the time clock,
 empty states, keyboard shortcuts in line editors, full data export, README with
@@ -992,37 +958,35 @@ The MVP is done when all of these pass, demonstrated against seeded data:
    step.
 3. A work order with description/quantity/rate lines can be created, emailed to
    a consultant, approved, and paid — and A/P moves correctly at each step.
-4. An expense can be recorded and appears in the P&L in the right period.
-5. **The Balance Sheet balances**, and its current-year earnings figure equals
+4. An Excel file of consultant work imports as draft work orders: rows sharing a
+   work order ref group into one multi-line document, bad rows are reported
+   without blocking good ones, and nothing posts to the ledger until approved.
+5. From the bulk send screen, ten work orders across six consultants are
+   selected and sent in one action — each consultant receives their own
+   work order PDF at the addresses configured on their record, consultants with
+   no email on file are visibly excluded rather than silently skipped, and a
+   simulated failure on two of them is reported and retried without re-sending
+   the eight that succeeded.
+6. An expense can be recorded and appears in the P&L in the right period.
+7. **The Balance Sheet balances**, and its current-year earnings figure equals
    the P&L net income for the same fiscal year to date. It also balances when
    dated inside a *prior* fiscal year, with that year's profit appearing in
    retained earnings on a later-dated report.
-6. Every number on the P&L and Balance Sheet drills through to journal lines and
+8. Every number on the P&L and Balance Sheet drills through to journal lines and
    then to source documents.
-7. A consultant logs in, sees only the time clock, clocks in and out, and the
+9. A consultant logs in, sees only the time clock, clocks in and out, and the
    admin sees those times in PHT on the timesheet grid — including an entry that
    crosses midnight Manila time.
-8. A recurring monthly invoice template generates its invoice on schedule, once
-   and only once, even if the job runs twice.
-9. A bank CSV imports, maps columns, and dedupes on re-import. A transaction can
-   be **linked** to an already-recorded payment without posting anything new,
-   **and** separately can create a payment against an open invoice — cash is
-   counted exactly once either way.
-10. A PHP-denominated work order in a USD-base company posts converted amounts to
+10. A recurring monthly invoice template generates its invoice on schedule, once
+    and only once, even if the job runs twice.
+11. A bank CSV imports, maps columns, and dedupes on re-import. A transaction can
+    be **linked** to an already-recorded payment without posting anything new,
+    **and** separately can create a payment against an open invoice — cash is
+    counted exactly once either way.
+12. A PHP-denominated work order in a USD-base company posts converted amounts to
     the GL; settling it at a different rate books an FX gain or loss and leaves
     the A/P control account at exactly zero for that document; and a partial
     payment relieves A/P pro rata at the document's rate.
-11. **An Excel sheet of work-order rows imports:** columns are mapped and the
-    mapping is saved for reuse, rows are grouped into one draft work order per
-    consultant, invalid rows are reported per row without blocking the valid
-    ones, the Trial Balance is unchanged by the import, and approving the batch
-    is what posts A/P.
-12. **Several work orders can be selected from a list and emailed in one
-    action:** each consultant receives their work order PDF(s) at the address
-    configured on their record, `EmailLog` shows one row per email under a
-    single `EmailBatch`, `lastEmailedAt` is stamped only on success, excluded
-    consultants are listed, and failed sends can be retried without re-sending
-    the successful ones.
 13. `npm run seed && npm test && npm run build` all succeed from a clean clone.
 14. The README explains local setup, deployment, backup, and restore.
 
@@ -1052,19 +1016,11 @@ question in `DECISIONS.md` for confirmation.
    as of a user-chosen start date.
 5. **Fiscal year.** Default: January start.
 6. **Approval flow.** Does anyone other than the creator need to approve a work
-   order before it's emailed or paid? Default: no separate approver — and the
-   bulk approve in §8.4 assumes this. If an approver is required later, it
-   becomes a status between `DRAFT` and `APPROVED`, not a change to posting.
-7. **Work-order import sheet shape.** Is there an existing spreadsheet layout the
-   work comes in, and does one row mean one work order or one line of a larger
-   one? Default: accept any layout via the mapping step, ship a template for
-   users who have no sheet yet, and group rows into one work order per
-   consultant per issue date (§8.3) with an optional `Group key` column to
-   override.
-8. **Bulk email grouping.** Default: one email per consultant with all their
-   selected work orders attached, toggleable to one email per work order.
-   Confirm which the user expects as the norm.
-9. **Emailing unapproved work orders in bulk.** Allowed, with a warning, because
-   §8.1 already allows emailing a draft for confirmation. If the user would
-   rather bulk send be approved-only, it becomes a filter default, not a rule
-   change.
+   order before it's emailed or paid? Default: no separate approver.
+7. **Excel import layout.** The column set in §8.3 is inferred, not supplied. Ask
+   the user for a real spreadsheet they already use and adapt the template to
+   match it — a template that mirrors their existing file will be adopted; one
+   that doesn't will be ignored. Default meanwhile: the columns as specified.
+8. **Bulk send default grouping.** When a consultant has several work orders in
+   one batch, is one email each or one combined email the norm? Default: one
+   email per work order, with the combine toggle available.

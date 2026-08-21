@@ -2,10 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { Button, Input, Select } from "@/components/ui";
+import { LINE_GRID_HINT, useLineGrid } from "@/components/line-grid";
 
 type AccountOption = { id: string; code: string; name: string };
 
-type Line = { accountId: string; description: string; debit: string; credit: string };
+type Line = {
+  accountId: string;
+  description: string;
+  debit: string;
+  credit: string;
+};
 
 const EMPTY: Line = { accountId: "", description: "", debit: "", credit: "" };
 
@@ -17,6 +23,12 @@ const EMPTY: Line = { accountId: "", description: "", debit: "", credit: "" };
  */
 export function JournalLineEditor({ accounts }: { accounts: AccountOption[] }) {
   const [lines, setLines] = useState<Line[]>([{ ...EMPTY }, { ...EMPTY }]);
+  // Two lines is the floor: an entry with one line cannot balance (SPEC §4.2).
+  const { gridProps, addRow, removeRow } = useLineGrid({
+    setLines,
+    blank: () => ({ ...EMPTY }),
+    minLines: 2,
+  });
 
   const update = (index: number, patch: Partial<Line>) =>
     setLines((current) =>
@@ -35,11 +47,14 @@ export function JournalLineEditor({ accounts }: { accounts: AccountOption[] }) {
   }, [lines]);
 
   const fmt = (value: number) =>
-    value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    value.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" {...gridProps}>
         <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
@@ -57,7 +72,9 @@ export function JournalLineEditor({ accounts }: { accounts: AccountOption[] }) {
                   <Select
                     name={`line-${index}-accountId`}
                     value={line.accountId}
-                    onChange={(event) => update(index, { accountId: event.target.value })}
+                    onChange={(event) =>
+                      update(index, { accountId: event.target.value })
+                    }
                   >
                     <option value="">Select an account…</option>
                     {accounts.map((account) => (
@@ -71,7 +88,9 @@ export function JournalLineEditor({ accounts }: { accounts: AccountOption[] }) {
                   <Input
                     name={`line-${index}-description`}
                     value={line.description}
-                    onChange={(event) => update(index, { description: event.target.value })}
+                    onChange={(event) =>
+                      update(index, { description: event.target.value })
+                    }
                   />
                 </td>
                 <td className="py-1 pr-2">
@@ -94,13 +113,6 @@ export function JournalLineEditor({ accounts }: { accounts: AccountOption[] }) {
                     onChange={(event) =>
                       update(index, { credit: event.target.value, debit: "" })
                     }
-                    onKeyDown={(event) => {
-                      // Tab from the last credit adds a row, so a long entry
-                      // never needs the mouse.
-                      if (event.key === "Tab" && !event.shiftKey && index === lines.length - 1) {
-                        setLines((current) => [...current, { ...EMPTY }]);
-                      }
-                    }}
                   />
                 </td>
                 <td className="py-1 text-right">
@@ -108,7 +120,7 @@ export function JournalLineEditor({ accounts }: { accounts: AccountOption[] }) {
                     <Button
                       type="button"
                       variant="ghost"
-                      onClick={() => setLines((c) => c.filter((_, i) => i !== index))}
+                      onClick={() => removeRow(index)}
                     >
                       ×
                     </Button>
@@ -120,20 +132,23 @@ export function JournalLineEditor({ accounts }: { accounts: AccountOption[] }) {
           <tfoot>
             <tr className="border-t border-slate-200 text-sm dark:border-slate-800">
               <td className="pt-2" colSpan={2}>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setLines((current) => [...current, { ...EMPTY }])}
-                >
+                <Button type="button" variant="secondary" onClick={addRow}>
                   Add line
                 </Button>
               </td>
-              <td className="pt-2 text-right font-medium">{fmt(totals.debit)}</td>
-              <td className="pt-2 text-right font-medium">{fmt(totals.credit)}</td>
+              <td className="pt-2 text-right font-medium">
+                {fmt(totals.debit)}
+              </td>
+              <td className="pt-2 text-right font-medium">
+                {fmt(totals.credit)}
+              </td>
               <td />
             </tr>
             <tr>
-              <td colSpan={2} className="pt-1 text-right text-xs text-slate-500">
+              <td
+                colSpan={2}
+                className="pt-1 text-right text-xs text-slate-500"
+              >
                 Difference
               </td>
               <td
@@ -151,6 +166,7 @@ export function JournalLineEditor({ accounts }: { accounts: AccountOption[] }) {
           </tfoot>
         </table>
       </div>
+      <p className="text-xs text-slate-500">{LINE_GRID_HINT}</p>
       <input type="hidden" name="lineCount" value={lines.length} />
     </div>
   );

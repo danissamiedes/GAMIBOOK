@@ -2,11 +2,23 @@
 
 import { useMemo, useState } from "react";
 import { Button, Input, Select } from "@/components/ui";
+import { LINE_GRID_HINT, useLineGrid } from "@/components/line-grid";
 
 type AccountOption = { id: string; code: string; name: string };
-type ItemOption = { id: string; name: string; defaultRate: string | null; accountId: string | null };
+type ItemOption = {
+  id: string;
+  name: string;
+  defaultRate: string | null;
+  accountId: string | null;
+};
 
-type Line = { itemId: string; description: string; quantity: string; rate: string; accountId: string };
+type Line = {
+  itemId: string;
+  description: string;
+  quantity: string;
+  rate: string;
+  accountId: string;
+};
 
 /**
  * Line editor for invoices and work orders (SPEC §8.1: description, quantity
@@ -36,9 +48,16 @@ export function DocumentLineEditor({
   });
 
   const [lines, setLines] = useState<Line[]>([blank()]);
+  const { gridProps, addRow, removeRow } = useLineGrid({
+    setLines,
+    blank,
+    minLines: 1,
+  });
 
   const update = (index: number, patch: Partial<Line>) =>
-    setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+    setLines((current) =>
+      current.map((line, i) => (i === index ? { ...line, ...patch } : line)),
+    );
 
   const applyItem = (index: number, itemId: string) => {
     const item = items.find((candidate) => candidate.id === itemId);
@@ -59,14 +78,20 @@ export function DocumentLineEditor({
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
-  const amounts = useMemo(() => lines.map((line) => parse(line.quantity) * parse(line.rate)), [lines]);
+  const amounts = useMemo(
+    () => lines.map((line) => parse(line.quantity) * parse(line.rate)),
+    [lines],
+  );
   const total = amounts.reduce((sum, amount) => sum + amount, 0);
   const fmt = (value: number) =>
-    value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    value.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" {...gridProps}>
         <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
@@ -101,7 +126,9 @@ export function DocumentLineEditor({
                   <Input
                     name={`line-${index}-description`}
                     value={line.description}
-                    onChange={(event) => update(index, { description: event.target.value })}
+                    onChange={(event) =>
+                      update(index, { description: event.target.value })
+                    }
                     required
                   />
                 </td>
@@ -111,7 +138,9 @@ export function DocumentLineEditor({
                     inputMode="decimal"
                     className="text-right"
                     value={line.quantity}
-                    onChange={(event) => update(index, { quantity: event.target.value })}
+                    onChange={(event) =>
+                      update(index, { quantity: event.target.value })
+                    }
                   />
                 </td>
                 <td className="py-1 pr-2">
@@ -120,7 +149,9 @@ export function DocumentLineEditor({
                     inputMode="decimal"
                     className="text-right"
                     value={line.rate}
-                    onChange={(event) => update(index, { rate: event.target.value })}
+                    onChange={(event) =>
+                      update(index, { rate: event.target.value })
+                    }
                   />
                 </td>
                 <td className="py-1 pr-2 text-right tabular-nums text-slate-600 dark:text-slate-300">
@@ -130,12 +161,9 @@ export function DocumentLineEditor({
                   <Select
                     name={`line-${index}-accountId`}
                     value={line.accountId}
-                    onChange={(event) => update(index, { accountId: event.target.value })}
-                    onKeyDown={(event) => {
-                      if (event.key === "Tab" && !event.shiftKey && index === lines.length - 1) {
-                        setLines((current) => [...current, blank()]);
-                      }
-                    }}
+                    onChange={(event) =>
+                      update(index, { accountId: event.target.value })
+                    }
                     required
                   >
                     <option value="">Select…</option>
@@ -151,7 +179,7 @@ export function DocumentLineEditor({
                     <Button
                       type="button"
                       variant="ghost"
-                      onClick={() => setLines((current) => current.filter((_, i) => i !== index))}
+                      onClick={() => removeRow(index)}
                     >
                       ×
                     </Button>
@@ -163,11 +191,7 @@ export function DocumentLineEditor({
           <tfoot>
             <tr className="border-t border-slate-200 dark:border-slate-800">
               <td className="pt-2" colSpan={items.length > 0 ? 4 : 3}>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setLines((current) => [...current, blank()])}
-                >
+                <Button type="button" variant="secondary" onClick={addRow}>
                   Add line
                 </Button>
               </td>
@@ -179,6 +203,7 @@ export function DocumentLineEditor({
           </tfoot>
         </table>
       </div>
+      <p className="text-xs text-slate-500">{LINE_GRID_HINT}</p>
       <input type="hidden" name="lineCount" value={lines.length} />
     </div>
   );

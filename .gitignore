@@ -43,3 +43,8 @@ next-env.d.ts
 
 # Ledger
 /storage
+
+# playwright
+/test-results
+/playwright-report
+/blob-report

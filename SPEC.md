@@ -197,9 +197,17 @@ DR  Bank / Undeposited Funds   amount received, at the PAYMENT's fx rate
 **Work order approved** (a payable to a consultant, posted on `approvedAt`):
 
 ```
-DR  Consultant Cost / COGS     work order total
-    CR  Accounts Payable            work order total
+DR  Line account(s)            per line, at the line amount
+    CR  Accounts Payable            work order net total
 ```
+
+Each line carries its own account (§8.1), so one work order may debit
+Consultant Fees on one line and Supplies Expense on another. **A negative line
+— a cash advance being recovered, a deduction — posts as a credit to its own
+account**, not as a negative debit, and A/P is credited with the net total. The
+net total MUST be greater than zero: a work order that nets to zero or below is
+not a payable and is rejected (§8.3), because the consultant would owe the
+business money and that is a receivable, not a bill.
 
 **Payment made to consultant:**
 
@@ -356,9 +364,12 @@ in to the time clock, and an **email recipient setup**:
 - `primaryEmail` (required if they are ever to be emailed)
 - `ccEmails` (a list — some consultants want a manager or agency copied)
 - `sendEmails` (boolean; a consultant may be paid but never emailed)
-- `externalRef` — a stable code used to identify this consultant in imported
-  spreadsheets (§8.3). Optional but strongly recommended for anyone in the bulk
-  import flow, because matching on name alone is fragile.
+- `externalRef` — a stable code for this consultant. The user's import sheet
+  identifies people **by name only** (§8.3), so this is optional; it exists for
+  a future sheet that carries a code.
+- `importAliases` — the list of spreadsheet spellings that resolve to this
+  consultant. Every manual "map this to…" decision in the import validation
+  report appends to it, so a name only ever has to be mapped once.
 
 The recipient setup is per consultant and is what the bulk send in §10.1 uses.
 Do not let a consultant with `sendEmails = true` and no `primaryEmail` be saved.
@@ -485,6 +496,15 @@ approval, defaults to today, editable by the approver), `dueDate`, `currency`
 > explicitly.** They are the heart of this document — make the line editor fast:
 > keyboard-navigable, add-row on Tab from the last field, running total visible.
 
+**Numbering.** Work order numbers are a per-company prefix plus a sequence,
+both company settings: **prefix `WO`, first number `1001`**, giving `WO1001`,
+`WO1002`, `WO1003` with no zero-padding. The sequence is per company and
+gap-free, allocated inside the transaction that approves the document (§7.1).
+Drafts have no number; screens that need to show one display the **next number
+in the sequence as a preview**, clearly marked as provisional, rather than
+reserving it. Invoice numbering works the same way with its own prefix and
+start value.
+
 Status machine: mirrors the invoice machine in §7.1 exactly, with `APPROVED` in
 place of `ISSUED` — including the direct `APPROVED → PAID` transition, derived
 paid states, number allocation on approval, and the block on editing or voiding
@@ -544,36 +564,62 @@ button producing a formatted `.xlsx` with the expected headers, one example row,
 and a second sheet listing valid consultant codes, currencies, and expense
 account codes for that company. Most import failures are avoided here.
 
-**Expected columns** (header row required; matching is case- and
-whitespace-insensitive). **Provisional — §16.7: the user has an existing
-spreadsheet and will supply it, and this table must then be reshaped to match
-their real headers.** Keep the column definitions in one place (a single
+**The columns — this is the user's real sheet (supplied 2026-08-21), not an
+invented layout.** Header row required; matching is case- and
+whitespace-insensitive. Keep the definitions in one place (a single
 `WORK_ORDER_IMPORT_COLUMNS` map driving both the template generator and the
-parser) so adapting to their file is a data change, not a rewrite:
+parser) so a future column is a data change, not a rewrite.
 
 | Column | Required | Notes |
 |---|---|---|
-| `Consultant Code` | yes* | Matches `Consultant.externalRef` |
-| `Consultant Name` | yes* | Fallback match if no code; exact, case-insensitive match on active consultants only |
-| `Work Order Ref` | no | A grouping key — see multi-line handling below |
-| `Issue Date` | no | Defaults to the import date |
-| `Due Date` | no | Defaults from the consultant's terms |
+| `Work Order Date` | yes | The work order's `issueDate`. Accepts Excel serial dates and `M/D/YYYY` text (the user's format — `8/15/2026` is 15 Aug 2026). The interpreted date is echoed back in the validation report so a D/M vs M/D mistake is caught before commit. `dueDate` is derived from the consultant's terms; the A/P entry posts on `approvedAt`, not on this date |
+| `Consultant Name` | yes | Exact, case- and whitespace-insensitive match against **active** consultants. No code column exists in this sheet, so unmatched names stop in the validation report with a "map this to…" picker, and the choice is saved as an alias on that consultant (`Consultant.externalRef` / alias list) so the same spelling never has to be mapped twice |
+| `Line No.` | yes | The grouping key — see below. Integer ≥ 1 |
 | `Description` | yes | The work order line description |
-| `Quantity` | yes | Numeric, > 0 |
-| `Rate` | yes | Numeric, ≥ 0 |
-| `Currency` | no | Defaults to the consultant's default currency |
-| `FX Rate` | no | Required only if currency ≠ company base currency and no default rate is on file |
-| `Expense Account Code` | no | Defaults to the consultant's default expense account |
-| `Memo` | no | Work order memo |
+| `Account` | yes | Account **name or code**, matched against that company's chart of accounts. Must exist and be active. This is the account the line debits (§4.3), so `Consultant Fees` and `Supplies Expense` can sit on the same work order. An unknown or inactive account is a row error — never fall back to the consultant's default account silently |
+| `Quantity` | yes | Numeric, fractional allowed (`0.5` is normal here). May not be zero |
+| `Rate` | yes | Numeric. **May be negative** — `(3,000.00)` in accounting parentheses is −3,000, and is how a cash advance recovery or other deduction is expressed. Parsed to `Decimal` from the raw cell; currency symbols, thousands separators, and parentheses handled |
+| `Amount` | no | If present it is **checked** against `Quantity × Rate`, not trusted; a mismatch over one cent is a row error |
 
-\* At least one of `Consultant Code` / `Consultant Name` must be present.
+Everything else is inferred, because the sheet does not carry it: `Currency`
+defaults to the consultant's default currency (PHP), and with `baseCurrency =
+PHP` (§5) no `fxRate` is needed on the consultant side at all. `Memo` is left
+blank. If a column is added to the sheet later, it slots into the map above.
 
-**Multi-line work orders.** Consecutive rows sharing the same
-`(Consultant, Work Order Ref)` become **one work order with multiple lines**.
-Rows with a blank `Work Order Ref` become one work order per row. This is the
-single most important behaviour in the import — a consultant with five tasks
-should get one work order listing five lines, not five separate documents.
-Grouping is by the pair, so two consultants may reuse the same ref safely.
+**Multi-line work orders — the `Line No.` rule.** This is the single most
+important behaviour in the import:
+
+- A row with `Line No.` **1** opens a **new work order** for that consultant.
+- A row with `Line No.` **greater than 1** attaches as another **line on that
+  consultant's currently open work order**.
+- Grouping is tracked **per consultant**, so rows for different consultants may
+  interleave without breaking a group.
+
+So in the sample sheet, Abigail Bautista's single row is a one-line work order,
+John Rex Meraveles' rows 1 and 2 are **one work order with two lines** (net
+PHP 5,000 after the advance), and Chareze Valencia's rows 1 and 2 are one work
+order with two lines hitting two different accounts.
+
+Edge cases, all surfaced in the validation report:
+
+- `Line No.` > 1 with no open work order for that consultant → **error** on
+  that row (a stray continuation line, usually a deleted row 1).
+- A repeated `Line No.` inside one group → **error** (two rows both claiming
+  line 2).
+- A gap in the run (1, 3, 4) → **warning**; the lines import in sheet order and
+  are renumbered 1, 2, 3 on the created document.
+- A work order whose lines net to **zero or less** → **error**. Deductions
+  exceeding the work are not a payable (§4.3); handle that outside the import.
+
+**A note on deduction lines.** The importer posts each line to the account the
+sheet names, including negative ones. Coding `Cash Advances` to `Consultant
+Fees` therefore **reduces reported consultancy expense** by the advance — right
+if the advance is a discount on the work, wrong if it is cash already paid to
+the consultant and being recovered. In the latter case the line should name an
+`Advances to Consultants` asset account, which clears the advance and leaves
+expense at its full amount. The system does what the column says; this is a
+coding decision on the preparer's side, and the validation report SHOULD show a
+gentle notice when a negative line is coded to an income-statement account.
 
 **Mandatory preview and validation step.** Uploading NEVER writes work orders
 directly. The flow is: upload → parse → validation report → user confirms →
@@ -581,14 +627,16 @@ create. The validation report shows, per row:
 
 - unmatched consultant (with a "map this to…" picker that can be remembered for
   next time via `externalRef`)
-- non-numeric or negative quantity/rate
+- non-numeric quantity, zero quantity, or an unparseable rate (a *negative*
+  rate is valid — see the `Line No.` rules above)
 - unparseable dates (accept ISO, US, and Excel serial dates; show the
   interpreted date back to the user so they can catch a D/M vs M/D mistake)
-- unknown expense account code
+- unknown or inactive account in the `Account` column
 - missing FX rate where one is needed
 - a consultant marked inactive
+- a `Line No.` run that is broken, duplicated, or nets to zero or less
 - **a likely duplicate** — a work order already exists for the same consultant,
-  ref, and total. Warn, do not block.
+  date, and total. Warn, do not block.
 
 Rows are either **valid**, **warning**, or **error**. Errors block only their
 own row. The user chooses "import the N valid rows" or "cancel and fix the
@@ -597,7 +645,10 @@ downloadable as an annotated `.xlsx` with a reason column appended, so the user
 fixes the file rather than hunting through error text.
 
 **What gets created.** Imported work orders are created as **`DRAFT`**, never
-approved and never posted to the ledger. Bulk-posting financial documents from a
+approved and never posted to the ledger. Drafts carry no work order number; the
+preview shows the numbers they *will* take (`WO1001`, `WO1002`, …) as a
+provisional preview, and the real allocation happens gap-free on approval
+(§8.1). Bulk-posting financial documents from a
 spreadsheet without review is exactly the kind of thing this system exists to
 prevent. The user reviews and approves them — see bulk approve below.
 
@@ -935,9 +986,13 @@ of accounts for each, an owner user, a bookkeeper user, three consultants (two
 with logins), four customers, three vendors, ~60 invoices and work orders in
 mixed statuses, ~80 expenses of both kinds, a month of time entries, and a
 sample bank CSV in `/fixtures`, and a **sample work order import workbook** in
-`/fixtures` containing ~120 rows: multi-line groups, single-line rows, two
-unmatched consultants, a negative rate, a malformed date, and a duplicate — so
-the validation report in §8.3 has something real to chew on. Print the seeded
+`/fixtures` **using the user's real column layout** (Work Order Date,
+Consultant Name, Line No., Description, Account, Quantity, Rate, Amount) and
+containing ~120 rows: multi-line `Line No.` runs, single-line rows, two rows for
+different accounts on one work order, a negative advance line, an unmatched
+consultant name, a stray `Line No. 2` with no line 1, a duplicated line number,
+a group netting to zero, a malformed date, and a likely duplicate — so the
+validation report in §8.3 has something real to chew on. Print the seeded
 login credentials at the end.
 
 **The seeded transactions MUST span a fiscal-year boundary** — roughly 18 months
@@ -1000,8 +1055,9 @@ work order. Test: dry-run mode logs without sending.
   parser, validation report, consultant mapping, `ImportBatch`, bulk approve.
   Then the bulk send screen (§10.1): filtering, selection, recipient resolution,
   confirmation summary, background queue, per-row results, retry-failed-only.
-  Test: a 200-row sheet with mixed refs produces the right number of work orders
-  with the right number of lines each; an import with 3 bad rows imports the
+  Test: a 200-row sheet with mixed `Line No.` runs produces the right number of
+  work orders with the right number of lines each, and a two-line group with a
+  negative advance line nets correctly and posts a balanced entry on approval; an import with 3 bad rows imports the
   rest and returns an annotated reject file; a bulk send where 2 of 10 fail
   reports exactly those 2 and a retry re-sends only those 2.
 - *8b — Recurring, bank import, and history migration.* Recurring invoice
@@ -1031,9 +1087,12 @@ The MVP is done when all of these pass, demonstrated against seeded data:
    step.
 3. A work order with description/quantity/rate lines can be created, emailed to
    a consultant, approved, and paid — and A/P moves correctly at each step.
-4. An Excel file of consultant work imports as draft work orders: rows sharing a
-   work order ref group into one multi-line document, bad rows are reported
-   without blocking good ones, and nothing posts to the ledger until approved.
+4. An Excel file in the user's own layout imports as draft work orders: a
+   `Line No.` run groups into one multi-line document, each line posts to the
+   account its row names, a negative advance line reduces the payable without
+   unbalancing the entry, bad rows are reported without blocking good ones, and
+   nothing posts to the ledger until approved — at which point numbering starts
+   at `WO1001` with no gaps.
 5. From the bulk send screen, ten work orders across six consultants are
    selected and sent in one action — each consultant receives their own
    work order PDF at the addresses configured on their record, consultants with
@@ -1099,12 +1158,17 @@ before it.
 6. **Approval flow — settled: no separate approver.** Whoever creates a work
    order can approve it, and approval is what posts A/P. Bulk approve from the
    list (§8.3) stands as written.
-7. **Excel import layout — settled: match the user's real spreadsheet.**
-   **Input still needed:** the file (or its header row). The column table in
-   §8.3 is provisional and MUST be reshaped to their headers once it arrives —
-   which is why the columns live in one map that drives both the template
-   generator and the parser. A template that mirrors their existing file gets
-   used; one that does not gets ignored.
+7. **Excel import layout — settled and supplied (2026-08-21).** The real sheet
+   is Work Order Date, Consultant Name, Line No., Description, Account,
+   Quantity, Rate, Amount, and §8.3 is now written to it. Three things came out
+   of the sample that were not in the original guesses: grouping is by a
+   **`Line No.` run** rather than a ref column, **each line names its own
+   account**, and **negative lines are normal** (cash advance recovery, shown
+   in accounting parentheses). Work order numbering starts at **`WO1001`**.
+   One coding point is the user's to decide per row, not the system's: a
+   negative line coded to `Consultant Fees` reduces reported expense, while one
+   coded to an `Advances to Consultants` asset account clears the advance and
+   leaves expense whole (§8.3).
 8. **Bulk send grouping — settled: one email per work order.** Each work order
    goes out with its own PDF to that consultant's configured recipients. The
    "combine into one email per consultant" toggle (§10.1) is still built and

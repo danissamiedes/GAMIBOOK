@@ -29,6 +29,42 @@ the production company is a **USD client invoice settled at a different rate**.
 The A/R control account clears to zero only because the receivable is relieved at
 the historic invoice rate (SPEC §4.3). That is the path to test hardest.
 
+## Import layout received — 2026-08-21
+
+The user supplied their real work order spreadsheet. SPEC §8.3 is now written to
+it rather than to an invented column set.
+
+Layout: `Work Order Date | Consultant Name | Line No. | Description | Account |
+Quantity | Rate | Amount`.
+
+Three things it changed:
+
+1. **Grouping is a `Line No.` run, not a ref column.** `Line No. = 1` opens a
+   new work order for that consultant; 2, 3, … attach to it. Tracked per
+   consultant so rows may interleave.
+2. **Each line names its own account.** One work order can debit Consultant Fees
+   on one line and Supplies Expense on another, so §4.3's work order posting
+   rule now reads "DR line account(s)" rather than a single consultant cost
+   account.
+3. **Negative lines are normal.** A cash advance recovery appears as
+   `(3,000.00)`. Negative lines post as a credit to their own account; the net
+   total must still be greater than zero or it is not a payable.
+
+Numbering: work order sequence starts at **WO1001**, prefix and start value
+being company settings. Allocation stays on approval (gap-free); drafts show the
+next number as a clearly-marked preview rather than reserving it.
+
+### Open coding point, flagged not decided
+
+In the sample, the `Cash Advances` line is coded to **Consultant Fees**, which
+credits that account and reduces reported consultancy expense — correct only if
+the advance is a discount on the work. If the advance is cash already paid to
+the consultant, the line should name an **Advances to Consultants** asset
+account so the advance clears and expense stays whole. The importer posts to
+whatever the column says; the validation report will show a soft notice when a
+negative line is coded to an income-statement account. Raised with the user;
+left to their per-row judgement.
+
 ## Outstanding inputs
 
 Neither blocks the phase it sits in, but both block go-live:
@@ -36,9 +72,7 @@ Neither blocks the phase it sits in, but both block go-live:
 - **The historical spreadsheet and the books' start date** (§16.4, §4.4). The
   migration parser cannot be written until the file exists. Layers 1 and 3 of
   §4.4 get built against the seed fixture in the meantime.
-- **The work order spreadsheet the user already uses** (§16.7, §8.3). The
-  provisional column set ships behind a single column map so adapting it is a
-  data change, not a rewrite.
+- ~~The work order spreadsheet~~ — received 2026-08-21, see above.
 
 ## Deviations from the spec
 

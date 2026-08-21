@@ -1,0 +1,177 @@
+// Ledger — Phase 1 (Foundation) schema.
+// SPEC.md §3 (multi-company), §2 (roles, account lifecycle), §13 (audit, sequences).
+//
+// Every financial table added in later phases MUST carry a non-null companyId
+// and be reached through withCompanyScope() — see src/lib/company-scope.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Roles are per company, never global (SPEC §2).
+enum Role {
+  OWNER
+  BOOKKEEPER
+  CONSULTANT
+}
+
+/// Gap-free per-company document sequences (SPEC §7.1, §8.1, §13).
+enum SequenceKind {
+  INVOICE
+  WORK_ORDER
+  JOURNAL_ENTRY
+}
+
+model Organization {
+  id        String    @id @default(cuid())
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  companies Company[]
+}
+
+model Company {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  name                 String
+  legalName            String?
+  /// ISO 4217. Cannot be changed once anything is posted (SPEC §5).
+  baseCurrency         String    @db.Char(3)
+  /// 1 = January (SPEC §12, default January).
+  fiscalYearStartMonth Int       @default(1)
+  /// Governs the time clock: display, day grouping, totals (SPEC §9).
+  timeClockTimeZone    String    @default("Asia/Manila")
+  /// Governs scheduled jobs such as recurring invoicing (SPEC §7.2, §9).
+  operatingTimeZone    String    @default("Asia/Manila")
+  /// Posting on or before this date is rejected for everyone but OWNER (SPEC §4.2 rule 4).
+  booksClosedThrough   DateTime? @db.Date
+
+  /// Branding (SPEC §11) — populated in Phase 7, nullable until then.
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  region       String?
+  postalCode   String?
+  country      String?
+  email        String?
+  phone        String?
+  taxNumber    String?
+  logoFileKey  String?
+  footerText   String?
+
+  setupCompletedAt DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  memberships Membership[]
+  invitations Invitation[]
+  sequences   NumberSequence[]
+  auditLogs   AuditLog[]
+
+  @@index([organizationId])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  /// Argon2id. Null until the user accepts an invite and sets one.
+  passwordHash String?
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  memberships Membership[]
+  invitesSent Invitation[]         @relation("InvitedBy")
+  resetTokens PasswordResetToken[]
+  auditLogs   AuditLog[]
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  userId    String
+  companyId String
+  role      Role
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@index([companyId])
+}
+
+/// Invite carries role + company and expires in 7 days (SPEC §2).
+model Invitation {
+  id              String    @id @default(cuid())
+  companyId       String
+  email           String
+  role            Role
+  /// SHA-256 of the token; the raw token only ever exists in the link.
+  tokenHash       String    @unique
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+  invitedByUserId String
+  createdAt       DateTime  @default(now())
+
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invitedBy User    @relation("InvitedBy", fields: [invitedByUserId], references: [id])
+
+  @@index([companyId, email])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Allocated inside the same transaction as the document (SPEC §7.1, §13).
+/// Work orders default to prefix WO starting at 1001 (SPEC §8.1).
+model NumberSequence {
+  id        String       @id @default(cuid())
+  companyId String
+  kind      SequenceKind
+  prefix    String       @default("")
+  nextValue Int
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, kind])
+}
+
+/// Append-only (SPEC §13). Never updated, never deleted.
+model AuditLog {
+  id         String   @id @default(cuid())
+  companyId  String?
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  summary    String?
+  data       Json?
+  at         DateTime @default(now())
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, at])
+  @@index([entityType, entityId])
+}

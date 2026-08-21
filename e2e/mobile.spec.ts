@@ -92,6 +92,7 @@ test.describe("phone", () => {
       "/timesheets",
       "/email-log",
       "/opening-balances",
+      "/bill-payments",
       "/work-orders/send",
       "/work-orders/import",
       "/reports/profit-loss",

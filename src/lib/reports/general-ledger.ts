@@ -117,6 +117,10 @@ export function sourceDocumentHref(sourceType: string, sourceId: string | null):
       return `/work-orders/${sourceId}`;
     case "INVOICE_PAYMENT":
       return `/payments`;
+    case "CONSULTANT_PAYMENT":
+      // Named for the consultant case but used for every bill payment, a
+      // regular vendor's included: it is one register (SPEC §8.1/§8.2).
+      return `/bill-payments`;
     case "EXPENSE":
       return `/expenses`;
     default:

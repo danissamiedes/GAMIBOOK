@@ -274,6 +274,35 @@ describe("work orders (SPEC §8.1)", () => {
 
     expect((await ap()).toFixed(2)).toBe("0.00");
   });
+  it("refuses a payment applied to another vendor's document", async () => {
+    // The hole this closes: the document went to PAID, the A/P lines carried
+    // the payer as their party while the original credit carried the real
+    // creditor, and the control account still netted to zero — so nothing
+    // reported it. It is also how a vendors-only user could have settled a
+    // consultant's work order (SPEC §2.1).
+    const other = await makeVendor(fixture.company.id, "REGULAR", { name: "Someone Else" });
+    const workOrder = await makeWorkOrder(fixture, consultant.id, [
+      { description: "Fieldwork", quantity: "1", rate: "10000.00", code: "5000" },
+    ]);
+    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+
+    await expect(
+      recordBillPayment({
+        companyId: fixture.company.id,
+        vendorId: other.id,
+        date: new Date(Date.UTC(2026, 8, 5)),
+        amount: "10000.00",
+        currency: "PHP",
+        paymentAccountId: fixture.code("1000").id,
+        applications: [{ workOrderId: workOrder.id, amountApplied: "10000.00" }],
+      }),
+    ).rejects.toThrow(/owed to a different vendor/);
+
+    // Nothing moved.
+    const after = await prisma.workOrder.findUniqueOrThrow({ where: { id: workOrder.id } });
+    expect(after.status).toBe("APPROVED");
+    expect(money(after.balanceDue).toFixed(2)).toBe("10000.00");
+  });
 });
 
 describe("PHP work order in USD books (SPEC §15.15)", () => {
@@ -612,5 +641,40 @@ describe("A/P aging (SPEC §12.6)", () => {
     expect(vendorsOnly.totals.total.toFixed(2)).toBe("9500.00");
     // A filtered view is a subset of the control account, so it does not claim to tie.
     expect(vendorsOnly.tiesToLedger).toBeNull();
+  });
+
+  it("reports a vendor whose ledger balance disagrees with their documents", async () => {
+    // Guards the check itself: forge the party on an A/P line the way the
+    // cross-vendor bug used to, and the aging must now say so even though the
+    // control account still ties.
+    const { apAging } = await import("@/lib/payables/aging");
+    const consultant = await makeVendor(fixture.company.id, "CONSULTANT", { name: "Chareze" });
+    const other = await makeVendor(fixture.company.id, "REGULAR", { name: "Someone Else" });
+    const workOrder = await makeWorkOrder(fixture, consultant.id, [
+      { description: "Fieldwork", quantity: "1", rate: "10000.00", code: "5000" },
+    ]);
+    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+
+    const asOf = new Date(Date.UTC(2026, 8, 30));
+    const before = await apAging({ companyId: fixture.company.id, asOf });
+    expect(before.mismatchedVendors).toEqual([]);
+    expect(before.tiesToLedger).toBe(true);
+
+    // Re-tag the A/P credit to the wrong vendor: totals unchanged, party wrong.
+    const payableId = fixture.system("ACCOUNTS_PAYABLE").id;
+    const line = await prisma.journalLine.findFirstOrThrow({
+      where: { accountId: payableId, vendorId: consultant.id },
+    });
+    await prisma.$executeRaw`SET session_replication_role = replica`;
+    await prisma.journalLine.update({ where: { id: line.id }, data: { vendorId: other.id } });
+    await prisma.$executeRaw`SET session_replication_role = DEFAULT`;
+
+    const after = await apAging({ companyId: fixture.company.id, asOf });
+    // Still ties in total — which is exactly why the total was not enough.
+    expect(after.tiesToLedger).toBe(true);
+    expect(after.mismatchedVendors.map((row) => row.vendorName).sort()).toEqual([
+      "Someone Else",
+      consultant.name,
+    ].sort());
   });
 });

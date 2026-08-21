@@ -166,6 +166,43 @@ export async function apAging(options: {
       })
     : money(0);
 
+  // The total tying is not enough. Two equal and opposite errors against
+  // different vendors cancel out in the control account, so the report can
+  // look reconciled while the ledger says one vendor is owed money and another
+  // is owed a negative amount. Comparing per party is what catches that.
+  const perVendor = payableAccount
+    ? await payableByVendor(options.companyId, payableAccount.id, options.asOf)
+    : new Map<string, Money>();
+
+  const documentByVendor = new Map(rows.map((row) => [row.vendorId, row.total]));
+  const mismatchedIds = options.kind
+    ? []
+    : [...new Set([...perVendor.keys(), ...documentByVendor.keys()])].filter(
+        (vendorId) =>
+          !(perVendor.get(vendorId) ?? money(0)).equals(documentByVendor.get(vendorId) ?? money(0)),
+      );
+
+  // Names come from the vendor table, not from `rows`: the interesting case is
+  // a vendor the ledger knows about but who has no open document, and that
+  // vendor has no row to take a name from.
+  const mismatchedNames = new Map(
+    mismatchedIds.length === 0
+      ? []
+      : (
+          await prisma.vendor.findMany({
+            where: { id: { in: mismatchedIds }, companyId: options.companyId },
+            select: { id: true, name: true },
+          })
+        ).map((vendor) => [vendor.id, vendor.name] as const),
+  );
+
+  const mismatchedVendors = mismatchedIds.map((vendorId) => ({
+    vendorId,
+    vendorName: mismatchedNames.get(vendorId) ?? "(unknown vendor)",
+    ledger: perVendor.get(vendorId) ?? money(0),
+    documents: documentByVendor.get(vendorId) ?? money(0),
+  }));
+
   return {
     asOf: options.asOf,
     kind: options.kind ?? null,
@@ -174,7 +211,32 @@ export async function apAging(options: {
     controlBalance,
     /** Only meaningful unfiltered: one kind is a subset of the control account. */
     tiesToLedger: options.kind ? null : totals.total.equals(controlBalance),
+    /** Vendors whose ledger balance disagrees with their open documents. */
+    mismatchedVendors,
   };
+}
+
+/** A/P balance per party, straight from the journal lines. */
+async function payableByVendor(
+  companyId: string,
+  payableAccountId: string,
+  asOf: Date,
+): Promise<Map<string, Money>> {
+  const grouped = await prisma.journalLine.groupBy({
+    by: ["vendorId"],
+    where: {
+      accountId: payableAccountId,
+      entry: { companyId, date: { lte: asOf } },
+      vendorId: { not: null },
+    },
+    _sum: { debit: true, credit: true },
+  });
+  return new Map(
+    grouped.map((row) => [
+      row.vendorId as string,
+      money(row._sum.credit ?? 0).minus(money(row._sum.debit ?? 0)),
+    ]),
+  );
 }
 
 export function apBucketValues(buckets: ApBuckets): Money[] {

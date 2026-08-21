@@ -1,8 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { postJournalEntry } from "@/lib/ledger/post";
 import { issueInvoice } from "@/lib/invoices/service";
 import { recordPayment } from "@/lib/invoices/payments";
 import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { recordBillPayment } from "@/lib/payables/bill-payments";
+import { recordExpense } from "@/lib/payables/expenses";
 import { balanceSheet } from "@/lib/reports/balance-sheet";
 import { profitAndLoss } from "@/lib/reports/profit-loss";
 import {
@@ -272,109 +274,155 @@ describe("SPEC §15 acceptance", () => {
     ).toBe("PAID");
   });
 
-  // it.fails, so this line stays green while the gap is open and turns red the
-  // moment it is closed — at which point delete the .fails, not the test.
-  it.fails(
-    "§15.11 NOT MET — a consultant payment drills to its entry but not to a document",
-    async () => {
-      const asOf = new Date(Date.UTC(2026, 5, 30));
+  it("§15.11 — every posting drills to its journal line and on to a source document", async () => {
+    const asOf = new Date(Date.UTC(2026, 5, 30));
 
-      // One of each posting the app can make, so the drill-down is checked
-      // against the source types that actually occur rather than the enum.
-      const customer = await makeCustomer(fixture.company.id);
-      const invoice = await makeDraftInvoice({
-        companyId: fixture.company.id,
-        customerId: customer.id,
-        currency: "PHP",
-        issueDate: new Date(Date.UTC(2026, 5, 1)),
-        lines: [
-          {
-            description: "Consulting",
-            quantity: "1",
-            rate: "10000.00",
-            incomeAccountId: fixture.code("4000").id,
-          },
-        ],
-      });
-      await issueInvoice({
-        companyId: fixture.company.id,
-        invoiceId: invoice.id,
-        role: "OWNER",
-      });
-      await recordPayment({
-        companyId: fixture.company.id,
-        customerId: customer.id,
-        date: new Date(Date.UTC(2026, 5, 10)),
-        amount: "10000.00",
-        currency: "PHP",
-        depositAccountId: fixture.code("1000").id,
-        applications: [{ invoiceId: invoice.id, amountApplied: "10000.00" }],
-        role: "OWNER",
-      });
-
-      const consultant = await makeVendor(fixture.company.id, "CONSULTANT");
-      const workOrder = await prisma.workOrder.create({
-        data: {
-          companyId: fixture.company.id,
-          vendorId: consultant.id,
-          issueDate: new Date(Date.UTC(2026, 5, 2)),
-          dueDate: new Date(Date.UTC(2026, 5, 30)),
-          currency: "PHP",
-          lines: {
-            create: [
-              {
-                lineNumber: 1,
-                description: "Fieldwork",
-                quantity: "1",
-                rate: "5000.00",
-                amount: "5000.00",
-                accountId: fixture.code("6000").id,
-              },
-            ],
-          },
+    // One of each posting the app can make, so the drill-down is checked
+    // against the source types that actually occur rather than the enum.
+    const customer = await makeCustomer(fixture.company.id);
+    const invoice = await makeDraftInvoice({
+      companyId: fixture.company.id,
+      customerId: customer.id,
+      currency: "PHP",
+      issueDate: new Date(Date.UTC(2026, 5, 1)),
+      lines: [
+        {
+          description: "Consulting",
+          quantity: "1",
+          rate: "10000.00",
+          incomeAccountId: fixture.code("4000").id,
         },
-      });
-      await approveWorkOrder({
-        companyId: fixture.company.id,
-        workOrderId: workOrder.id,
-        role: "OWNER",
-      });
-      await recordBillPayment({
+      ],
+    });
+    await issueInvoice({
+      companyId: fixture.company.id,
+      invoiceId: invoice.id,
+      role: "OWNER",
+    });
+    await recordPayment({
+      companyId: fixture.company.id,
+      customerId: customer.id,
+      date: new Date(Date.UTC(2026, 5, 10)),
+      amount: "10000.00",
+      currency: "PHP",
+      depositAccountId: fixture.code("1000").id,
+      applications: [{ invoiceId: invoice.id, amountApplied: "10000.00" }],
+      role: "OWNER",
+    });
+
+    const consultant = await makeVendor(fixture.company.id, "CONSULTANT");
+    const workOrder = await prisma.workOrder.create({
+      data: {
         companyId: fixture.company.id,
         vendorId: consultant.id,
-        date: new Date(Date.UTC(2026, 5, 26)),
-        amount: "5000.00",
+        issueDate: new Date(Date.UTC(2026, 5, 2)),
+        dueDate: new Date(Date.UTC(2026, 5, 30)),
         currency: "PHP",
-        paymentAccountId: fixture.code("1000").id,
-        applications: [{ workOrderId: workOrder.id, amountApplied: "5000.00" }],
-        role: "OWNER",
-      });
+        lines: {
+          create: [
+            {
+              lineNumber: 1,
+              description: "Fieldwork",
+              quantity: "1",
+              rate: "5000.00",
+              amount: "5000.00",
+              accountId: fixture.code("6000").id,
+            },
+          ],
+        },
+      },
+    });
+    await approveWorkOrder({
+      companyId: fixture.company.id,
+      workOrderId: workOrder.id,
+      role: "OWNER",
+    });
+    await recordBillPayment({
+      companyId: fixture.company.id,
+      vendorId: consultant.id,
+      date: new Date(Date.UTC(2026, 5, 26)),
+      amount: "5000.00",
+      currency: "PHP",
+      paymentAccountId: fixture.code("1000").id,
+      applications: [{ workOrderId: workOrder.id, amountApplied: "5000.00" }],
+      role: "OWNER",
+    });
 
-      // Walk the cash account — every flow above touches it.
-      const detail = await accountDetail({
+    // A regular vendor's bill, so the EXPENSE source type is covered too.
+    const supplier = await makeVendor(fixture.company.id, "REGULAR", {
+      name: "Meralco",
+    });
+    await recordExpense({
+      companyId: fixture.company.id,
+      kind: "BILL",
+      vendorId: supplier.id,
+      date: new Date(Date.UTC(2026, 5, 5)),
+      dueDate: new Date(Date.UTC(2026, 6, 5)),
+      currency: "PHP",
+      amount: "3200.00",
+      expenseAccountId: fixture.code("6000").id,
+      description: "June electricity",
+      role: "OWNER",
+    });
+
+    // A hand-written entry too, so the two kinds are told apart rather than
+    // the test passing because the fixture happened to contain no manual work.
+    await postJournalEntry({
+      companyId: fixture.company.id,
+      date: new Date(Date.UTC(2026, 5, 12)),
+      memo: "Bank charge",
+      sourceType: "MANUAL",
+      role: "OWNER",
+      lines: [
+        { accountId: fixture.code("6000").id, debit: "250.00" },
+        { accountId: fixture.code("1000").id, credit: "250.00" },
+      ],
+    });
+
+    // Cash and A/P between them see every posting the app makes: payments and
+    // manual entries move cash, documents move A/P.
+    const [cash, payable] = await Promise.all([
+      accountDetail({
         companyId: fixture.company.id,
         accountId: fixture.code("1000").id,
         to: asOf,
-      });
-      expect(detail.rows.length).toBeGreaterThan(0);
+      }),
+      accountDetail({
+        companyId: fixture.company.id,
+        accountId: fixture.system(SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE).id,
+        to: asOf,
+      }),
+    ]);
+    expect(cash.rows.length).toBeGreaterThan(0);
+    expect(payable.rows.length).toBeGreaterThan(0);
 
-      // KNOWN GAP (SPEC §15.11): a consultant payment drills to its journal entry
-      // but not on to a document, because `sourceDocumentHref` has no case for
-      // CONSULTANT_PAYMENT — and there is no screen for a bill payment to link
-      // to. Marked failing on purpose rather than asserted away.
-      const unlinked = [
-        ...new Set(
-          detail.rows
-            .filter(
-              (row) =>
-                sourceDocumentHref(row.sourceType, row.sourceId) === null,
-            )
-            .map((row) => row.sourceType),
-        ),
-      ];
-      // Every line already drills to its journal entry; this is the second hop,
-      // from the entry to the document that caused it.
-      expect(unlinked).toEqual([]);
-    },
-  );
+    const bySourceType = new Map(
+      [...cash.rows, ...payable.rows].map((row) => [
+        row.sourceType,
+        sourceDocumentHref(row.sourceType, row.sourceId),
+      ]),
+    );
+    // Every flow the app can post is represented, so this is coverage of what
+    // actually occurs rather than of the enum.
+    expect([...bySourceType.keys()].sort()).toEqual([
+      "CONSULTANT_PAYMENT",
+      "EXPENSE",
+      "INVOICE_PAYMENT",
+      "MANUAL",
+      "WORK_ORDER",
+    ]);
+
+    // A posting made by a document drills on to that document. A hand-written
+    // entry has no document behind it — the entry *is* the source, and the
+    // entry number is already a link on every row — so a null here is correct
+    // rather than a gap.
+    for (const [sourceType, href] of bySourceType) {
+      if (sourceType === "MANUAL") expect(href).toBeNull();
+      else
+        expect(
+          href,
+          `${sourceType} does not drill to a document`,
+        ).not.toBeNull();
+    }
+  });
 });

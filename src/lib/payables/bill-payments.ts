@@ -39,9 +39,22 @@ type OpenDocument = {
   status: string;
 };
 
+/**
+ * The document an application points at, proven to belong to the vendor being
+ * paid.
+ *
+ * The vendor check is not a nicety. Without it a payment recorded against one
+ * vendor settles another's document: the document goes to PAID, and the A/P
+ * lines carry the *payer* as their party while the original credit carries the
+ * real creditor — so the control account still nets to zero and the aging
+ * total still ties, while per vendor the ledger is wrong in both directions.
+ * It is also a hole in section access (SPEC §2.1), since it would let a
+ * vendors-only user settle a consultant's work order by naming its id.
+ */
 async function loadDocument(
   tx: Prisma.TransactionClient,
   companyId: string,
+  vendorId: string,
   application: BillApplicationInput,
 ): Promise<OpenDocument> {
   if (application.workOrderId && application.expenseId) {
@@ -53,6 +66,11 @@ async function loadDocument(
       where: { id: application.workOrderId, companyId },
     });
     if (!workOrder) throw new PostingError("Work order not found in this company");
+    if (workOrder.vendorId !== vendorId) {
+      throw new PostingError(
+        `Work order ${workOrder.workOrderNumber ?? "draft"} is owed to a different vendor. Record the payment against the vendor it belongs to.`,
+      );
+    }
     return {
       id: workOrder.id,
       kind: "workOrder",
@@ -72,6 +90,11 @@ async function loadDocument(
       where: { id: application.expenseId, companyId },
     });
     if (!expense) throw new PostingError("Bill not found in this company");
+    if (expense.vendorId !== vendorId) {
+      throw new PostingError(
+        `"${expense.description}" is owed to a different vendor. Record the payment against the vendor it belongs to.`,
+      );
+    }
     if (expense.kind !== "BILL") {
       throw new PostingError("That expense was paid when it was recorded — there is nothing to settle");
     }
@@ -90,6 +113,49 @@ async function loadDocument(
   }
 
   throw new PostingError("An application must name a work order or a bill");
+}
+
+/**
+ * What a vendor still owes on, newest debt last. Work orders and bills are the
+ * same kind of thing to whoever is paying, so they come back as one list.
+ */
+export async function openDocumentsForVendor(companyId: string, vendorId: string) {
+  const [workOrders, bills] = await Promise.all([
+    prisma.workOrder.findMany({
+      where: { companyId, vendorId, status: { in: ["APPROVED", "PARTIALLY_PAID"] } },
+      orderBy: { dueDate: "asc" },
+    }),
+    prisma.expense.findMany({
+      where: {
+        companyId,
+        vendorId,
+        kind: "BILL",
+        status: { in: ["APPROVED", "PARTIALLY_PAID"] },
+      },
+      orderBy: { date: "asc" },
+    }),
+  ]);
+
+  return [
+    ...workOrders.map((workOrder) => ({
+      id: workOrder.id,
+      type: "workOrder" as const,
+      label: `Work order ${workOrder.workOrderNumber ?? "draft"}`,
+      dueDate: workOrder.dueDate,
+      currency: workOrder.currency,
+      balanceDue: workOrder.balanceDue,
+    })),
+    ...bills.map((bill) => ({
+      id: bill.id,
+      type: "expense" as const,
+      label: bill.description,
+      dueDate: bill.dueDate ?? bill.date,
+      currency: bill.currency,
+      balanceDue: bill.balanceDue,
+    })),
+  ]
+    .filter((document) => money(document.balanceDue).greaterThan(0))
+    .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
 }
 
 export async function recordBillPayment(input: {
@@ -169,7 +235,7 @@ export async function recordBillPayment(input: {
         throw new PostingError("Each application must be more than zero");
       }
 
-      const document = await loadDocument(tx, input.companyId, application);
+      const document = await loadDocument(tx, input.companyId, vendor.id, application);
       if (document.status === "DRAFT") {
         throw new PostingError(`${document.label} is still a draft — approve it before paying it`);
       }

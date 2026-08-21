@@ -88,7 +88,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               </>
             ) : null}
             {scope.hasSection("CONSULTANTS") || scope.hasSection("VENDORS") ? (
-              <NavLink href="/reports/ap-aging">A/P Aging</NavLink>
+              <>
+                <NavLink href="/bill-payments">Bill payments</NavLink>
+                <NavLink href="/reports/ap-aging">A/P Aging</NavLink>
+              </>
             ) : null}
             {scope.hasSection("REPORTS") ? (
               <>

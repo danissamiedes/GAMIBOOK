@@ -435,7 +435,10 @@ async function main() {
     await recordBillPayment({
       companyId: phpCompany.id,
       vendorId: abigail.id,
-      date: new Date(Date.UTC(2026, 7, 30)),
+      // Dated after the work order but before the seed's "today": a payment
+      // dated in the future leaves the ledger owing money the document says is
+      // settled, and every A/P figure then disagrees with the aging report.
+      date: new Date(Date.UTC(2026, 7, 18)),
       amount: "50000.00",
       currency: "PHP",
       paymentAccountId: php("1000").id,

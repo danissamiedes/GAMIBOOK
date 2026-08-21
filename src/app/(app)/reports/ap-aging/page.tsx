@@ -103,6 +103,28 @@ export default async function ApAgingPage({
           {report.controlBalance.toFixed(2)}. Investigate before relying on either figure.
         </Alert>
       ) : null}
+      {report.mismatchedVendors.length > 0 ? (
+        <Alert tone="error">
+          {/* The total can tie while individual vendors are wrong in equal and
+              opposite directions, which is how a cross-vendor payment used to
+              hide. Naming the parties is the only way to see it. */}
+          <p className="font-medium">
+            The ledger and the open documents disagree for{" "}
+            {report.mismatchedVendors.length === 1
+              ? "one vendor"
+              : `${report.mismatchedVendors.length} vendors`}
+            , even though the total may look right.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {report.mismatchedVendors.map((row) => (
+              <li key={row.vendorId}>
+                {row.vendorName}: ledger {row.ledger.toFixed(2)}, open documents{" "}
+                {row.documents.toFixed(2)}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      ) : null}
       {report.tiesToLedger === null ? (
         <Alert tone="info">
           Showing one kind of payable, so this total is a subset of the A/P control account

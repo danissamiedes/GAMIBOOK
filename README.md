@@ -9,7 +9,7 @@ not estimated from a list of categorised transactions.
 
 ## Status
 
-**Phases 1–7 are complete.** What works today:
+**Phases 1–7 are complete, plus the Excel work-order import.** What works today:
 
 - Multi-company data model — Organization → Company → Membership, roles per
   company (`OWNER`, `BOOKKEEPER`, `CONSULTANT`)
@@ -144,8 +144,31 @@ not estimated from a list of categorised transactions.
 - Send from an invoice or a work order; `lastEmailedAt` is stamped only on
   success, and a consultant marked not-to-be-emailed is refused by name
 
-Phases 8–9 (the Excel work-order import, bulk send, bank import, dashboard) are
-specified in `SPEC.md` §14 and not yet built.
+**Phase 8a — Excel work-order import:**
+
+- Upload `.xlsx` or `.csv` in **your own layout** — Work Order Date, Consultant
+  Name, Line No., Description, Account, Quantity, Rate, Amount
+- **`Line No.` grouping**: 1 opens a work order for that consultant, 2, 3 …
+  continue it, tracked per consultant so rows may interleave
+- Each line posts to the account its row names, and a **negative rate is a
+  deduction** — a cash advance being recovered
+- Upload never writes documents. Rows are staged and validated, the report
+  shows every row with what it was understood to mean, and errors block only
+  their own row. Rejected rows download as a workbook with a reason column
+- Unknown consultant spellings are mapped once and remembered on that
+  consultant, so the next sheet matches automatically
+- Imports create **drafts**; approving them is what posts, and bulk approve
+  handles a batch with per-document failures reported individually
+- Re-importing the same file warns loudly rather than silently duplicating, and
+  a batch can be undone while its drafts are untouched
+- A downloadable template carries this company's own consultant and account
+  names
+
+`npm run seed` writes `fixtures/work-orders-september-2026.xlsx` — five good
+rows and three deliberately broken ones — to try it against.
+
+Remaining: the bulk work-order send (§10.1), recurring invoices and the CSV
+bank import (§8.5), and Phase 9 (dashboard, data export, polish).
 
 ### Connecting Gmail
 

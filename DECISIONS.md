@@ -305,6 +305,45 @@ required" so the UI can say so rather than failing silently on every send.
 document reading as not sent — otherwise the user believes a consultant received
 something they never did.
 
+### Phase 8a — Excel work-order import (2026-08-21)
+
+**ExcelJS, not SheetJS.** SPEC §8.3 allows either. The `xlsx` package on npm is
+stuck at 0.18.5 with open advisories because SheetJS moved distribution to their
+own CDN; ExcelJS is current on the registry, reads both `.xlsx` and `.csv`, and
+writes the template and reject files too.
+
+**Grouping is per consultant, not per adjacent row.** A `Line No.` of 1 opens
+that consultant's work order and 2, 3 … attach to it, with each consultant's
+open group tracked separately — so a sheet that interleaves people still groups
+correctly. A continuation with nothing to continue is a row error, a repeated
+line number is a row error, and a gap is a warning that renumbers.
+
+**A group that nets to zero or less is refused.** Deductions exceeding the work
+are not a payable; that is money the consultant owes back, which is a
+receivable. The error names the consultant and the amount.
+
+**A negative line on an income-statement account gets a notice, not an error.**
+Coding `Cash Advances` to `Consultant Fees` is legitimate and reduces reported
+expense; coding it to an advances account clears the advance instead. The
+importer does what the sheet says and says what it did.
+
+**Dates are read in the format the user picks, never guessed.** `8/9/2026` is
+ambiguous, so the upload screen asks. Real dates and Excel serials are read
+directly. An unreadable date is an error rather than a silent default to today.
+
+**A stated Amount is checked, not trusted.** More than a cent away from
+quantity × rate and the row is rejected — a mismatch means the sheet disagrees
+with itself, and picking a side silently would be worse than stopping.
+
+**Re-validation happens at commit.** The staged rows are re-checked against the
+current database rather than trusting what was computed at upload: a consultant
+may have been created, or a mapping chosen, between the two steps.
+
+**Undo exists but is narrow.** A whole batch can be removed while every work
+order it made is still an untouched draft. Once one is approved or emailed,
+undo refuses and points at handling those individually — deleting a posted
+document is never the answer.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

@@ -20,6 +20,7 @@ export async function resetDatabase() {
       "SalesOrderLine", "SalesOrder",
       "TaxRate", "Item", "Customer",
       "TimeEntry", "EmailLog", "EmailTemplate", "EmailConnection",
+      "ImportRow", "ImportBatch",
       "JournalLine", "JournalEntry", "Account", "AuditLog",
       "PasswordResetToken", "Invitation", "NumberSequence",
       "Membership", "User", "Company", "Organization"

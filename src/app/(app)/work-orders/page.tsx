@@ -4,7 +4,11 @@ import { sectionScope } from "@/lib/session-scope";
 import { formatAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money } from "@/lib/money";
-import { Button, Card, EmptyState, PageHeader } from "@/components/ui";
+import { redirect } from "next/navigation";
+import { approveWorkOrder } from "@/lib/payables/work-orders";
+import { PostingError } from "@/lib/errors";
+import { writeAudit } from "@/lib/audit";
+import { Alert, Button, Card, EmptyState, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Work orders — Ledger" };
 
@@ -19,10 +23,55 @@ const STATUS_STYLES: Record<string, string> = {
 export default async function WorkOrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; consultant?: string }>;
+  searchParams: Promise<{ status?: string; consultant?: string; approved?: string; failed?: string }>;
 }) {
   const scope = await sectionScope("CONSULTANTS");
   const params = await searchParams;
+
+  /**
+   * Bulk approve (SPEC §8.3): each document posts in its own transaction, so
+   * one failing — a closed period, a missing account — reports that row and
+   * leaves the rest alone.
+   */
+  async function approveSelected(formData: FormData) {
+    "use server";
+    const inner = await sectionScope("CONSULTANTS");
+    const ids = formData.getAll("selected").map(String).filter(Boolean);
+    if (ids.length === 0) redirect("/work-orders?status=DRAFT");
+    if (ids.length > 500) {
+      redirect("/work-orders?status=DRAFT&failed=Too%20many%20at%20once%20%E2%80%94%20cap%20is%20500");
+    }
+
+    let approved = 0;
+    const failures: string[] = [];
+    for (const id of ids) {
+      try {
+        await approveWorkOrder({
+          companyId: inner.companyId,
+          workOrderId: id,
+          userId: inner.userId,
+          role: inner.role,
+        });
+        approved += 1;
+      } catch (error) {
+        failures.push(error instanceof PostingError ? error.message : "Unexpected error");
+      }
+    }
+
+    await writeAudit({
+      companyId: inner.companyId,
+      userId: inner.userId,
+      action: "work_order.bulk_approved",
+      entityType: "WorkOrder",
+      summary: `${approved} approved, ${failures.length} failed`,
+    });
+
+    redirect(
+      `/work-orders?status=APPROVED&approved=${approved}${
+        failures.length > 0 ? `&failed=${encodeURIComponent(failures.slice(0, 3).join("; "))}` : ""
+      }`,
+    );
+  }
 
   const workOrders = await prisma.workOrder.findMany({
     where: {
@@ -43,9 +92,14 @@ export default async function WorkOrdersPage({
     <>
       <div className="mb-6 flex items-start justify-between gap-4">
         <PageHeader title="Work orders" description="What consultants are owed, and for what." />
-        <Link href="/work-orders/new">
-          <Button>New work order</Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/work-orders/import">
+            <Button variant="secondary">Import from spreadsheet</Button>
+          </Link>
+          <Link href="/work-orders/new">
+            <Button>New work order</Button>
+          </Link>
+        </div>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
@@ -58,13 +112,20 @@ export default async function WorkOrdersPage({
         ))}
       </div>
 
+      {params.approved ? (
+        <Alert tone="success">{params.approved} work orders approved and posted.</Alert>
+      ) : null}
+      {params.failed ? <Alert tone="error">{decodeURIComponent(params.failed)}</Alert> : null}
+
       {workOrders.length === 0 ? (
         <EmptyState title="No work orders here yet" />
       ) : (
         <Card>
+          <form action={approveSelected}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
+                <th className="py-2 w-8"></th>
                 <th className="py-2">Number</th>
                 <th className="py-2">Consultant</th>
                 <th className="py-2">Date</th>
@@ -83,6 +144,11 @@ export default async function WorkOrdersPage({
                   ["APPROVED", "PARTIALLY_PAID"].includes(workOrder.status);
                 return (
                   <tr key={workOrder.id} className="border-b border-slate-100 dark:border-slate-800/60">
+                    <td className="py-2">
+                      {workOrder.status === "DRAFT" ? (
+                        <input type="checkbox" name="selected" value={workOrder.id} />
+                      ) : null}
+                    </td>
                     <td className="py-2 font-mono text-xs">
                       <Link className="underline" href={`/work-orders/${workOrder.id}`}>
                         {workOrder.workOrderNumber ?? "draft"}
@@ -114,6 +180,18 @@ export default async function WorkOrdersPage({
               })}
             </tbody>
           </table>
+
+          {workOrders.some((workOrder) => workOrder.status === "DRAFT") ? (
+            <div className="mt-4 flex items-center gap-3">
+              <Button type="submit" variant="secondary">
+                Approve selected
+              </Button>
+              <p className="text-xs text-slate-500">
+                Each posts on its own work order date. One failing does not stop the others.
+              </p>
+            </div>
+          ) : null}
+          </form>
         </Card>
       )}
     </>

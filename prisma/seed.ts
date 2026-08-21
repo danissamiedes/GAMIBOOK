@@ -21,6 +21,8 @@ import { recordBillPayment } from "../src/lib/payables/bill-payments";
 import { recordExpense } from "../src/lib/payables/expenses";
 import { parseLocalDateTime } from "../src/lib/time/zone";
 import { installDefaultTemplates } from "../src/lib/email/templates";
+import { mkdir, writeFile } from "node:fs/promises";
+import ExcelJS from "exceljs";
 import { computeSalesOrderLine, confirmSalesOrder } from "../src/lib/invoices/sales-orders";
 
 const prisma = new PrismaClient();
@@ -642,6 +644,41 @@ async function main() {
     },
   });
 
+  // ---- Fixtures (SPEC §13) -------------------------------------------------
+  // A sample import workbook in the user's own layout, including rows that are
+  // deliberately wrong so the validation report has something to show.
+  await mkdir("fixtures", { recursive: true });
+  {
+    const book = new ExcelJS.Workbook();
+    const sheet = book.addWorksheet("Work Orders");
+    sheet.columns = [
+      { header: "Work Order Date", width: 18 },
+      { header: "Consultant Name", width: 24 },
+      { header: "Line No.", width: 10 },
+      { header: "Description", width: 44 },
+      { header: "Account", width: 26 },
+      { header: "Quantity", width: 12 },
+      { header: "Rate", width: 14 },
+      { header: "Amount", width: 14 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    const rows: (string | number)[][] = [
+      ["9/15/2026", "Abigail Bautista", 1, "Consultation for period 090126-091526", "Consultant Fees", 0.5, 100000, 50000],
+      ["9/15/2026", "John Rex Meraveles", 1, "Consultation for period 090126-091526", "Consultant Fees", 0.5, 16000, 8000],
+      ["9/15/2026", "John Rex Meraveles", 2, "Cash Advances", "Advances to Consultants", 1, -3000, -3000],
+      ["9/15/2026", "Chareze Valencia", 1, "Consultation for period 090126-091526", "Consultant Fees", 0.5, 50000, 25000],
+      ["9/15/2026", "Chareze Valencia", 2, "Reimburse supplies", "Supplies Expense", 1, 1500, 1500],
+      ["9/15/2026", "Someone Unknown", 1, "Nobody of that name", "Consultant Fees", 1, 5000, 5000],
+      ["not a date", "Abigail Bautista", 1, "Undated work", "Consultant Fees", 1, 1000, 1000],
+      ["9/15/2026", "Abigail Bautista", 2, "Amount does not match qty x rate", "Consultant Fees", 2, 1000, 9999],
+    ];
+    for (const row of rows) sheet.addRow(row);
+    await writeFile(
+      "fixtures/work-orders-september-2026.xlsx",
+      Buffer.from(await book.xlsx.writeBuffer()),
+    );
+  }
+
   const tb = await trialBalance({
     companyId: phpCompany.id,
     asOf: new Date(Date.UTC(2026, 11, 31)),
@@ -677,6 +714,11 @@ Seed complete.
   direct expense and an unpaid bill. A month of time entries in ${phpCompany.timeClockTimeZone},
   including a shift crossing midnight and one still running. One confirmed
   sales order (posting nothing) and one consultant reimbursement bill.
+
+  fixtures/work-orders-september-2026.xlsx is a sample import in your own
+  layout — five good rows and three deliberately broken ones. Try it at
+  Work orders -> Import from spreadsheet.
+
   Trial balance ties at
   ${tb.totalDebit.toFixed(2)} ${phpCompany.baseCurrency} on each side.
 `);

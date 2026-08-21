@@ -105,6 +105,31 @@ enum ExpenseKind {
   BILL
 }
 
+/// SPEC §8.3, §8.5, §4.4. What a batch of imported rows was for.
+enum ImportBatchKind {
+  WORK_ORDER
+  BANK
+  MIGRATION
+}
+
+/// SPEC §8.3. Upload never writes documents directly: rows are staged,
+/// validated and reviewed, and only then committed.
+enum ImportBatchStatus {
+  PARSED
+  COMMITTED
+  DISCARDED
+  ROLLED_BACK
+}
+
+/// SPEC §8.3. Errors block their own row and nothing else.
+enum ImportRowStatus {
+  VALID
+  WARNING
+  ERROR
+  IMPORTED
+  SKIPPED
+}
+
 /// SPEC §10. Every send attempt is logged, whatever happens to it.
 enum EmailStatus {
   QUEUED
@@ -219,6 +244,7 @@ model Company {
   emailConnection EmailConnection?
   emailTemplates  EmailTemplate[]
   emailLogs       EmailLog[]
+  importBatches   ImportBatch[]
   workOrders      WorkOrder[]
   expenses        Expense[]
   billPayments    BillPayment[]
@@ -924,4 +950,52 @@ model EmailLog {
   @@index([companyId, createdAt])
   @@index([relatedType, relatedId])
   @@index([emailBatchId])
+}
+
+/// SPEC §8.3. One upload, staged for review before anything is created.
+model ImportBatch {
+  id        String            @id @default(cuid())
+  companyId String
+  kind      ImportBatchKind
+  status    ImportBatchStatus @default(PARSED)
+  fileName  String
+  /// SHA-256 of the upload, so re-importing the same file warns loudly.
+  fileHash  String
+  /// The original file, kept for audit: a batch must be able to show its source.
+  fileKey   String?
+  sheetName String?
+
+  rowCount     Int @default(0)
+  createdCount Int @default(0)
+  skippedCount Int @default(0)
+
+  uploadedByUserId String?
+  uploadedAt       DateTime  @default(now())
+  committedAt      DateTime?
+
+  company Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  rows    ImportRow[]
+
+  @@index([companyId, kind, uploadedAt])
+  @@index([companyId, fileHash])
+}
+
+model ImportRow {
+  id            String          @id @default(cuid())
+  importBatchId String
+  rowNumber     Int
+  /// Exactly what the sheet said, before any interpretation.
+  rawJson       Json
+  /// What it was understood to mean, after matching and parsing.
+  parsedJson    Json?
+  status        ImportRowStatus @default(VALID)
+  /// [{ column, message, severity }]
+  issues        Json?
+  /// Which document this row ended up on, once committed.
+  workOrderId   String?
+
+  batch ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+
+  @@unique([importBatchId, rowNumber])
+  @@index([importBatchId, status])
 }

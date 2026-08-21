@@ -307,6 +307,7 @@ npm install && npx prisma migrate deploy && npm run seed && npm test && npm run 
 | `npm run db:migrate` | Create and apply a migration in development |
 | `npm run db:deploy` | Apply existing migrations (used on boot in Docker) |
 | `npm run db:reset` | Drop, re-migrate and re-seed |
+| `npm run bootstrap` | Create the first owner on a fresh deployment. Refuses if any user exists |
 | `npm run test:e2e` | Playwright suite — starts its own dev server |
 | `npm run email:check` | What Gmail sending is missing; with an address, sends a test |
 
@@ -315,52 +316,157 @@ migrate it automatically before the first test file.
 
 ## Deployment (single VPS)
 
+This is the shape the app is built for: one always-on container next to one
+Postgres. The scheduler, the local storage volume and the in-memory login
+rate-limiter all assume a single long-lived instance, which is exactly what a
+small VPS is. Serverless hosts break all three — see **Why not Vercel** below.
+
+A 2 GB box is enough. These steps take about ten minutes.
+
+**1. Point a domain at the server.** An `A` record for `books.example.com` at
+the server's IP. Do this first: Caddy asks Let's Encrypt for a certificate the
+moment the stack starts, and that only works once DNS resolves.
+
+**2. Install Docker and clone.**
+
 ```bash
-cp .env.example .env          # set AUTH_SECRET, POSTGRES_PASSWORD, AUTH_URL
-docker compose up -d --build
+curl -fsSL https://get.docker.com | sh
+git clone https://github.com/danissamiedes/GAMIBOOK.git /srv/ledger
+cd /srv/ledger
 ```
 
-The app container applies migrations on boot, then serves on port 3000. Put a
-TLS-terminating reverse proxy (Caddy, nginx) in front of it — session cookies
-are marked `Secure` in production, so sign-in will not work over plain HTTP on
-a real domain.
+**3. Write the secrets.** Generate them on the server — a key that has passed
+through a chat window or a shared document is not a secret any more.
 
-Two volumes hold state:
+```bash
+cp .env.example .env
+printf 'AUTH_SECRET="%s"\n'          "$(openssl rand -base64 32)" >> .env
+printf 'TOKEN_ENCRYPTION_KEY="%s"\n' "$(openssl rand -base64 32)" >> .env
+printf 'POSTGRES_PASSWORD="%s"\n'    "$(openssl rand -base64 24)" >> .env
+printf 'LEDGER_DOMAIN="%s"\n'        "books.example.com"          >> .env
+chmod 600 .env
+```
+
+**4. Start it.**
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+The app applies its migrations on boot, and Caddy obtains the certificate. Watch
+it come up with `docker compose -f docker-compose.prod.yml logs -f`.
+
+**5. Create the first owner.** There is no signup page — you get in by
+invitation, which means someone has to exist first. Do **not** run `npm run
+seed` here: that is the development fixture, with demo companies and a shared
+password.
+
+```bash
+docker compose -f docker-compose.prod.yml exec app npm run bootstrap
+```
+
+It asks for an email, a name and a password, creates one organization, one
+owner and one empty company with the default chart of accounts, and refuses to
+run at all if the database already has a user. Sign in at
+`https://books.example.com` and you land on the setup wizard, where you choose
+the base currency — that choice is permanent.
+
+From there, invite everyone else from **Settings → Users**.
+
+### What the production compose file does differently
+
+`docker-compose.yml` is the development one. `docker-compose.prod.yml` is a
+separate file rather than an overlay, because the differences are the kind you
+want to read in one place rather than infer from two:
+
+- **Postgres is not published.** The development file maps 5432 to the host so
+  `npm run dev` and `npm run seed` can reach it. On a public box that is the
+  database on the internet.
+- **No secret has a default.** The stack refuses to start rather than coming up
+  with the password `ledger` because a variable was missing.
+- **Caddy terminates TLS** and is the only thing listening on 80 and 443.
+  Session cookies are marked `Secure` in production, so sign-in genuinely does
+  not work over plain HTTP on a real domain.
+- **`SCHEDULER_ENABLED` defaults to true**, because this file runs exactly one
+  app container. Recurring invoices and stale-shift auto-close do not happen
+  without it. If you ever run a second instance, set it to `false` on all but
+  one — every job would otherwise run several times.
+
+Three volumes hold state:
 
 - `db-data` — Postgres. **This is the books.**
 - `storage-data` — receipts, logos, uploaded import files, cached PDFs.
   Generated PDFs are regenerable; receipts and import files are not.
+- `caddy-data` — the issued certificates. Losing it means re-issuing on the
+  next boot, and Let's Encrypt rate-limits that.
 
-A Vercel deployment is possible but needs S3-compatible storage
-(`STORAGE_DRIVER=s3`), because Vercel's filesystem is ephemeral and receipts
-and uploaded import files are not regenerable. PDFs are no longer a problem
-there: the renderer is React-PDF, which is plain JavaScript, rather than the
-headless Chrome an earlier draft of this file warned about.
+### Updating
+
+```bash
+cd /srv/ledger && git pull
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Migrations run on boot, so the schema never lands behind the code. Take a backup
+first — see below — because a migration is the one deploy step that cannot be
+rolled back by redeploying the previous image.
+
+### Why not Vercel
+
+It can be made to work, but four things in this app assume a server:
+
+| | What breaks | What it would take |
+|---|---|---|
+| Storage | `STORAGE_DRIVER=local` writes to disk; Vercel's filesystem is read-only apart from `/tmp`. Receipts and uploaded import files are not regenerable | S3-compatible bucket, `STORAGE_DRIVER=s3` |
+| Scheduler | The in-process scheduler cannot run where there is no process between requests. Recurring invoices never generate | A Vercel Cron hitting an authenticated endpoint |
+| Database | Prisma opens a connection per instance; serverless multiplies instances until Postgres refuses | A pooled connection (Neon, Supabase pooler, PgBouncer) and `directUrl` in `schema.prisma` for migrations |
+| Rate limiting | Login attempts are counted in memory, so the limit resets whenever a new instance starts | Redis, or accept a much weaker limit |
+
+If a deploy there returns *"There was a problem with the server configuration"*
+from `/api/auth/callback/credentials`, that is Auth.js's generic error and it
+means one of two things: `AUTH_SECRET` is not set in the project's environment
+variables, or `authorize()` threw — which it does when `DATABASE_URL` is unset,
+unreachable, or points at a database the migrations have never been applied to.
+Vercel does not read your local `.env` and does not provision a database.
 
 ## Backup and restore
 
 Back up the database and the storage volume. The database is the one that
 matters.
 
+`scripts/backup.sh` does both and prunes anything older than 30 days:
+
 ```bash
-# Backup — run daily from cron and keep the output off this machine
-docker compose exec -T db pg_dump -U ledger -Fc ledger > ledger-$(date +%F).dump
-docker run --rm -v ledger_storage-data:/data -v "$PWD":/backup alpine \
-  tar czf /backup/storage-$(date +%F).tar.gz -C /data .
+./scripts/backup.sh /var/backups/ledger
+
+# From cron, 02:15 daily
+15 2 * * * cd /srv/ledger && ./scripts/backup.sh /var/backups/ledger >> /var/log/ledger-backup.log 2>&1
+```
+
+A backup on the same machine as the database is not a backup — it dies with the
+box. Copy the output somewhere else as a second step.
+
+By hand, if you would rather:
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T db pg_dump -U ledger -Fc ledger > ledger-$(date +%F).dump
+docker compose -f docker-compose.prod.yml run --rm --no-deps -v "$PWD":/backup app \
+  tar czf /backup/storage-$(date +%F).tar.gz -C /data/storage .
 
 # Restore into an empty database.
 # Stop the app first: it holds connections to `ledger`, and a database with
 # anyone connected to it cannot be dropped. Connect to `postgres` to do the
 # dropping — `psql -U ledger` with no -d connects to `ledger` itself, and a
 # session cannot drop the database it is sitting in.
-docker compose stop app
-docker compose up -d db
-docker compose exec -T db psql -U ledger -d postgres -c 'DROP DATABASE IF EXISTS ledger;'
-docker compose exec -T db psql -U ledger -d postgres -c 'CREATE DATABASE ledger;'
-docker compose exec -T db pg_restore -U ledger -d ledger --clean --if-exists < ledger-2026-08-21.dump
-docker run --rm -v ledger_storage-data:/data -v "$PWD":/backup alpine \
-  tar xzf /backup/storage-2026-08-21.tar.gz -C /data
-docker compose start app
+C=docker-compose.prod.yml
+docker compose -f $C stop app
+docker compose -f $C up -d db
+docker compose -f $C exec -T db psql -U ledger -d postgres -c 'DROP DATABASE IF EXISTS ledger;'
+docker compose -f $C exec -T db psql -U ledger -d postgres -c 'CREATE DATABASE ledger;'
+docker compose -f $C exec -T db pg_restore -U ledger -d ledger --clean --if-exists < ledger-2026-08-21.dump
+docker compose -f $C run --rm --no-deps -v "$PWD":/backup app \
+  tar xzf /backup/storage-2026-08-21.tar.gz -C /data/storage
+docker compose -f $C start app
 ```
 
 Verify a restore before you need one: restore into a scratch database and check
@@ -384,6 +490,9 @@ Every variable is documented in `.env.example`. The ones that matter:
 | `STORAGE_DRIVER` | `local` (default) or `s3` |
 | `EMAIL_DRY_RUN` | `true` short-circuits sending and only writes the log |
 | `SCHEDULER_ENABLED` | `true` runs the in-process jobs. **Recurring invoices do not generate without it** — set it on exactly one instance |
+| `TOKEN_ENCRYPTION_KEY` | Envelope-encrypts stored Gmail refresh tokens. `openssl rand -base64 32` |
+| `LEDGER_DOMAIN` | Production only: the domain Caddy gets a certificate for |
+| `POSTGRES_PASSWORD` | Production only: required, no default |
 
 App login and the Gmail *sending* connection (Phase 7) are separate concerns:
 `AUTH_GOOGLE_*` is sign-in, and does not let the app send mail as anyone.

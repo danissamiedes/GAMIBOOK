@@ -1,0 +1,77 @@
+# Production stack for a single VPS (SPEC §13).
+#
+# This is a standalone file, not an overlay on docker-compose.yml. That file is
+# the development one: it publishes Postgres on 5432 so `npm run dev` and
+# `npm run seed` can reach it from the host, which is exactly what you must not
+# do on a public box. Nothing here is published except Caddy's 80 and 443.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Every secret below is required rather than defaulted. A deployment that comes
+# up with the password `ledger` because someone forgot a variable is worse than
+# one that refuses to start.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ledger
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ledger
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledger -d ledger"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://ledger:${POSTGRES_PASSWORD}@db:5432/ledger?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
+      AUTH_URL: https://${LEDGER_DOMAIN:?set LEDGER_DOMAIN in .env}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_LOCAL_PATH: /data/storage
+      # Envelope-encryption key for stored Gmail refresh tokens. Settings →
+      # Email refuses to connect a mailbox without it.
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      EMAIL_DRY_RUN: ${EMAIL_DRY_RUN:-false}
+      # The in-process scheduler: recurring invoices and stale-shift auto-close.
+      # Safe to default on here because this file runs exactly one app container.
+      # If you ever scale it, this must stay true on one instance only.
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
+      NODE_ENV: production
+    volumes:
+      # Receipts, logos, uploaded imports and cached PDFs (SPEC §13).
+      - storage-data:/data/storage
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      LEDGER_DOMAIN: ${LEDGER_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Holds the issued certificates. Losing it means re-issuing on next boot,
+      # which Let's Encrypt rate-limits — keep the volume.
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  db-data:
+  storage-data:
+  caddy-data:
+  caddy-config:

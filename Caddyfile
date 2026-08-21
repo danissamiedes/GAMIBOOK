@@ -1,0 +1,32 @@
+# TLS is obtained and renewed automatically from Let's Encrypt, which is the
+# whole reason Caddy is here: session cookies are marked Secure in production,
+# so sign-in does not work over plain HTTP on a real domain.
+{$LEDGER_DOMAIN} {
+	encode zstd gzip
+
+	# Bank statements and work-order imports are accepted up to 10 MB, so the
+	# proxy must not reject at 10 MB itself. Leave headroom for the multipart
+	# envelope.
+	request_body {
+		max_size 12MB
+	}
+
+	header {
+		# Tell browsers to stick to HTTPS for a year. Remove this line if you
+		# are still testing on a domain you may want to serve over HTTP again.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	reverse_proxy app:3000
+
+	log {
+		output file /data/access.log {
+			roll_size 20MB
+			roll_keep 10
+		}
+	}
+}

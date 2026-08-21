@@ -28,6 +28,12 @@ COPY --from=build /app/public ./public
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/next.config.ts ./next.config.ts
+# Source and scripts come along so the operational commands can run inside the
+# container: `npm run bootstrap` to create the first owner, `npm run email:check`
+# to test the Gmail wiring. Both are tsx scripts that import from src/.
+COPY --from=build /app/tsconfig.json ./tsconfig.json
+COPY --from=build /app/src ./src
+COPY --from=build /app/scripts ./scripts
 RUN mkdir -p /data/storage
 EXPOSE 3000
 # Migrations run on boot so a deploy never lands ahead of its schema.

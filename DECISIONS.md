@@ -612,6 +612,49 @@ Starting a company is what already exists — a chosen start date and opening
 balances through the single `OPENING_BALANCE` entry (§4.3), balancing to
 Opening Balance Equity.
 
+## There was no way in — 2026-08-21
+
+The user deployed to Vercel and got Auth.js's *"There was a problem with the
+server configuration"* from the credentials callback. That error is generic: it
+means `AUTH_SECRET` is unset, or `authorize()` threw — and `authorize()` calls
+Prisma, so an unset, unreachable or unmigrated `DATABASE_URL` produces the same
+message. Vercel reads neither your `.env` nor your intentions, and provisions no
+database.
+
+Chasing that down surfaced a worse problem. **A fresh deployment had no way to
+create its first user.** The only paths in were `npm run seed` — the development
+fixture, with two demo companies and a shared password — and an invitation,
+which requires an owner to already exist. The app was, on an empty database,
+unusable by design and nobody had noticed because development always started
+from the seed.
+
+`npm run bootstrap` is the missing piece: one organization, one owner, one empty
+company with the default chart of accounts, and nothing else. It refuses to run
+if any user exists, so it cannot quietly add a second owner to live books. The
+password is prompted with echo suppressed rather than read from an environment
+variable, because an env var survives in shell history, in `docker inspect`, and
+in whatever the process manager logs. Every answer *can* come from the
+environment for unattended installs, but that is the fallback, not the path.
+
+`setupCompletedAt` is deliberately left null, so the first sign-in lands on the
+setup wizard. The base-currency decision is permanent, and it should be made on
+the screen that says so, not guessed by a shell script.
+
+**The single-VPS story got a production compose file of its own**
+(`docker-compose.prod.yml`), separate from the development one rather than an
+overlay on it, because the differences are the kind you want to read in one
+place: Postgres is not published to the host, no secret has a default, Caddy
+terminates TLS, and `SCHEDULER_ENABLED` defaults to true. That last one was a
+live bug — the README said recurring invoices do not generate without it and the
+compose file did not pass it at all, so a by-the-book deployment would have
+silently never generated one.
+
+Vercel is documented as possible but not chosen, with the four things that break
+named — local disk storage, the in-process scheduler, Prisma connection counts,
+and in-memory login rate limiting. All four are consequences of the app assuming
+one long-lived process, which is the right assumption for the size of business
+this is for.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

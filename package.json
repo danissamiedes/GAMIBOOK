@@ -16,7 +16,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "email:check": "tsx scripts/check-email.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "bootstrap": "tsx scripts/bootstrap.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

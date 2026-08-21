@@ -63,6 +63,11 @@ export default async function TrialBalancePage({
               Export CSV
             </Button>
           </a>
+          <a href={csvHref.replace("/csv?", "/pdf?")} target="_blank" rel="noreferrer">
+            <Button variant="secondary" type="button">
+              Export PDF
+            </Button>
+          </a>
         </form>
       </Card>
 

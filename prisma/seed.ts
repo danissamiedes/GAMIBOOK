@@ -20,6 +20,7 @@ import { approveWorkOrder, computeWorkOrderLine } from "../src/lib/payables/work
 import { recordBillPayment } from "../src/lib/payables/bill-payments";
 import { recordExpense } from "../src/lib/payables/expenses";
 import { parseLocalDateTime } from "../src/lib/time/zone";
+import { installDefaultTemplates } from "../src/lib/email/templates";
 import { computeSalesOrderLine, confirmSalesOrder } from "../src/lib/invoices/sales-orders";
 
 const prisma = new PrismaClient();
@@ -619,6 +620,27 @@ async function main() {
       });
     }
   }
+
+  // ---- Phase 7: email templates and branding ------------------------------
+  for (const company of [phpCompany, usdCompany]) {
+    await installDefaultTemplates(company.id);
+  }
+  await prisma.company.update({
+    where: { id: phpCompany.id },
+    data: {
+      legalName: "Bookkeeping Point Services Inc.",
+      addressLine1: "Unit 12, 8 Ayala Avenue",
+      city: "Makati City",
+      region: "Metro Manila",
+      postalCode: "1226",
+      country: "Philippines",
+      email: "accounts@bookkeepingpoint.test",
+      phone: "+63 2 8123 4567",
+      taxNumber: "007-123-456-000",
+      footerText:
+        "Please pay to BDO account 1234-5678-90 quoting the document number. Thank you.",
+    },
+  });
 
   const tb = await trialBalance({
     companyId: phpCompany.id,

@@ -265,6 +265,46 @@ parties.
 converts foreign-currency invoices at their own rate — the rate they sit in the
 ledger at, not today's.
 
+### Phase 7 — documents and email (2026-08-21)
+
+**React-PDF, not headless Chrome.** SPEC §11 leaves the choice open and §13
+notes that a Vercel deployment would need an external PDF service because
+headless Chrome does not fit its runtime. Rendering with `@react-pdf/renderer`
+removes that constraint entirely: no browser in the container, no separate
+service, and the same code path in development and production. The cost is that
+templates are React-PDF primitives rather than HTML, which for three documents
+is a fair trade.
+
+**One template for all three documents.** An invoice, a work order and a receipt
+differ in their heading, fields and totals, not in their shape. They share
+`DocumentPdf` and differ in the data handed to it, so branding and layout
+changes land on all three at once.
+
+**A draft work order's filename carries a short id.** `WorkOrder-DRAFT-a1b2c3-
+abigail.pdf` rather than `WorkOrder-DRAFT-abigail.pdf`: two drafts for the same
+consultant in one bulk email would otherwise produce the same attachment name
+and one would silently vanish. Tested.
+
+**Envelope encryption for refresh tokens.** A fresh data key encrypts the token
+and the environment key encrypts the data key. Rotating the environment key
+means re-wrapping short data keys rather than re-encrypting every secret, and
+the environment key never directly touches a stored secret. Tampered ciphertext
+throws rather than returning garbage — AES-GCM, authenticated.
+
+**MIME is built by hand.** Gmail's API takes a base64url-encoded RFC 5322
+message; a mailer library exists mostly to open SMTP connections, which this
+never does. Non-ASCII subjects are RFC 2047 encoded so an accented name is not
+mangled.
+
+**Retry only what is worth retrying.** 429 and 5xx back off and retry up to
+three times; a 4xx is recorded as failed immediately, because a rejected address
+will not fix itself. A revoked grant flips the connection to "reconnect
+required" so the UI can say so rather than failing silently on every send.
+
+**`lastEmailedAt` is stamped only on success.** A failed send leaves the
+document reading as not sent — otherwise the user believes a consultant received
+something they never did.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

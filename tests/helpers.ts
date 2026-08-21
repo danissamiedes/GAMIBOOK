@@ -19,7 +19,8 @@ export async function resetDatabase() {
       "PaymentApplication", "Payment", "InvoiceLine", "Invoice",
       "SalesOrderLine", "SalesOrder",
       "TaxRate", "Item", "Customer",
-      "TimeEntry", "JournalLine", "JournalEntry", "Account", "AuditLog",
+      "TimeEntry", "EmailLog", "EmailTemplate", "EmailConnection",
+      "JournalLine", "JournalEntry", "Account", "AuditLog",
       "PasswordResetToken", "Invitation", "NumberSequence",
       "Membership", "User", "Company", "Organization"
     RESTART IDENTITY CASCADE

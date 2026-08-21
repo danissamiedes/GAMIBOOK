@@ -101,6 +101,7 @@ export default async function ProfitLossPage({
       <ReportControls
         presets={periodPresets(company.fiscalYearStartMonth, "/reports/profit-loss")}
         csvHref={`/reports/profit-loss/csv?${query}`}
+        pdfHref={`/reports/profit-loss/pdf?${query}`}
       >
         <DateField label="From" name="from" value={formatAccountingDate(from)} />
         <DateField label="To" name="to" value={formatAccountingDate(to)} />

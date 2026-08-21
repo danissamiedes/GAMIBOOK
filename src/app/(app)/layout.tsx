@@ -101,9 +101,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             {scope.hasSection("SETTINGS") ? (
               <>
                 <NavLink href="/accounts">Accounts</NavLink>
+                <NavLink href="/settings/branding">Branding</NavLink>
+                <NavLink href="/settings/email">Email</NavLink>
                 <NavLink href="/settings/company">Company</NavLink>
               </>
             ) : null}
+            <NavLink href="/email-log">Email log</NavLink>
             {scope.role === "OWNER" ? <NavLink href="/settings/users">Users</NavLink> : null}
           </nav>
           <form action={endSession}>

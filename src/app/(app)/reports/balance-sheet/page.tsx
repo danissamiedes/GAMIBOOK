@@ -82,6 +82,7 @@ export default async function BalanceSheetPage({
       <ReportControls
         presets={asOfPresets(company.fiscalYearStartMonth, "/reports/balance-sheet")}
         csvHref={`/reports/balance-sheet/csv?asOf=${formatAccountingDate(asOf)}`}
+        pdfHref={`/reports/balance-sheet/pdf?asOf=${formatAccountingDate(asOf)}`}
       >
         <DateField label="As of" name="asOf" value={formatAccountingDate(asOf)} />
       </ReportControls>

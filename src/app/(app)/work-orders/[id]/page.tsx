@@ -13,6 +13,8 @@ import { money, parseMoney } from "@/lib/money";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
+import { prepareWorkOrderEmail, sendEmail, stampEmailed } from "@/lib/email/send";
+import { dryRun } from "@/lib/email/gmail";
 import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export default async function WorkOrderPage({
@@ -152,6 +154,37 @@ export default async function WorkOrderPage({
     } catch (thrown) {
       if (thrown instanceof PostingError) fail(thrown.message);
       else throw thrown;
+    }
+    redirect(`/work-orders/${id}`);
+  }
+
+  async function email() {
+    "use server";
+    const inner = await sectionScope("CONSULTANTS");
+    const prepared = await prepareWorkOrderEmail({
+      companyId: inner.companyId,
+      workOrderId: id,
+    });
+    if (prepared.to.length === 0) {
+      fail(prepared.excludedReason ?? "This consultant has no email address on file");
+    }
+    const result = await sendEmail({
+      companyId: inner.companyId,
+      email: prepared,
+      userId: inner.userId,
+    });
+    if (result.status === "SENT") {
+      await stampEmailed("WorkOrder", id, inner.companyId);
+      await writeAudit({
+        companyId: inner.companyId,
+        userId: inner.userId,
+        action: "work_order.emailed",
+        entityType: "WorkOrder",
+        entityId: id,
+        summary: prepared.to.join(", "),
+      });
+    } else {
+      fail(result.error ?? "The email failed. See the email log.");
     }
     redirect(`/work-orders/${id}`);
   }
@@ -299,6 +332,30 @@ export default async function WorkOrderPage({
         </Card>
 
         <div className="space-y-6">
+          <Card>
+            <h2 className="mb-3 text-sm font-semibold">Document</h2>
+            <div className="space-y-3">
+              <a
+                href={`/documents/work-order/${workOrder.id}?refresh=1`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Button variant="secondary" className="w-full" type="button">
+                  Download PDF
+                </Button>
+              </a>
+              <form action={email}>
+                <Button type="submit" variant="secondary" className="w-full">
+                  {workOrder.lastEmailedAt ? "Resend to consultant" : "Email to consultant"}
+                </Button>
+              </form>
+              <p className="text-xs text-slate-500">
+                Emailing is independent of approval — sending a draft posts nothing.
+                {dryRun() ? " Dry run is on; nothing actually leaves this machine." : ""}
+              </p>
+            </div>
+          </Card>
+
           <Card>
             <h2 className="mb-3 text-sm font-semibold">Actions</h2>
             {isDraft ? (

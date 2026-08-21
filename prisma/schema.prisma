@@ -105,6 +105,21 @@ enum ExpenseKind {
   BILL
 }
 
+/// SPEC §10. Every send attempt is logged, whatever happens to it.
+enum EmailStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+/// SPEC §10. The per-company templates.
+enum EmailTemplateKind {
+  INVOICE
+  INVOICE_REMINDER
+  WORK_ORDER
+  PAYMENT_RECEIPT
+}
+
 /// SPEC §7.1a. A sales order is not an accounting record: confirming one posts
 /// nothing, and revenue is recognised only when its invoice is issued.
 enum SalesOrderStatus {
@@ -187,23 +202,26 @@ model Company {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  memberships    Membership[]
-  invitations    Invitation[]
-  sequences      NumberSequence[]
-  auditLogs      AuditLog[]
-  accounts       Account[]
-  journalEntries JournalEntry[]
-  customers      Customer[]
-  items          Item[]
-  taxRates       TaxRate[]
-  invoices       Invoice[]
-  salesOrders    SalesOrder[]
-  payments       Payment[]
-  timeEntries    TimeEntry[]
-  vendors        Vendor[]
-  workOrders     WorkOrder[]
-  expenses       Expense[]
-  billPayments   BillPayment[]
+  memberships     Membership[]
+  invitations     Invitation[]
+  sequences       NumberSequence[]
+  auditLogs       AuditLog[]
+  accounts        Account[]
+  journalEntries  JournalEntry[]
+  customers       Customer[]
+  items           Item[]
+  taxRates        TaxRate[]
+  invoices        Invoice[]
+  salesOrders     SalesOrder[]
+  payments        Payment[]
+  timeEntries     TimeEntry[]
+  vendors         Vendor[]
+  emailConnection EmailConnection?
+  emailTemplates  EmailTemplate[]
+  emailLogs       EmailLog[]
+  workOrders      WorkOrder[]
+  expenses        Expense[]
+  billPayments    BillPayment[]
 
   @@index([organizationId])
 }
@@ -840,4 +858,70 @@ model SalesOrderLine {
   salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
 
   @@unique([salesOrderId, lineNumber])
+}
+
+/// SPEC §10. One connected Gmail mailbox per company. The refresh token is
+/// held under envelope encryption — a data key per record, itself encrypted
+/// with the key from the environment — so a database dump alone is useless.
+model EmailConnection {
+  id                     String    @id @default(cuid())
+  companyId              String    @unique
+  /// The mailbox mail is sent from, so replies come back to a human.
+  emailAddress           String
+  /// Base64 of the AES-GCM ciphertext, iv and tag for the refresh token.
+  refreshTokenCiphertext String
+  /// The data key, itself encrypted with the environment key.
+  encryptedDataKey       String
+  scope                  String
+  /// Set when Google rejects the token, so the UI can say "reconnect" rather
+  /// than failing silently on every send.
+  needsReconnectAt       DateTime?
+  lastError              String?
+  connectedByUserId      String?
+  connectedAt            DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// SPEC §10. Editable per company, with a live preview and a test send.
+model EmailTemplate {
+  id        String            @id @default(cuid())
+  companyId String
+  kind      EmailTemplateKind
+  subject   String
+  body      String
+  updatedAt DateTime          @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, kind])
+}
+
+/// SPEC §10. Every attempt, filterable by document and by batch.
+model EmailLog {
+  id              String      @id @default(cuid())
+  companyId       String
+  toAddresses     String[]
+  cc              String[]
+  subject         String
+  bodySnapshot    String
+  attachmentNames String[]
+  relatedType     String?
+  relatedId       String?
+  /// Set for a bulk send (SPEC §10.1), so a batch can be reviewed as a whole.
+  emailBatchId    String?
+  status          EmailStatus @default(QUEUED)
+  gmailMessageId  String?
+  error           String?
+  attemptCount    Int         @default(0)
+  sentAt          DateTime?
+  sentByUserId    String?
+  createdAt       DateTime    @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@index([relatedType, relatedId])
+  @@index([emailBatchId])
 }

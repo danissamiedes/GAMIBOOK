@@ -9,6 +9,8 @@ import { parseMoney, money } from "@/lib/money";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
+import { prepareInvoiceEmail, sendEmail, stampEmailed } from "@/lib/email/send";
+import { dryRun } from "@/lib/email/gmail";
 import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export default async function InvoicePage({
@@ -178,6 +180,36 @@ export default async function InvoicePage({
     redirect(`/invoices/${id}`);
   }
 
+  async function email() {
+    "use server";
+    const inner = await sectionScope("SALES");
+    const prepared = await prepareInvoiceEmail({ companyId: inner.companyId, invoiceId: id });
+    if (prepared.to.length === 0) {
+      fail("This customer has no email address on file");
+    }
+    const result = await sendEmail({
+      companyId: inner.companyId,
+      email: prepared,
+      userId: inner.userId,
+    });
+    if (result.status === "SENT") {
+      // Stamped only on success: a failed send must leave the document
+      // showing as not sent (SPEC §10.1).
+      await stampEmailed("Invoice", id, inner.companyId);
+      await writeAudit({
+        companyId: inner.companyId,
+        userId: inner.userId,
+        action: "invoice.emailed",
+        entityType: "Invoice",
+        entityId: id,
+        summary: prepared.to.join(", "),
+      });
+    } else {
+      fail(result.error ?? "The email failed. See the email log.");
+    }
+    redirect(`/invoices/${id}`);
+  }
+
   const isDraft = invoice.status === "DRAFT";
   const isOpen = invoice.status === "ISSUED" || invoice.status === "PARTIALLY_PAID";
   const foreign = invoice.currency !== company.baseCurrency;
@@ -333,6 +365,29 @@ export default async function InvoicePage({
         </Card>
 
         <div className="space-y-6">
+          <Card>
+            <h2 className="mb-3 text-sm font-semibold">Document</h2>
+            <div className="space-y-3">
+              <a href={`/documents/invoice/${invoice.id}?refresh=1`} target="_blank" rel="noreferrer">
+                <Button variant="secondary" className="w-full" type="button">
+                  Download PDF
+                </Button>
+              </a>
+              <form action={email}>
+                <Button type="submit" variant="secondary" className="w-full">
+                  {invoice.lastEmailedAt ? "Resend to customer" : "Email to customer"}
+                </Button>
+              </form>
+              <p className="text-xs text-slate-500">
+                {invoice.lastEmailedAt
+                  ? `Last sent ${invoice.lastEmailedAt.toISOString().slice(0, 16).replace("T", " ")} UTC.`
+                  : "Not sent yet."}
+                {isDraft ? " Emailing a draft posts nothing." : ""}
+                {dryRun() ? " Dry run is on — nothing actually leaves this machine." : ""}
+              </p>
+            </div>
+          </Card>
+
           <Card>
             <h2 className="mb-3 text-sm font-semibold">Actions</h2>
             <div className="space-y-3">

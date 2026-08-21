@@ -9,7 +9,7 @@ not estimated from a list of categorised transactions.
 
 ## Status
 
-**Phases 1–6 are complete.** What works today:
+**Phases 1–7 are complete.** What works today:
 
 - Multi-company data model — Organization → Company → Membership, roles per
   company (`OWNER`, `BOOKKEEPER`, `CONSULTANT`)
@@ -126,8 +126,41 @@ not estimated from a list of categorised transactions.
   order (a reimbursement, an agreed cost). Same document as a vendor bill,
   same A/P, same payment machinery; visible only in the Consultants section
 
-Phases 7–9 (PDFs and email, the Excel work-order import, bulk send, bank
-import, dashboard) are specified in `SPEC.md` §14 and not yet built.
+**Phase 7 — documents and email:**
+
+- **PDFs** for invoices, work orders and payment receipts, with company
+  branding (logo, address, tax number, footer). Rendered with React-PDF rather
+  than headless Chrome, so there is no browser in the container and the Vercel
+  path stays open
+- PDF export for the Trial Balance, P&L and Balance Sheet
+- Generated PDFs are a **cache**: deleting one loses nothing, and changing
+  branding clears them so they regenerate
+- **Gmail sending** from your own mailbox — OAuth with only the `gmail.send`
+  scope, so the app cannot read your mail. Refresh tokens are held under
+  envelope encryption; a database dump alone decrypts nothing
+- Per-company email templates with live preview, placeholder substitution and
+  a "send test to myself" button
+- `EmailLog` for every attempt, with the reason when one fails
+- Send from an invoice or a work order; `lastEmailedAt` is stamped only on
+  success, and a consultant marked not-to-be-emailed is refused by name
+
+Phases 8–9 (the Excel work-order import, bulk send, bank import, dashboard) are
+specified in `SPEC.md` §14 and not yet built.
+
+### Connecting Gmail
+
+Sending needs a Google Cloud OAuth client. Until one is configured, everything
+works in dry-run: emails are composed, logged and previewable, and nothing
+leaves the machine.
+
+1. In the Google Cloud console, create an OAuth 2.0 Client ID (Web application).
+2. Add `https://your-domain/api/email/google/callback` as an authorised redirect
+   URI — and `http://localhost:3000/api/email/google/callback` for development.
+3. Put the client id and secret in `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`.
+4. Set `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`) — refresh tokens are
+   not stored without it.
+5. Set `EMAIL_DRY_RUN=false` when you actually want mail to go out.
+6. Connect the mailbox under Settings → Email.
 
 ## Local setup
 

@@ -147,12 +147,30 @@ export function DataTable({
   );
 }
 
-export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
+/**
+ * An empty screen should say what to do next, not just report the absence.
+ * `action` is the way out of the empty state — the button the reader would
+ * otherwise have to go looking for.
+ */
+export function EmptyState({
+  title,
+  children,
+  action,
+}: {
+  title: string;
+  children?: ReactNode;
+  action?: { href: string; label: string };
+}) {
   return (
     <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center dark:border-slate-700">
       <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{title}</p>
       {children ? (
         <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">{children}</div>
+      ) : null}
+      {action ? (
+        <Link href={action.href} className="mt-4 inline-block">
+          <Button variant="secondary">{action.label}</Button>
+        </Link>
       ) : null}
     </div>
   );

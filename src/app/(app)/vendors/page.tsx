@@ -88,7 +88,10 @@ export default async function VendorsPage({
       <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card>
           {vendors.length === 0 ? (
-            <EmptyState title="No vendors yet">Add the first one on the right.</EmptyState>
+            <EmptyState title="No vendors yet">
+              Add the first one on the right. Vendors here are the regular kind — consultants live
+              on their own screen because their documents work differently.
+            </EmptyState>
           ) : (
             <DataTable>
               <thead>

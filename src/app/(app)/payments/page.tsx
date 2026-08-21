@@ -25,7 +25,7 @@ export default async function PaymentsPage() {
     <>
       <PageHeader title="Customer payments" description="Money in. Reversal deletes nothing." />
       {payments.length === 0 ? (
-        <EmptyState title="No payments recorded yet">
+        <EmptyState title="No payments recorded yet" action={{ href: "/invoices", label: "Go to invoices" }}>
           Record one from an open invoice.
         </EmptyState>
       ) : (

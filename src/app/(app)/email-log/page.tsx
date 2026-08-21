@@ -51,7 +51,10 @@ export default async function EmailLogPage({
       ) : null}
 
       {logs.length === 0 ? (
-        <EmptyState title="Nothing sent yet" />
+        <EmptyState title="Nothing sent yet">
+          Every attempt lands here — successes and failures alike, with the reason a message was
+          refused. Send an invoice or a work order and it will show up.
+        </EmptyState>
       ) : (
         <Card>
           <DataTable>

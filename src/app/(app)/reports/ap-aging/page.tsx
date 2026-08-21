@@ -111,7 +111,10 @@ export default async function ApAgingPage({
       ) : null}
 
       {report.rows.length === 0 ? (
-        <EmptyState title="Nothing outstanding" />
+        <EmptyState title="Nothing outstanding">
+          No work order or bill has a balance as at this date. If you expected one, check the date
+          above — an unapproved work order is not yet a payable.
+        </EmptyState>
       ) : (
         <Card>
           <DataTable>

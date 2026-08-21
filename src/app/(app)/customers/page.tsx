@@ -98,7 +98,10 @@ export default async function CustomersPage({
       <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card>
           {customers.length === 0 ? (
-            <EmptyState title="No customers yet">Add your first one on the right.</EmptyState>
+            <EmptyState title="No customers yet">
+              Add your first one on the right. A customer needs a name and an email to invoice to;
+              everything else can wait.
+            </EmptyState>
           ) : (
             <DataTable>
               <thead>

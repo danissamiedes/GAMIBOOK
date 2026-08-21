@@ -107,7 +107,10 @@ export default async function ConsultantsPage({
       <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card>
           {consultants.length === 0 ? (
-            <EmptyState title="No consultants yet">Add the first one on the right.</EmptyState>
+            <EmptyState title="No consultants yet">
+              Add the first one on the right. A default rate and the email addresses to send work
+              orders to are what make the rest of the app quick.
+            </EmptyState>
           ) : (
             <DataTable>
               <thead>

@@ -36,6 +36,15 @@ export default async function InvoicesPage({
     take: 200,
   });
 
+  // Whether the screen is empty because there is nothing, or because the
+  // filter excluded everything. Telling someone with 400 invoices that they
+  // have none is worse than saying nothing.
+  const filtering = Boolean(status && status !== "ALL");
+  // Only asked when it can change the answer: the screen is empty and a filter
+  // is on.
+  const hiddenByFilter =
+    invoices.length === 0 && filtering && (await prisma.invoice.count({ where: scope.where })) > 0;
+
   const now = today();
 
   return (
@@ -58,7 +67,22 @@ export default async function InvoicesPage({
       </div>
 
       {invoices.length === 0 ? (
-        <EmptyState title="No invoices here yet" />
+        hiddenByFilter ? (
+          <EmptyState
+            title={`No ${(status ?? "").replace("_", " ").toLowerCase()} invoices`}
+            action={{ href: "/invoices", label: "Show all invoices" }}
+          >
+            Other invoices exist — this filter just excludes them.
+          </EmptyState>
+        ) : (
+          <EmptyState
+            title="No invoices yet"
+            action={{ href: "/invoices/new", label: "New invoice" }}
+          >
+            An invoice needs a customer and at least one line. Issuing it — not emailing it — is
+            what posts it to the ledger and allocates its number.
+          </EmptyState>
+        )
       ) : (
         <Card>
           <DataTable>

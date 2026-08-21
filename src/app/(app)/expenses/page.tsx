@@ -158,7 +158,11 @@ export default async function ExpensesPage({
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card>
           {rows.length === 0 ? (
-            <EmptyState title={tab === "bill" ? "No bills recorded" : "No direct expenses recorded"} />
+            <EmptyState title={tab === "bill" ? "No bills recorded" : "No direct expenses recorded"}>
+              {tab === "bill"
+                ? "A bill is something you owe and will pay later, so it sits in accounts payable until you do. Record the first one with the form beside this."
+                : "A direct expense is paid as you record it — no payable, one entry. Use a bill instead when the money leaves later."}
+            </EmptyState>
           ) : (
             <DataTable>
               <thead>

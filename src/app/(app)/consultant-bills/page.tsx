@@ -156,7 +156,11 @@ export default async function ConsultantBillsPage({
       <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card>
           {bills.length === 0 ? (
-            <EmptyState title="No consultant bills recorded" />
+            <EmptyState title="No consultant bills yet">
+              A bill is for something you owe a consultant that is not work — a reimbursement, an
+              agreed cost. Work itself belongs on a work order. Record the first one using the form
+              beside this.
+            </EmptyState>
           ) : (
             <DataTable>
               <thead>

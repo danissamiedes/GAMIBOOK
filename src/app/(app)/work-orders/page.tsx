@@ -86,6 +86,14 @@ export default async function WorkOrdersPage({
     take: 200,
   });
 
+  // An empty screen means one of two different things, and only one of them is
+  // "you have not started yet". Asked only when it can change the answer.
+  const filtering = Boolean((params.status && params.status !== "ALL") || params.consultant);
+  const hiddenByFilter =
+    workOrders.length === 0 &&
+    filtering &&
+    (await prisma.workOrder.count({ where: scope.where })) > 0;
+
   const now = today();
 
   return (
@@ -121,7 +129,26 @@ export default async function WorkOrdersPage({
       {params.failed ? <Alert tone="error">{decodeURIComponent(params.failed)}</Alert> : null}
 
       {workOrders.length === 0 ? (
-        <EmptyState title="No work orders here yet" />
+        hiddenByFilter ? (
+          <EmptyState
+            title="No work orders match these filters"
+            action={{ href: "/work-orders", label: "Show all work orders" }}
+          >
+            Others exist — the status or consultant filter is hiding them.
+          </EmptyState>
+        ) : (
+          <EmptyState
+            title="No work orders yet"
+            action={{ href: "/work-orders/new", label: "New work order" }}
+          >
+            Raise one for a consultant, or bring a month in at once from a spreadsheet with{" "}
+            <Link className="underline" href="/work-orders/import">
+              import
+            </Link>
+            . A work order posts to accounts payable when it is approved, which is also when it
+            gets its number.
+          </EmptyState>
+        )
       ) : (
         <Card>
           <form action={approveSelected}>

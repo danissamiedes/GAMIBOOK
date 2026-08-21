@@ -63,7 +63,11 @@ export default async function ArAgingPage({
       ) : null}
 
       {report.rows.length === 0 ? (
-        <EmptyState title="Nothing outstanding" />
+        <EmptyState title="Nothing outstanding">
+          {/* True whether every invoice is settled or none was ever raised —
+              claiming the first when the books are empty would be a lie. */}
+          No invoice has a balance as at this date. If you expected one, check the date above.
+        </EmptyState>
       ) : (
         <Card>
           <DataTable>

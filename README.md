@@ -316,13 +316,19 @@ docker compose exec -T db pg_dump -U ledger -Fc ledger > ledger-$(date +%F).dump
 docker run --rm -v ledger_storage-data:/data -v "$PWD":/backup alpine \
   tar czf /backup/storage-$(date +%F).tar.gz -C /data .
 
-# Restore into an empty database
+# Restore into an empty database.
+# Stop the app first: it holds connections to `ledger`, and a database with
+# anyone connected to it cannot be dropped. Connect to `postgres` to do the
+# dropping — `psql -U ledger` with no -d connects to `ledger` itself, and a
+# session cannot drop the database it is sitting in.
+docker compose stop app
 docker compose up -d db
-docker compose exec -T db psql -U ledger -c 'DROP DATABASE IF EXISTS ledger;'
-docker compose exec -T db psql -U ledger -c 'CREATE DATABASE ledger;'
+docker compose exec -T db psql -U ledger -d postgres -c 'DROP DATABASE IF EXISTS ledger;'
+docker compose exec -T db psql -U ledger -d postgres -c 'CREATE DATABASE ledger;'
 docker compose exec -T db pg_restore -U ledger -d ledger --clean --if-exists < ledger-2026-08-21.dump
 docker run --rm -v ledger_storage-data:/data -v "$PWD":/backup alpine \
   tar xzf /backup/storage-2026-08-21.tar.gz -C /data
+docker compose start app
 ```
 
 Verify a restore before you need one: restore into a scratch database and check

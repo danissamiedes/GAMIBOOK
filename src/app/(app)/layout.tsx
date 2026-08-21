@@ -87,8 +87,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             ) : null}
             {scope.hasSection("REPORTS") ? (
               <>
-                <NavLink href="/journal">Journal</NavLink>
+                <NavLink href="/reports/profit-loss">P&amp;L</NavLink>
+                <NavLink href="/reports/balance-sheet">Balance Sheet</NavLink>
                 <NavLink href="/reports/trial-balance">Trial Balance</NavLink>
+                <NavLink href="/reports/general-ledger">General Ledger</NavLink>
+                <NavLink href="/journal">Journal</NavLink>
               </>
             ) : null}
             {scope.hasSection("SETTINGS") ? (

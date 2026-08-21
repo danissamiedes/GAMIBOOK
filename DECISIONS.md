@@ -183,6 +183,33 @@ against the A/P control account like A/R is. Filtered to one kind it returns
 `tiesToLedger: null` and the report says it is showing a subset, rather than
 displaying a mismatch that is not a mismatch.
 
+### Phase 5 — reports (2026-08-21)
+
+**Retained earnings are computed, never posted.** The Balance Sheet takes the
+Retained Earnings account's own balance — which only a migration entry ever
+touches — and adds income less expenses for every posting dated before the
+fiscal year containing the as-of date. The report shows both parts separately so
+the figure can be checked. A test spans a fiscal-year boundary and asserts the
+prior year's profit appears in retained earnings while the account itself holds
+zero; without that test the bug is invisible in seed data that spans months.
+
+**Aging reports check themselves against the ledger.** A/R and A/P aging are
+built from open documents, because buckets need due dates the ledger does not
+carry. Each report then compares its total to the control account balance and
+says so when they differ, rather than presenting a figure nobody can tie out.
+A/P filtered to one vendor kind reports `tiesToLedger: null` instead of a false
+mismatch.
+
+**Every report is a URL.** Date ranges and presets are plain GET forms, so a
+report can be bookmarked, shared, or linked from a drill-down and come back the
+same. Drill-down passes the report's own period through to the account detail.
+
+**The seed tells a true story.** Building the Balance Sheet exposed a negative
+Advances to Consultants balance: the fixture recovered a cash advance that had
+never been paid out. The seed now posts the advance first, so the deduction line
+clears it to zero — a fixture that models something impossible is worse than no
+fixture.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

@@ -9,7 +9,7 @@ not estimated from a list of categorised transactions.
 
 ## Status
 
-**Phases 1–4 are complete.** What works today:
+**Phases 1–5 are complete.** What works today:
 
 - Multi-company data model — Organization → Company → Membership, roles per
   company (`OWNER`, `BOOKKEEPER`, `CONSULTANT`)
@@ -80,9 +80,25 @@ not estimated from a list of categorised transactions.
 - **A/P Aging** per vendor, filterable by kind, pinned to whichever side the
   viewer's sections allow
 
-Phases 5–9 (reports, time clock, PDFs and email, the Excel work-order import,
-bulk send, bank import, dashboard) are specified in `SPEC.md` §14 and not yet
-built. Sales orders (§7.1a) are specified and not yet built.
+**Phase 5 — reports:**
+
+- **Profit & Loss**, accrual basis, with an optional prior-period comparison
+  column and % of income
+- **Balance Sheet** with the equity rule spelled out in SPEC §12.2: net income
+  measured from the start of the fiscal year *containing the as-of date*, and
+  retained earnings as the account's own balance **plus** every prior year's
+  profit rolled forward from the ledger. It asserts `Assets = Liabilities +
+  Equity` and shows a loud banner if it ever fails
+- **General Ledger** and account detail with a running balance and opening figure
+- **Drill-down everywhere**: click any figure on the P&L, Balance Sheet, Trial
+  Balance or GL to see the journal lines behind it, then click a line to open
+  the invoice, work order or expense that created it
+- CSV export on every report, plus a print stylesheet until the PDF renderer
+  lands in Phase 7
+
+Phases 6–9 (time clock, PDFs and email, the Excel work-order import, bulk send,
+bank import, dashboard) are specified in `SPEC.md` §14 and not yet built. Sales
+orders (§7.1a) are specified and not yet built.
 
 ## Local setup
 

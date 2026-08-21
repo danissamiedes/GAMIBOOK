@@ -91,7 +91,16 @@ export default async function TrialBalancePage({
               {report.rows.map((row) => (
                 <tr key={row.accountId} className="border-b border-slate-100 dark:border-slate-800/60">
                   <td className="py-1.5 font-mono text-xs text-slate-500">{row.code}</td>
-                  <td className="py-1.5">{row.name}</td>
+                  <td className="py-1.5">
+                    <a
+                      className="underline decoration-dotted underline-offset-2"
+                      href={`/reports/account/${row.accountId}?${
+                        from ? `from=${formatAccountingDate(from)}&` : ""
+                      }to=${formatAccountingDate(asOf)}`}
+                    >
+                      {row.name}
+                    </a>
+                  </td>
                   <td className="py-1.5 text-right tabular-nums">
                     {row.debit.isZero() ? "" : formatMoney(row.debit.toFixed(2), company.baseCurrency)}
                   </td>

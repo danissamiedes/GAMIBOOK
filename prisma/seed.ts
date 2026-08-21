@@ -437,6 +437,21 @@ async function main() {
       role: "OWNER",
     });
 
+    // The advance has to exist before it can be recovered, or the balance sheet
+    // shows a negative asset — DR Advances to Consultants / CR Bank when the
+    // cash goes out, then the work order's deduction line clears it.
+    await postJournalEntry({
+      companyId: phpCompany.id,
+      date: new Date(Date.UTC(2026, 6, 20)),
+      memo: "Cash advance to John Rex Meraveles",
+      sourceType: "MANUAL",
+      role: "OWNER",
+      lines: [
+        { accountId: php("1200").id, debit: "3000.00", vendorId: johnRex.id },
+        { accountId: php("1000").id, credit: "3000.00" },
+      ],
+    });
+
     const withAdvance = await workOrder(johnRex.id, new Date(Date.UTC(2026, 7, 15)), [
       { description: "Consultation for period 072626-081026", quantity: "0.5", rate: "16000.00", code: "5000" },
       { description: "Cash Advances", quantity: "1", rate: "-3000.00", code: "1200" },

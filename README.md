@@ -418,23 +418,28 @@ Vercel runs the app as short-lived functions rather than a server, which changes
 four things. All four are handled — this is a supported target, not a
 workaround — but each needs something the VPS path does not.
 
-You will need three accounts, all with a free tier that covers a small business:
-**Vercel**, a Postgres host (**Neon** — Vercel Postgres is Neon underneath), and
-an S3-compatible bucket (**Cloudflare R2**, which has no egress charges).
+You need three accounts, all free tier: **Vercel**, **Supabase** (Postgres and
+file storage in one), and **GitHub** (the repository, and the scheduler).
 
-**1. Create the database.** In Neon, make a project and copy **both** connection
-strings from the dashboard: the **pooled** one (its host contains `-pooler`) and
-the **direct** one. Serverless multiplies instances and each opens its own
-connections, so the app uses the pooled URL; migrations need a session the
-pooler will not give them, so they use the direct URL.
+**1. Create the database.** In Supabase, make a project and open Project
+Settings → Database. Copy **both** connection strings: the **transaction pooler**
+one (port 6543) and the **direct** one (port 5432). Serverless multiplies
+instances and each opens its own connections, so the app serves requests through
+the pooler; migrations need a session the pooler will not hold, so they use the
+direct connection.
 
-**2. Create the bucket.** In Cloudflare R2, make a bucket and an API token with
-object read and write. Note the bucket name, the account endpoint
-(`https://<account-id>.r2.cloudflarestorage.com`), and the key pair. **This is
-not optional.** A serverless filesystem does not survive between requests, so
-the local-disk driver would accept every upload and lose receipts and imported
-bank statements with no error at all. The app refuses to start that combination
-rather than let it happen quietly.
+**2. Create the storage bucket.** In Supabase, Storage → new bucket named
+`ledger-files`, kept **private**. Then Storage → S3 access keys → new key, and
+note the access key id, the secret, the endpoint
+(`https://<project-ref>.storage.supabase.co/storage/v1/s3`) and the region.
+
+**This is not optional.** A serverless filesystem does not survive between
+requests, so the local-disk driver would accept every upload and lose receipts
+and imported bank statements with no error at all. The app refuses that
+combination outright rather than let it happen quietly.
+
+While you are there, make a second private bucket called `ledger-backups` — the
+backup workflow below writes to it.
 
 **3. Import the repository into Vercel** — New Project, pick the repo, framework
 Next.js, and do not deploy yet.
@@ -451,17 +456,17 @@ openssl rand -base64 32   # CRON_SECRET
 
 | Variable | Value |
 |---|---|
-| `DATABASE_URL` | Neon's **pooled** string, with `?sslmode=require&pgbouncer=true` |
-| `DIRECT_DATABASE_URL` | Neon's **direct** string, with `?sslmode=require` |
+| `DATABASE_URL` | Supabase **pooler** string (port 6543), with `?pgbouncer=true` |
+| `DIRECT_DATABASE_URL` | Supabase **direct** string (port 5432) |
 | `AUTH_SECRET` | generated above |
 | `AUTH_URL` | `https://your-project.vercel.app` — update it if you add a domain |
 | `TOKEN_ENCRYPTION_KEY` | generated above |
 | `CRON_SECRET` | generated above |
 | `STORAGE_DRIVER` | `s3` |
-| `S3_BUCKET` | your R2 bucket name |
-| `S3_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
-| `S3_REGION` | `auto` |
-| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | the R2 token pair |
+| `S3_BUCKET` | `ledger-files` |
+| `S3_ENDPOINT` | `https://<project-ref>.storage.supabase.co/storage/v1/s3` |
+| `S3_REGION` | the project's region, e.g. `ap-southeast-1` |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | the Supabase S3 access key pair |
 | `S3_FORCE_PATH_STYLE` | `true` |
 | `EMAIL_DRY_RUN` | `true` until Gmail is connected |
 | `SCHEDULER_ENABLED` | leave unset — see **Scheduled jobs** below |
@@ -474,12 +479,12 @@ behind the code.
 machine, pointed at the production database:
 
 ```bash
-DATABASE_URL="<the direct Neon string>" npm run bootstrap
+DATABASE_URL="<the DIRECT Supabase string>" npm run bootstrap
 ```
 
 Then sign in at your Vercel URL, and you land on the setup wizard.
 
-### Scheduled jobs on Vercel
+### Scheduled jobs
 
 The in-process scheduler cannot work where there is no process between
 requests, so `/api/cron` does the same work when something outside knocks. It
@@ -487,19 +492,76 @@ authenticates with `CRON_SECRET` and runs every job; each one is idempotent, so
 calling it more often than needed is harmless and calling it late delays work
 rather than losing it.
 
-`vercel.json` registers an hourly cron, and Vercel sends `CRON_SECRET` as a
-Bearer token by itself. **On the Hobby plan, Vercel runs cron jobs once a day**,
-which is fine for recurring invoices and not fine for closing a shift someone
-forgot to clock out of. Either move to Pro, or point any external pinger at it:
+`vercel.json` registers an hourly cron, but **Vercel runs cron jobs once a day on
+the Hobby plan** — fine for generating a recurring invoice, not fine for closing
+a shift someone forgot to clock out of. `.github/workflows/scheduled-jobs.yml`
+runs it hourly from GitHub Actions instead, which is the real scheduler here. It
+doubles as a keep-alive: a free Supabase project pauses after about a week with
+no connections, and an hourly ping means it never gets there.
 
-```
-GET https://your-project.vercel.app/api/cron
-    x-cron-key: <CRON_SECRET>
-```
+Two repository secrets, under Settings → Secrets and variables → Actions:
 
-`cron-job.org` and a GitHub Actions schedule both do this for nothing. Leave
-`SCHEDULER_ENABLED` unset on Vercel — setting it starts timers inside a function
-that is frozen the moment it returns a response.
+| Secret | Value |
+|---|---|
+| `LEDGER_URL` | `https://your-project.vercel.app`, no trailing slash |
+| `CRON_SECRET` | the same value you set in Vercel |
+
+Run it once by hand from the Actions tab to prove the two secrets agree — a
+mismatch returns 401, and the workflow fails loudly rather than looking like a
+success forever.
+
+Leave `SCHEDULER_ENABLED` unset on Vercel. Setting it starts timers inside a
+function that is frozen the moment it returns a response.
+
+**Cost.** Actions bills each run rounded up to a whole minute, so hourly is about
+720 of the 2,000 free minutes a month on a private repository. Every fifteen
+minutes would be about 2,900 and would not fit. Public repositories are
+unmetered. Scheduled workflows are also best-effort — GitHub delays them under
+load, occasionally by a good many minutes — which is fine for these jobs and
+would not be for anything time-critical.
+
+### Backups
+
+Supabase's free plan takes no automated backup you can download, so without
+something the only copy of the ledger is the live database.
+`.github/workflows/backup.yml` runs nightly: `pg_dump` of the direct connection,
+a `pg_restore --list` to prove the archive reads back, then upload to the
+`ledger-backups` bucket, keeping 30 days. It refuses to upload a dump under
+20 KB, so a half-connected run cannot quietly replace a good backup with an
+empty one.
+
+| Secret | Value |
+|---|---|
+| `SUPABASE_DB_URL` | the **direct** connection string, not the pooler |
+| `SUPABASE_S3_ENDPOINT` | `https://<project-ref>.storage.supabase.co/storage/v1/s3` |
+| `SUPABASE_S3_REGION` | the project's region |
+| `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY` | the S3 access key pair |
+| `BACKUP_BUCKET` | `ledger-backups` |
+
+The dump and the database live in the same Supabase project, which is better
+than nothing and is not real off-site backup. Download a dump to your own
+machine now and then, and take the **full data export** from Settings → Company
+periodically — twenty CSVs any accountant can open, and the copy that stays
+readable if this app disappears.
+
+### What this deployment cannot do
+
+Everything the app does works on Vercel and Supabase, with four limits worth
+knowing before you meet them:
+
+- **Uploads are capped at 4 MB, not 10.** Vercel rejects a request body over
+  4.5 MB before any of this code runs, so the import screens lower their own
+  limit to match and say 4 MB. A larger bank statement has to be split. On a VPS
+  the limit is the full 10 MB.
+- **Downloads have the same ceiling.** The full data export is built and
+  returned in one response; a few years of books could pass 4.5 MB and fail. If
+  that happens, export from a local copy restored from a backup.
+- **The scheduler is only as punctual as GitHub Actions.** Hourly, best-effort,
+  and it can run late.
+- **Emailing invoices needs a Google Cloud OAuth client** — a fourth thing to
+  set up, though not a fourth service if you already have Google Workspace. See
+  `docs/gmail-setup.md`. Until it is connected, keep `EMAIL_DRY_RUN=true`: the
+  app records what it would have sent instead of failing.
 
 ### What is different about running here
 
@@ -509,13 +571,16 @@ that is frozen the moment it returns a response.
 | Scheduler | in-process timers | `/api/cron` plus an external schedule |
 | Database | one direct connection | pooled URL, plus a direct one for migrations |
 | Login throttling | same table | same table — it lives in Postgres, not memory |
-| Backups | `scripts/backup.sh` | your Postgres host's backups, plus the bucket |
+| Backups | `scripts/backup.sh` from cron | `.github/workflows/backup.yml` nightly |
+| Upload size | 10 MB | 4 MB, capped by the platform |
 
-The last row is the one to think about before real books go in. On a VPS you own
-the backup and the restore is documented below. On Vercel your data is in
-someone else's Postgres, so check what their free tier actually retains — and
-either way, take the **full data export** from Settings → Company periodically,
-because it is the copy that stays readable without this app.
+The backup row is the one to think about before real books go in. On a VPS the
+dump is a file on a machine you control. On Vercel and Supabase's free plan
+nothing is backed up unless the workflow runs, and its output lands in the same
+Supabase project as the database it came from — better than nothing, not real
+off-site backup. Either way, take the **full data export** from
+Settings → Company periodically: it is the copy that stays readable without this
+app.
 
 ## Backup and restore
 

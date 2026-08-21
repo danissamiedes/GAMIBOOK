@@ -5,7 +5,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { failTo } from "@/lib/fail";
 import { storage, storageKeys } from "@/lib/storage";
-import { MAX_IMPORT_BYTES, ImportParseError } from "@/lib/imports/parse";
+import { maxImportBytes, maxImportLabel, ImportParseError } from "@/lib/imports/parse";
 import {
   Alert,
   Button,
@@ -110,8 +110,8 @@ export default async function BankingPage({
     if (!(file instanceof File) || file.size === 0)
       failTo("/banking", "Choose a statement file");
     const upload = file as File;
-    if (upload.size > MAX_IMPORT_BYTES)
-      failTo("/banking", "That file is over 10 MB");
+    if (upload.size > maxImportBytes())
+      failTo("/banking", `That file is over ${maxImportLabel()}`);
 
     // Staged as a batch with the file kept, so the mapping screen can re-read
     // it as the user changes columns without making them upload again.
@@ -288,7 +288,7 @@ export default async function BankingPage({
                     ))}
                   </Select>
                 </Field>
-                <Field label="File" hint=".csv or .xlsx, up to 10 MB.">
+                <Field label="File" hint={`.csv or .xlsx, up to ${maxImportLabel()}.`}>
                   <Input type="file" name="file" accept=".csv,.xlsx" required />
                 </Field>
                 <Button type="submit">Upload</Button>

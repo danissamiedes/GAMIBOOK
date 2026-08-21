@@ -706,6 +706,47 @@ The single-VPS path stays the recommended one and is unchanged in substance. It
 is one service instead of three, and the backup is a file you own rather than
 whatever a free tier happens to retain.
 
+## Three services, and what they cost — 2026-08-21
+
+The user settled on Supabase, GitHub and Vercel, and asked what could not run on
+those alone. The answer turned out to be: nothing, but four limits are real and
+two of them needed building rather than documenting.
+
+**Supabase covers both halves of what Vercel lacks.** Postgres with a transaction
+pooler and a direct connection, and Storage behind an S3-compatible endpoint.
+The storage adapter only ever issues PutObject, GetObject, HeadObject,
+DeleteObject and ListObjectsV2, all of which that endpoint serves, so no adapter
+work was needed — the driver switch is four environment variables.
+
+**The upload limit was a promise the app could not keep.** `MAX_IMPORT_BYTES` was
+10 MB, and Vercel rejects a request body over 4.5 MB before any application code
+runs. A user picking an 8 MB bank statement would have waited and then been shown
+a platform error rather than ours. It is now a function of the environment, and
+the hints and messages read from the same place, so the number on the screen is
+the number that applies.
+
+**GitHub Actions is the scheduler, not Vercel Cron.** Hobby runs cron once a day,
+which is fine for a recurring invoice and not for closing a forgotten shift. The
+workflow runs hourly and doubles as the keep-alive that stops a free Supabase
+project pausing after a week. Hourly rather than every fifteen minutes for a
+mundane reason: Actions bills each run rounded up to a whole minute, so quarter-
+hourly is about 2,900 minutes a month against a 2,000-minute free tier. That is
+the sort of limit that is discovered in the second month, so it is written down.
+
+**Nothing was backing up the books.** Supabase's free plan takes no downloadable
+automated backup, so a nightly workflow dumps the direct connection, proves the
+archive reads back with `pg_restore --list`, and keeps thirty days in a separate
+bucket. It refuses to upload a dump under 20 KB — a half-connected run must not
+quietly replace a good backup with an empty one. Writing the retention step
+surfaced its own bug: `grep` exits non-zero on no matches, so with `pipefail` the
+first ever run would have failed for having nothing to tidy.
+
+The remaining limits are stated rather than worked around: downloads share the
+4.5 MB ceiling, so a full export of several years of books would fail and should
+be taken from a restored local copy; Actions schedules are best-effort and run
+late under load; and emailing invoices still needs a Google Cloud OAuth client,
+which is a fourth thing to configure even when it is not a fourth service.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

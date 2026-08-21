@@ -1,0 +1,78 @@
+# The scheduler, for a deployment with no process of its own.
+#
+# Vercel's own cron runs once a day on the Hobby plan, which is fine for
+# generating a recurring invoice and not fine for closing a shift someone forgot
+# to clock out of. This runs hourly instead, and doubles as a keep-alive: a free
+# Supabase project pauses after about a week with no connections.
+#
+# Two repository secrets are needed — Settings → Secrets and variables → Actions:
+#   LEDGER_URL    https://your-project.vercel.app   (no trailing slash)
+#   CRON_SECRET   the same value set in Vercel's environment variables
+#
+# Cost, on a private repository: Actions bills each run rounded up to a whole
+# minute, so hourly is ~720 of the 2,000 free minutes a month. Every fifteen
+# minutes would be ~2,900 and would not fit. Public repositories are unmetered.
+name: Scheduled jobs
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  # So you can prove it works without waiting for the hour.
+  workflow_dispatch:
+
+# A run that overlaps the previous one has nothing useful to add.
+concurrency:
+  group: scheduled-jobs
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run due jobs
+        env:
+          LEDGER_URL: ${{ secrets.LEDGER_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LEDGER_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Set the LEDGER_URL and CRON_SECRET repository secrets."
+            exit 1
+          fi
+
+          # A cold Vercel function plus a paused Supabase project can take a
+          # while on the first hit, so allow for it and retry once. curl only
+          # fails here on a network-level problem: an HTTP 401 or 500 still
+          # counts as reached, and is judged below.
+          code=""
+          for attempt in 1 2; do
+            if code=$(curl --silent --show-error --location \
+              --max-time 120 \
+              --header "x-cron-key: ${CRON_SECRET}" \
+              --output response.json \
+              --write-out '%{http_code}' \
+              "${LEDGER_URL}/api/cron"); then
+              break
+            fi
+            echo "Attempt ${attempt} could not reach the app."
+            code=""
+            [ "${attempt}" = "1" ] && sleep 20
+          done
+
+          if [ -z "${code}" ]; then
+            echo "::error::Could not reach ${LEDGER_URL}/api/cron at all."
+            exit 1
+          fi
+
+          echo "HTTP ${code}"
+          cat response.json || true
+          echo
+
+          # 401 means the secret here and the secret in Vercel disagree, which
+          # would otherwise look like a silent success forever.
+          if [ "${code}" = "401" ]; then
+            echo "::error::Rejected: CRON_SECRET here does not match the one in Vercel."
+            exit 1
+          fi
+          [ "${code}" = "200" ] || { echo "::error::Jobs failed — see the response above."; exit 1; }

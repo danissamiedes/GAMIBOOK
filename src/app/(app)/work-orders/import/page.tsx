@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { stageImport } from "@/lib/imports/work-orders";
 import { WORK_ORDER_IMPORT_COLUMNS } from "@/lib/imports/columns";
-import { MAX_IMPORT_BYTES, ImportParseError } from "@/lib/imports/parse";
+import { maxImportBytes, maxImportLabel, ImportParseError } from "@/lib/imports/parse";
 import { PostingError } from "@/lib/errors";
 import { formatAccountingDate } from "@/lib/dates";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
@@ -37,8 +37,10 @@ export default async function ImportWorkOrdersPage({
       redirect("/work-orders/import?error=Choose%20a%20file");
     }
     const upload = file as File;
-    if (upload.size > MAX_IMPORT_BYTES) {
-      redirect("/work-orders/import?error=That%20file%20is%20over%2010%20MB");
+    if (upload.size > maxImportBytes()) {
+      redirect(
+        `/work-orders/import?error=${encodeURIComponent(`That file is over ${maxImportLabel()}`)}`,
+      );
     }
 
     let batchId: string;
@@ -73,7 +75,7 @@ export default async function ImportWorkOrdersPage({
         <Card>
           <h2 className="mb-3 text-sm font-semibold">Upload</h2>
           <form action={upload} className="space-y-4">
-            <Field label="File" hint=".xlsx or .csv, up to 10 MB and 5,000 rows.">
+            <Field label="File" hint={`.xlsx or .csv, up to ${maxImportLabel()} and 5,000 rows.`}>
               <Input type="file" name="file" accept=".xlsx,.csv" required />
             </Field>
             <Field label="Sheet" hint="Leave blank for the first sheet in the workbook.">

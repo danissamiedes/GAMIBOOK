@@ -1,0 +1,123 @@
+# Nightly backup of the books.
+#
+# Supabase's free plan does not take automated backups you can download, so
+# without this the only copy of the ledger is the live database. This dumps it
+# and puts the dump in a Supabase Storage bucket — a different service from the
+# database, which is the part that makes it a backup.
+#
+# Repository secrets — Settings → Secrets and variables → Actions:
+#   SUPABASE_DB_URL              the DIRECT connection string (not the pooler)
+#   SUPABASE_S3_ENDPOINT         https://<project-ref>.storage.supabase.co/storage/v1/s3
+#   SUPABASE_S3_REGION           the project's region, e.g. ap-southeast-1
+#   SUPABASE_S3_ACCESS_KEY_ID    from Storage → S3 access keys
+#   SUPABASE_S3_SECRET_ACCESS_KEY
+#   BACKUP_BUCKET                a bucket kept PRIVATE, e.g. ledger-backups
+#
+# Restoring is in README.md. Test it before you need it: a backup nobody has
+# restored is a hypothesis.
+name: Backup
+
+on:
+  schedule:
+    # 18:20 UTC is 02:20 in Manila — after the day's work, before the morning's.
+    - cron: "20 18 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install a matching pg_dump
+        run: |
+          set -euo pipefail
+          # The runner's client is older than Supabase's server, and pg_dump
+          # refuses to dump a newer server than itself. Take it from PGDG.
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      - name: Dump the database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_DB_URL:-}" ] || { echo "::error::Set SUPABASE_DB_URL."; exit 1; }
+
+          STAMP=$(date -u +%F)
+          echo "STAMP=${STAMP}" >> "$GITHUB_ENV"
+
+          # -Fc is the custom format: compressed, and pg_restore can be
+          # selective with it. --no-owner because the roles on the machine you
+          # restore to will not be Supabase's.
+          pg_dump --no-owner --no-privileges -Fc \
+            --file="ledger-${STAMP}.dump" "${SUPABASE_DB_URL}"
+
+          SIZE=$(stat -c%s "ledger-${STAMP}.dump")
+          echo "Dump is ${SIZE} bytes."
+          # A dump of an empty or half-connected database is small. Refuse to
+          # ship one over a good backup rather than discover it at restore time.
+          if [ "${SIZE}" -lt 20000 ]; then
+            echo "::error::Dump is only ${SIZE} bytes — that is not a real database. Not uploading."
+            exit 1
+          fi
+
+      - name: Check it can be read back
+        run: |
+          set -euo pipefail
+          # Not a restore, but it parses the whole archive and lists its
+          # contents, which catches a truncated or corrupt file here rather
+          # than on the day you need it.
+          pg_restore --list "ledger-${STAMP}.dump" > /dev/null
+          echo "Archive reads cleanly."
+
+      - name: Upload to Supabase Storage
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SUPABASE_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SUPABASE_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.SUPABASE_S3_REGION }}
+          ENDPOINT: ${{ secrets.SUPABASE_S3_ENDPOINT }}
+          BUCKET: ${{ secrets.BACKUP_BUCKET }}
+        run: |
+          set -euo pipefail
+          aws s3 cp "ledger-${STAMP}.dump" "s3://${BUCKET}/ledger-${STAMP}.dump" \
+            --endpoint-url "${ENDPOINT}"
+          echo "Uploaded ledger-${STAMP}.dump"
+
+      - name: Drop dumps older than 30 days
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SUPABASE_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SUPABASE_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.SUPABASE_S3_REGION }}
+          ENDPOINT: ${{ secrets.SUPABASE_S3_ENDPOINT }}
+          BUCKET: ${{ secrets.BACKUP_BUCKET }}
+        run: |
+          set -euo pipefail
+          CUTOFF=$(date -u -d '30 days ago' +%F)
+          echo "Keeping anything from ${CUTOFF} onwards."
+
+          # The date is in the key, so no metadata call is needed to judge age.
+          # The `|| true` matters on the first run: grep exits 1 when the bucket
+          # is empty, which under `set -o pipefail` would fail the whole step
+          # for having nothing to tidy.
+          aws s3 ls "s3://${BUCKET}/" --endpoint-url "${ENDPOINT}" \
+            | awk '{print $4}' \
+            | { grep -E '^ledger-[0-9]{4}-[0-9]{2}-[0-9]{2}\.dump$' || true; } \
+            | while read -r key; do
+                day="${key#ledger-}"; day="${day%.dump}"
+                if [[ "${day}" < "${CUTOFF}" ]]; then
+                  echo "Removing ${key}"
+                  aws s3 rm "s3://${BUCKET}/${key}" --endpoint-url "${ENDPOINT}"
+                fi
+              done
+        shell: bash

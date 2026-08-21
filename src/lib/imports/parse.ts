@@ -6,7 +6,26 @@ import { mapHeaders, type ColumnKey } from "./columns";
  * trusted to parse a file and post back what it found.
  */
 
-export const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
+/**
+ * How large an upload may be.
+ *
+ * A serverless host rejects the request body before any of this code runs —
+ * Vercel's cap is 4.5 MB — so a 10 MB limit there would be a promise the app
+ * cannot keep: the user picks an 8 MB statement, waits, and gets an opaque
+ * platform error instead of ours. Match the platform so the number in the hint
+ * is the number that actually applies.
+ */
+export function maxImportBytes(): number {
+  const serverless =
+    process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.SERVERLESS === "true";
+  return serverless ? 4 * 1024 * 1024 : 10 * 1024 * 1024;
+}
+
+/** For messages and hints: "4 MB" or "10 MB". */
+export function maxImportLabel(): string {
+  return `${Math.floor(maxImportBytes() / (1024 * 1024))} MB`;
+}
+
 export const MAX_IMPORT_ROWS = 5_000;
 
 export type RawRow = {
@@ -71,9 +90,9 @@ export async function readWorkbook(options: {
   fileName: string;
   sheetName?: string | null;
 }): Promise<RawSheet> {
-  if (options.bytes.length > MAX_IMPORT_BYTES) {
+  if (options.bytes.length > maxImportBytes()) {
     throw new ImportParseError(
-      "That file is over 10 MB. Split it and import in parts.",
+      `That file is over ${maxImportLabel()}. Split it and import in parts.`,
     );
   }
 

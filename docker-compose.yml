@@ -24,6 +24,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://ledger:${POSTGRES_PASSWORD:-ledger}@db:5432/ledger?schema=public
+      DIRECT_DATABASE_URL: postgresql://ledger:${POSTGRES_PASSWORD:-ledger}@db:5432/ledger?schema=public
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
       AUTH_URL: ${AUTH_URL:-http://localhost:3000}
       STORAGE_DRIVER: ${STORAGE_DRIVER:-local}

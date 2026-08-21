@@ -34,6 +34,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://ledger:${POSTGRES_PASSWORD}@db:5432/ledger?schema=public
+      # No pooler here, so the migration connection is the same one.
+      DIRECT_DATABASE_URL: postgresql://ledger:${POSTGRES_PASSWORD}@db:5432/ledger?schema=public
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
       AUTH_URL: https://${LEDGER_DOMAIN:?set LEDGER_DOMAIN in .env}
       STORAGE_DRIVER: ${STORAGE_DRIVER:-local}

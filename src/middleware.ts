@@ -19,6 +19,9 @@ const PUBLIC_PREFIXES = [
   "/reset-password",
   "/invite",
   "/api/auth",
+  // Scheduled jobs arrive with no session, by definition. The route checks
+  // CRON_SECRET itself; letting it through here is not letting it through.
+  "/api/cron",
   "/_next",
   "/favicon.ico",
 ];

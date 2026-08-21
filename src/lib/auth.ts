@@ -38,7 +38,7 @@ const providers: NextAuthConfig["providers"] = [
       const email = parsed.data.email.toLowerCase().trim();
 
       // Rate-limit login attempts (SPEC §13): 10 per email per 15 minutes.
-      const limit = rateLimit(`login:${email}`, 10, 15 * 60);
+      const limit = await rateLimit(`login:${email}`, 10, 15 * 60);
       if (!limit.ok) throw new Error("Too many attempts. Try again shortly.");
 
       const user = await prisma.user.findUnique({ where: { email } });
@@ -47,7 +47,7 @@ const providers: NextAuthConfig["providers"] = [
       const ok = await verifyPassword(user.passwordHash, parsed.data.password);
       if (!ok) return null;
 
-      resetRateLimit(`login:${email}`);
+      await resetRateLimit(`login:${email}`);
       await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
       return { id: user.id, email: user.email, name: user.name };

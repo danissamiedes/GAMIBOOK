@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { LocalDiskAdapter, storageKeys } from "@/lib/storage";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { LocalDiskAdapter, resetStorage, storage, storageKeys } from "@/lib/storage";
 
 describe("local disk storage adapter", () => {
   let root: string;
@@ -43,5 +43,45 @@ describe("local disk storage adapter", () => {
     expect(storageKeys.documentPdf("c1", "work-order", "w1")).toBe(
       "companies/c1/pdf/work-order/w1.pdf",
     );
+  });
+});
+
+describe("choosing a driver", () => {
+  const saved = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...saved };
+    resetStorage();
+  });
+
+  it("refuses the local driver on a serverless host rather than losing files quietly", () => {
+    process.env.VERCEL = "1";
+    process.env.STORAGE_DRIVER = "local";
+    resetStorage();
+    expect(() => storage()).toThrow(/serverless/i);
+  });
+
+  it("still allows the local driver on a host with a real filesystem", () => {
+    delete process.env.VERCEL;
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    delete process.env.SERVERLESS;
+    process.env.STORAGE_DRIVER = "local";
+    resetStorage();
+    expect(storage().name).toBe("local");
+  });
+
+  it("allows s3 on a serverless host, which is the supported combination", () => {
+    process.env.VERCEL = "1";
+    process.env.STORAGE_DRIVER = "s3";
+    process.env.S3_BUCKET = "ledger-test";
+    resetStorage();
+    expect(storage().name).toBe("s3");
+  });
+
+  it("will not accept s3 without a bucket", () => {
+    process.env.STORAGE_DRIVER = "s3";
+    delete process.env.S3_BUCKET;
+    resetStorage();
+    expect(() => storage()).toThrow(/S3_BUCKET/);
   });
 });

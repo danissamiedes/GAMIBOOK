@@ -316,10 +316,11 @@ migrate it automatically before the first test file.
 
 ## Deployment (single VPS)
 
-This is the shape the app is built for: one always-on container next to one
-Postgres. The scheduler, the local storage volume and the in-memory login
-rate-limiter all assume a single long-lived instance, which is exactly what a
-small VPS is. Serverless hosts break all three — see **Why not Vercel** below.
+The simplest way to run this: one always-on container next to one Postgres.
+Nothing has to be arranged around a host that discards its filesystem and its
+process between requests — the scheduler is timers, storage is a mounted volume,
+and backups are a file you can copy. [Vercel](#deployment-vercel) is supported
+too, and needs three services instead of one.
 
 A 2 GB box is enough. These steps take about ten minutes.
 
@@ -411,23 +412,110 @@ Migrations run on boot, so the schema never lands behind the code. Take a backup
 first — see below — because a migration is the one deploy step that cannot be
 rolled back by redeploying the previous image.
 
-### Why not Vercel
+## Deployment (Vercel)
 
-It can be made to work, but four things in this app assume a server:
+Vercel runs the app as short-lived functions rather than a server, which changes
+four things. All four are handled — this is a supported target, not a
+workaround — but each needs something the VPS path does not.
 
-| | What breaks | What it would take |
+You will need three accounts, all with a free tier that covers a small business:
+**Vercel**, a Postgres host (**Neon** — Vercel Postgres is Neon underneath), and
+an S3-compatible bucket (**Cloudflare R2**, which has no egress charges).
+
+**1. Create the database.** In Neon, make a project and copy **both** connection
+strings from the dashboard: the **pooled** one (its host contains `-pooler`) and
+the **direct** one. Serverless multiplies instances and each opens its own
+connections, so the app uses the pooled URL; migrations need a session the
+pooler will not give them, so they use the direct URL.
+
+**2. Create the bucket.** In Cloudflare R2, make a bucket and an API token with
+object read and write. Note the bucket name, the account endpoint
+(`https://<account-id>.r2.cloudflarestorage.com`), and the key pair. **This is
+not optional.** A serverless filesystem does not survive between requests, so
+the local-disk driver would accept every upload and lose receipts and imported
+bank statements with no error at all. The app refuses to start that combination
+rather than let it happen quietly.
+
+**3. Import the repository into Vercel** — New Project, pick the repo, framework
+Next.js, and do not deploy yet.
+
+**4. Set the environment variables.** Generate the secrets on your own machine;
+a key that has been pasted into a chat window or a shared document is not a
+secret any more.
+
+```bash
+openssl rand -base64 32   # AUTH_SECRET
+openssl rand -base64 32   # TOKEN_ENCRYPTION_KEY
+openssl rand -base64 32   # CRON_SECRET
+```
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Neon's **pooled** string, with `?sslmode=require&pgbouncer=true` |
+| `DIRECT_DATABASE_URL` | Neon's **direct** string, with `?sslmode=require` |
+| `AUTH_SECRET` | generated above |
+| `AUTH_URL` | `https://your-project.vercel.app` — update it if you add a domain |
+| `TOKEN_ENCRYPTION_KEY` | generated above |
+| `CRON_SECRET` | generated above |
+| `STORAGE_DRIVER` | `s3` |
+| `S3_BUCKET` | your R2 bucket name |
+| `S3_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
+| `S3_REGION` | `auto` |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | the R2 token pair |
+| `S3_FORCE_PATH_STYLE` | `true` |
+| `EMAIL_DRY_RUN` | `true` until Gmail is connected |
+| `SCHEDULER_ENABLED` | leave unset — see **Scheduled jobs** below |
+
+**5. Deploy.** The build runs `prisma generate && prisma migrate deploy && next
+build`, so the schema is created as part of the first deploy and can never land
+behind the code.
+
+**6. Create the first owner.** There is no signup page. Run this from your own
+machine, pointed at the production database:
+
+```bash
+DATABASE_URL="<the direct Neon string>" npm run bootstrap
+```
+
+Then sign in at your Vercel URL, and you land on the setup wizard.
+
+### Scheduled jobs on Vercel
+
+The in-process scheduler cannot work where there is no process between
+requests, so `/api/cron` does the same work when something outside knocks. It
+authenticates with `CRON_SECRET` and runs every job; each one is idempotent, so
+calling it more often than needed is harmless and calling it late delays work
+rather than losing it.
+
+`vercel.json` registers an hourly cron, and Vercel sends `CRON_SECRET` as a
+Bearer token by itself. **On the Hobby plan, Vercel runs cron jobs once a day**,
+which is fine for recurring invoices and not fine for closing a shift someone
+forgot to clock out of. Either move to Pro, or point any external pinger at it:
+
+```
+GET https://your-project.vercel.app/api/cron
+    x-cron-key: <CRON_SECRET>
+```
+
+`cron-job.org` and a GitHub Actions schedule both do this for nothing. Leave
+`SCHEDULER_ENABLED` unset on Vercel — setting it starts timers inside a function
+that is frozen the moment it returns a response.
+
+### What is different about running here
+
+| | On a VPS | On Vercel |
 |---|---|---|
-| Storage | `STORAGE_DRIVER=local` writes to disk; Vercel's filesystem is read-only apart from `/tmp`. Receipts and uploaded import files are not regenerable | S3-compatible bucket, `STORAGE_DRIVER=s3` |
-| Scheduler | The in-process scheduler cannot run where there is no process between requests. Recurring invoices never generate | A Vercel Cron hitting an authenticated endpoint |
-| Database | Prisma opens a connection per instance; serverless multiplies instances until Postgres refuses | A pooled connection (Neon, Supabase pooler, PgBouncer) and `directUrl` in `schema.prisma` for migrations |
-| Rate limiting | Login attempts are counted in memory, so the limit resets whenever a new instance starts | Redis, or accept a much weaker limit |
+| Storage | local disk volume | S3-compatible bucket, required |
+| Scheduler | in-process timers | `/api/cron` plus an external schedule |
+| Database | one direct connection | pooled URL, plus a direct one for migrations |
+| Login throttling | same table | same table — it lives in Postgres, not memory |
+| Backups | `scripts/backup.sh` | your Postgres host's backups, plus the bucket |
 
-If a deploy there returns *"There was a problem with the server configuration"*
-from `/api/auth/callback/credentials`, that is Auth.js's generic error and it
-means one of two things: `AUTH_SECRET` is not set in the project's environment
-variables, or `authorize()` threw — which it does when `DATABASE_URL` is unset,
-unreachable, or points at a database the migrations have never been applied to.
-Vercel does not read your local `.env` and does not provision a database.
+The last row is the one to think about before real books go in. On a VPS you own
+the backup and the restore is documented below. On Vercel your data is in
+someone else's Postgres, so check what their free tier actually retains — and
+either way, take the **full data export** from Settings → Company periodically,
+because it is the copy that stays readable without this app.
 
 ## Backup and restore
 
@@ -491,8 +579,10 @@ Every variable is documented in `.env.example`. The ones that matter:
 | `EMAIL_DRY_RUN` | `true` short-circuits sending and only writes the log |
 | `SCHEDULER_ENABLED` | `true` runs the in-process jobs. **Recurring invoices do not generate without it** — set it on exactly one instance |
 | `TOKEN_ENCRYPTION_KEY` | Envelope-encrypts stored Gmail refresh tokens. `openssl rand -base64 32` |
-| `LEDGER_DOMAIN` | Production only: the domain Caddy gets a certificate for |
-| `POSTGRES_PASSWORD` | Production only: required, no default |
+| `DIRECT_DATABASE_URL` | Unpooled connection for migrations. Must always be set; same as `DATABASE_URL` on a VPS |
+| `CRON_SECRET` | Authorises `/api/cron`. Required wherever the in-process scheduler is off |
+| `LEDGER_DOMAIN` | Single-VPS only: the domain Caddy gets a certificate for |
+| `POSTGRES_PASSWORD` | Single-VPS only: required, no default |
 
 App login and the Gmail *sending* connection (Phase 7) are separate concerns:
 `AUTH_GOOGLE_*` is sign-in, and does not let the app send mail as anyone.

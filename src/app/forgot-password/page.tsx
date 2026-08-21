@@ -27,7 +27,7 @@ export default async function ForgotPasswordPage({
 
     const headerList = await headers();
     const ip = headerList.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-    const limit = rateLimit(`reset:${ip}`, 5, 15 * 60);
+    const limit = await rateLimit(`reset:${ip}`, 5, 15 * 60);
     if (!limit.ok) redirect("/forgot-password?sent=1");
 
     const user = await prisma.user.findUnique({ where: { email } });

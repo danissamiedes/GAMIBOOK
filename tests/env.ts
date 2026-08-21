@@ -14,5 +14,9 @@ export function loadTestEnv(): string {
     );
   }
   process.env.DATABASE_URL = url;
+  // The schema declares a directUrl, and `prisma migrate` prefers it. Left
+  // pointing at whatever .env holds, a test run would migrate the development
+  // database instead of the test one.
+  process.env.DIRECT_DATABASE_URL = url;
   return url;
 }

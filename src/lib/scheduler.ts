@@ -1,5 +1,6 @@
 import { autoCloseStaleEntries } from "@/lib/time/clock";
 import { runRecurringInvoices } from "@/lib/invoices/recurring";
+import { pruneRateLimits } from "@/lib/rate-limit";
 
 /**
  * In-process scheduler (SPEC §7.2, §9): the stale-shift auto-close and the
@@ -31,6 +32,13 @@ export const JOBS: Job[] = [
     name: "recurring-invoices",
     everyMinutes: 60,
     run: () => runRecurringInvoices(),
+  },
+  {
+    // Housekeeping. Nothing depends on it — an expired window is ignored
+    // whether or not its row is still there.
+    name: "prune-rate-limits",
+    everyMinutes: 60 * 24,
+    run: () => pruneRateLimits(),
   },
 ];
 

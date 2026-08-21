@@ -655,6 +655,57 @@ and in-memory login rate limiting. All four are consequences of the app assuming
 one long-lived process, which is the right assumption for the size of business
 this is for.
 
+## Vercel is a supported target now — 2026-08-21
+
+The user asked for Vercel specifically, having seen the case for a VPS. Four
+things assumed a server that stays alive between requests, and each is now
+handled rather than warned about.
+
+**The scheduler had never run anywhere.** `startScheduler()` was written in
+Phase 7 and called from nothing — no `instrumentation.ts`, no import, nothing.
+Recurring invoices and the stale-shift auto-close have therefore never fired on
+their own in any deployment, VPS included. That is now two mechanisms over one
+job list: `instrumentation.ts` starts the timers where a process persists, and
+`/api/cron` runs the same `JOBS` array when something outside knocks. The route
+needed adding to the middleware's public prefixes — a scheduler arrives with no
+session by definition — and authenticates with `CRON_SECRET` compared through a
+SHA-256 digest so the check is constant-time whatever the lengths. The secret is
+deliberately not accepted in the query string: URLs end up in access logs,
+browser history and referrer headers.
+
+Every job was already idempotent, which is what makes one shared schedule
+workable — a late call delays work rather than losing it. Worth knowing: Vercel's
+Hobby plan runs cron once a day, which is fine for recurring invoices and not
+fine for closing a forgotten shift, so the README names the external-pinger
+alternative rather than pretending hourly is what you get.
+
+**Rate limiting moved into Postgres.** In memory it was correct for one node and
+close to meaningless on serverless, where every cold start hands the caller a
+fresh allowance. It is now one `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`
+so that concurrent attempts cannot each read the same count and each conclude
+they are under the limit — there is a test that fires ten at once against a
+limit of five and expects exactly five through. The interface gained an `await`
+and nothing else.
+
+**Local disk storage is now refused on serverless rather than tolerated.** The
+tempting workaround is `/tmp`, and it is the worst option available: every write
+succeeds, and the receipts and imported bank statements are gone by the next
+request with no error anywhere. A deployment that will not start is a much
+smaller problem than books missing their source documents, so `storage()` throws
+when `VERCEL` or `AWS_LAMBDA_FUNCTION_NAME` is set and the driver is `local`.
+
+**Prisma needed two connection strings.** `DATABASE_URL` points at a pooler
+there; migrations need a session the pooler will not hold, so `directUrl` takes
+`DIRECT_DATABASE_URL`. Prisma treats a declared `directUrl` with a missing
+variable as a schema error rather than falling back, so it must always be set —
+on a VPS, to the same value. That bit the test harness first: `loadTestEnv()`
+overrode `DATABASE_URL` only, which would have pointed `prisma migrate` at the
+*development* database during a test run.
+
+The single-VPS path stays the recommended one and is unchanged in substance. It
+is one service instead of three, and the backup is a file you own rather than
+whatever a free tier happens to retain.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

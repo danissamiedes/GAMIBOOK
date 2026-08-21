@@ -6,6 +6,6 @@ export default function setup() {
   const url = loadTestEnv();
   execSync("npx prisma migrate deploy", {
     stdio: "inherit",
-    env: { ...process.env, DATABASE_URL: url },
+    env: { ...process.env, DATABASE_URL: url, DIRECT_DATABASE_URL: url },
   });
 }

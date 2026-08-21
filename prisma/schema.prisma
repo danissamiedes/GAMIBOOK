@@ -5,12 +5,25 @@
 // and be reached through withCompanyScope() — see src/lib/company-scope.ts.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Vercel's Node runtime is Amazon Linux, not the Debian this is developed on,
+  // so the engine for it has to be generated at build time as well as the
+  // native one. Harmless everywhere else.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Serverless multiplies instances, and each one opens its own connections, so
+  // DATABASE_URL points at a pooler in that deployment. A pooler cannot run
+  // migrations — the migration engine needs advisory locks and a session it
+  // holds open — so migrations use this direct connection instead.
+  //
+  // It must always be set: Prisma treats a declared directUrl whose variable is
+  // missing as a schema error, not as "fall back to url". On a VPS, where
+  // DATABASE_URL is already a direct connection, set it to the same value.
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 /// Roles are per company, never global (SPEC §2).
@@ -1276,4 +1289,20 @@ model BankTransaction {
   @@unique([bankAccountId, dedupeHash])
   @@index([companyId, status])
   @@index([bankAccountId, date])
+}
+
+/// Login and password-reset throttling (SPEC §13).
+///
+/// This lives in the database rather than in memory because a serverless host
+/// runs many short-lived instances: a per-process counter there resets whenever
+/// a new one starts, which turns "10 attempts per 15 minutes" into "10 attempts
+/// per instance", and an attacker gets a fresh allowance by waiting for one.
+model RateLimit {
+  /// Namespaced by caller, e.g. "login:someone@example.com" or "reset:1.2.3.4".
+  key     String   @id
+  count   Int      @default(0)
+  /// When the current window ends. A row past this is treated as absent.
+  resetAt DateTime
+
+  @@index([resetAt])
 }

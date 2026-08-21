@@ -73,6 +73,29 @@ enum Section {
   SETTINGS
 }
 
+/// SPEC §6. Consultants and regular suppliers are one list with a
+/// classification, so "is this person already set up?" has a single answer.
+enum VendorKind {
+  CONSULTANT
+  REGULAR
+}
+
+/// SPEC §8.1/§8.2. Work orders and vendor bills share one machine; the UI
+/// labels APPROVED as "Open" on a bill, which is the same state by another name.
+enum PayableStatus {
+  DRAFT
+  APPROVED
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+/// SPEC §8.2. A DIRECT expense is paid as it is recorded; a BILL is owed.
+enum ExpenseKind {
+  DIRECT
+  BILL
+}
+
 /// SPEC §7.1. Paid states are derived from balanceDue, never set by hand.
 enum InvoiceStatus {
   DRAFT
@@ -152,6 +175,10 @@ model Company {
   taxRates       TaxRate[]
   invoices       Invoice[]
   payments       Payment[]
+  vendors        Vendor[]
+  workOrders     WorkOrder[]
+  expenses       Expense[]
+  billPayments   BillPayment[]
 
   @@index([organizationId])
 }
@@ -171,6 +198,7 @@ model User {
   invitesSent Invitation[]         @relation("InvitedBy")
   resetTokens PasswordResetToken[]
   auditLogs   AuditLog[]
+  vendors     Vendor[]
 }
 
 model Membership {
@@ -327,10 +355,10 @@ model JournalLine {
   description    String?
 
   /// The party dimension (SPEC §4.2). Required on A/R and A/P lines so aging
-  /// is built from the ledger. Consultant and vendor relations arrive in Phase 4.
-  customerId   String?
-  consultantId String?
-  vendorId     String?
+  /// is built from the ledger rather than from document tables. Consultants
+  /// are vendors with a kind (SPEC §6), so payables carry vendorId.
+  customerId String?
+  vendorId   String?
 
   /// Foreign-currency detail (SPEC §5). Null when the line is in base currency.
   currency      String?  @db.Char(3)
@@ -340,11 +368,11 @@ model JournalLine {
   entry    JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
   account  Account      @relation(fields: [accountId], references: [id])
   customer Customer?    @relation(fields: [customerId], references: [id])
+  vendor   Vendor?      @relation(fields: [vendorId], references: [id])
 
   @@unique([journalEntryId, lineNumber])
   @@index([accountId])
   @@index([customerId])
-  @@index([consultantId])
   @@index([vendorId])
 }
 
@@ -516,4 +544,187 @@ model PaymentApplication {
 
   @@unique([paymentId, invoiceId])
   @@index([invoiceId])
+}
+
+/// SPEC §6 — one list, two kinds.
+model Vendor {
+  id               String     @id @default(cuid())
+  companyId        String
+  kind             VendorKind
+  name             String
+  email            String?
+  /// May differ from the company's base currency (SPEC §5).
+  defaultCurrency  String     @db.Char(3)
+  defaultAccountId String?
+  paymentTermsDays Int        @default(30)
+  notes            String?
+  isActive         Boolean    @default(true)
+
+  /// kind = CONSULTANT only, from here down.
+  /// Pre-fills work order lines.
+  defaultRate   Decimal? @db.Decimal(18, 6)
+  /// Lets them log in to the time clock. No user means no clock-in, which is fine.
+  userId        String?
+  /// Email recipient setup used by the bulk send (SPEC §10.1).
+  ccEmails      String[]
+  sendEmails    Boolean  @default(true)
+  /// How a spreadsheet naming people by name alone is matched (SPEC §8.3).
+  externalRef   String?
+  importAliases String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [userId], references: [id])
+  workOrders   WorkOrder[]
+  expenses     Expense[]
+  billPayments BillPayment[]
+  journalLines JournalLine[]
+
+  @@unique([companyId, externalRef])
+  @@index([companyId, kind, name])
+}
+
+/// SPEC §8.1. A payable to a consultant. APPROVED is what posts, dated
+/// approvedAt, which defaults to the document's own issueDate.
+model WorkOrder {
+  id              String        @id @default(cuid())
+  companyId       String
+  vendorId        String
+  workOrderNumber String?
+  issueDate       DateTime      @db.Date
+  /// The date the A/P entry posts (SPEC §8.1).
+  approvedAt      DateTime?     @db.Date
+  dueDate         DateTime      @db.Date
+  currency        String        @db.Char(3)
+  fxRate          Decimal       @default(1) @db.Decimal(18, 8)
+  status          PayableStatus @default(DRAFT)
+  memo            String?
+
+  total        Decimal @default(0) @db.Decimal(18, 2)
+  amountPaid   Decimal @default(0) @db.Decimal(18, 2)
+  balanceDue   Decimal @default(0) @db.Decimal(18, 2)
+  /// The authoritative converted total and how much of it A/P has given back,
+  /// so a partial payment relieves pro rata at this document's rate (SPEC §4.3).
+  baseTotal    Decimal @default(0) @db.Decimal(18, 2)
+  baseRelieved Decimal @default(0) @db.Decimal(18, 2)
+
+  lastEmailedAt    DateTime?
+  approvedByUserId String?
+  voidedAt         DateTime?
+  /// Set when the document came from a spreadsheet import (SPEC §8.3).
+  importBatchId    String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  company      Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor       Vendor                   @relation(fields: [vendorId], references: [id])
+  lines        WorkOrderLine[]
+  applications BillPaymentApplication[]
+
+  @@unique([companyId, workOrderNumber])
+  @@index([companyId, status])
+  @@index([companyId, vendorId])
+}
+
+/// Description, quantity and rate are the three fields that matter (SPEC §8.1),
+/// plus the account each line posts to (SPEC §8.3, the user's real sheet).
+model WorkOrderLine {
+  id          String  @id @default(cuid())
+  workOrderId String
+  lineNumber  Int
+  description String
+  quantity    Decimal @db.Decimal(18, 4)
+  rate        Decimal @db.Decimal(18, 6)
+  /// May be negative: a cash advance being recovered is a deduction (SPEC §8.3).
+  amount      Decimal @db.Decimal(18, 2)
+  accountId   String
+
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([workOrderId, lineNumber])
+}
+
+/// SPEC §8.2.
+model Expense {
+  id               String      @id @default(cuid())
+  companyId        String
+  vendorId         String?
+  date             DateTime    @db.Date
+  kind             ExpenseKind
+  currency         String      @db.Char(3)
+  fxRate           Decimal     @default(1) @db.Decimal(18, 8)
+  /// Required when kind = DIRECT, null when BILL.
+  paymentAccountId String?
+  expenseAccountId String
+  amount           Decimal     @db.Decimal(18, 2)
+  description      String
+  reference        String?
+  receiptFileKey   String?
+  isBillable       Boolean     @default(false)
+  customerId       String?
+  dueDate          DateTime?   @db.Date
+
+  status       PayableStatus @default(PAID)
+  amountPaid   Decimal       @default(0) @db.Decimal(18, 2)
+  balanceDue   Decimal       @default(0) @db.Decimal(18, 2)
+  baseTotal    Decimal       @default(0) @db.Decimal(18, 2)
+  baseRelieved Decimal       @default(0) @db.Decimal(18, 2)
+
+  voidedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  company      Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor       Vendor?                  @relation(fields: [vendorId], references: [id])
+  applications BillPaymentApplication[]
+
+  @@index([companyId, kind, status])
+  @@index([companyId, vendorId])
+}
+
+/// SPEC §8.1. One model for paying consultants and regular vendors alike,
+/// structurally identical to the receipts side.
+model BillPayment {
+  id               String        @id @default(cuid())
+  companyId        String
+  vendorId         String
+  date             DateTime      @db.Date
+  amount           Decimal       @db.Decimal(18, 2)
+  currency         String        @db.Char(3)
+  fxRate           Decimal       @default(1) @db.Decimal(18, 8)
+  paymentAccountId String
+  method           PaymentMethod @default(BANK_TRANSFER)
+  reference        String?
+  notes            String?
+
+  reversedAt      DateTime?
+  reversalEntryId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company      Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor       Vendor                   @relation(fields: [vendorId], references: [id])
+  applications BillPaymentApplication[]
+
+  @@index([companyId, date])
+  @@index([companyId, vendorId])
+}
+
+/// Points at a work order or an expense recorded as a bill — exactly one.
+model BillPaymentApplication {
+  id            String  @id @default(cuid())
+  billPaymentId String
+  workOrderId   String?
+  expenseId     String?
+  amountApplied Decimal @db.Decimal(18, 2)
+
+  billPayment BillPayment @relation(fields: [billPaymentId], references: [id], onDelete: Cascade)
+  workOrder   WorkOrder?  @relation(fields: [workOrderId], references: [id])
+  expense     Expense?    @relation(fields: [expenseId], references: [id])
+
+  @@index([workOrderId])
+  @@index([expenseId])
 }

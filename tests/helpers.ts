@@ -14,6 +14,8 @@ export async function resetDatabase() {
   // exactly the kind of hole these guards exist to close.
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
+      "BillPaymentApplication", "BillPayment", "Expense",
+      "WorkOrderLine", "WorkOrder", "Vendor",
       "PaymentApplication", "Payment", "InvoiceLine", "Invoice",
       "TaxRate", "Item", "Customer",
       "JournalLine", "JournalEntry", "Account", "AuditLog",
@@ -134,4 +136,22 @@ export async function makeDraftInvoice(options: {
     include: { lines: true },
   });
   return invoice;
+}
+
+/** A vendor of either kind (SPEC §6). */
+export async function makeVendor(
+  companyId: string,
+  kind: "CONSULTANT" | "REGULAR" = "CONSULTANT",
+  options: { name?: string; currency?: string; rate?: string; email?: string } = {},
+) {
+  return prisma.vendor.create({
+    data: {
+      companyId,
+      kind,
+      name: options.name ?? `${kind === "CONSULTANT" ? "Consultant" : "Vendor"} ${unique()}`,
+      email: options.email ?? "payee@example.test",
+      defaultCurrency: options.currency ?? "PHP",
+      defaultRate: kind === "CONSULTANT" ? (options.rate ?? "1000") : null,
+    },
+  });
 }

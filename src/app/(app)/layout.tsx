@@ -70,6 +70,21 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                 <NavLink href="/reports/ar-aging">A/R Aging</NavLink>
               </>
             ) : null}
+            {scope.hasSection("CONSULTANTS") ? (
+              <>
+                <NavLink href="/consultants">Consultants</NavLink>
+                <NavLink href="/work-orders">Work orders</NavLink>
+              </>
+            ) : null}
+            {scope.hasSection("VENDORS") ? (
+              <>
+                <NavLink href="/vendors">Vendors</NavLink>
+                <NavLink href="/expenses">Expenses</NavLink>
+              </>
+            ) : null}
+            {scope.hasSection("CONSULTANTS") || scope.hasSection("VENDORS") ? (
+              <NavLink href="/reports/ap-aging">A/P Aging</NavLink>
+            ) : null}
             {scope.hasSection("REPORTS") ? (
               <>
                 <NavLink href="/journal">Journal</NavLink>

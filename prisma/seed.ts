@@ -16,6 +16,9 @@ import { postOpeningBalances } from "../src/lib/ledger/opening-balances";
 import { trialBalance } from "../src/lib/ledger/reports";
 import { issueInvoice } from "../src/lib/invoices/service";
 import { recordPayment } from "../src/lib/invoices/payments";
+import { approveWorkOrder, computeWorkOrderLine } from "../src/lib/payables/work-orders";
+import { recordBillPayment } from "../src/lib/payables/bill-payments";
+import { recordExpense } from "../src/lib/payables/expenses";
 
 const prisma = new PrismaClient();
 
@@ -323,6 +326,154 @@ async function main() {
     await draft(local.id, "PHP", "1", new Date(Date.UTC(2026, 6, 1)), "12000.00");
   }
 
+  // ---- Phase 4: consultants, vendors, work orders, expenses ---------------
+  const vendorCount = await prisma.vendor.count({ where: { companyId: phpCompany.id } });
+  if (vendorCount === 0) {
+    const abigail = await prisma.vendor.create({
+      data: {
+        companyId: phpCompany.id,
+        kind: "CONSULTANT",
+        name: "Abigail Bautista",
+        email: "abigail@example.com",
+        defaultCurrency: "PHP",
+        defaultRate: "100000",
+        defaultAccountId: php("5000").id,
+        paymentTermsDays: 15,
+        userId: consultantOne.id,
+        externalRef: "C-001",
+      },
+    });
+    const johnRex = await prisma.vendor.create({
+      data: {
+        companyId: phpCompany.id,
+        kind: "CONSULTANT",
+        name: "John Rex Meraveles",
+        email: "johnrex@example.com",
+        ccEmails: ["manager@example.test"],
+        defaultCurrency: "PHP",
+        defaultRate: "16000",
+        defaultAccountId: php("5000").id,
+        paymentTermsDays: 15,
+        userId: consultantTwo.id,
+        externalRef: "C-002",
+      },
+    });
+    // A consultant who is paid but never emailed — the bulk send must exclude
+    // them visibly rather than silently (SPEC §10.1).
+    await prisma.vendor.create({
+      data: {
+        companyId: phpCompany.id,
+        kind: "CONSULTANT",
+        name: "Chareze Valencia",
+        email: null,
+        sendEmails: false,
+        defaultCurrency: "PHP",
+        defaultRate: "50000",
+        defaultAccountId: php("5000").id,
+        externalRef: "C-003",
+      },
+    });
+
+    const meralco = await prisma.vendor.create({
+      data: {
+        companyId: phpCompany.id,
+        kind: "REGULAR",
+        name: "Meralco",
+        email: "billing@meralco.test",
+        defaultCurrency: "PHP",
+        defaultAccountId: php("6250").id,
+      },
+    });
+    await prisma.vendor.create({
+      data: {
+        companyId: phpCompany.id,
+        kind: "REGULAR",
+        name: "Globe Telecom",
+        email: "ap@globe.test",
+        defaultCurrency: "PHP",
+        defaultAccountId: php("6400").id,
+      },
+    });
+
+    const workOrder = async (
+      vendorId: string,
+      issue: Date,
+      lines: { description: string; quantity: string; rate: string; code: string }[],
+    ) =>
+      prisma.workOrder.create({
+        data: {
+          companyId: phpCompany.id,
+          vendorId,
+          issueDate: issue,
+          dueDate: new Date(issue.getTime() + 15 * 86_400_000),
+          currency: "PHP",
+          fxRate: "1",
+          lines: {
+            create: lines.map((line, index) => ({
+              lineNumber: index + 1,
+              description: line.description,
+              quantity: line.quantity,
+              rate: line.rate,
+              amount: computeWorkOrderLine(line),
+              accountId: php(line.code).id,
+            })),
+          },
+        },
+      });
+
+    // Mirrors the user's real spreadsheet, including the deduction line.
+    const paidWorkOrder = await workOrder(abigail.id, new Date(Date.UTC(2026, 7, 15)), [
+      { description: "Consultation for period 072626-081026", quantity: "0.5", rate: "100000.00", code: "5000" },
+    ]);
+    await approveWorkOrder({ companyId: phpCompany.id, workOrderId: paidWorkOrder.id, role: "OWNER" });
+    await recordBillPayment({
+      companyId: phpCompany.id,
+      vendorId: abigail.id,
+      date: new Date(Date.UTC(2026, 7, 30)),
+      amount: "50000.00",
+      currency: "PHP",
+      paymentAccountId: php("1000").id,
+      applications: [{ workOrderId: paidWorkOrder.id, amountApplied: "50000.00" }],
+      role: "OWNER",
+    });
+
+    const withAdvance = await workOrder(johnRex.id, new Date(Date.UTC(2026, 7, 15)), [
+      { description: "Consultation for period 072626-081026", quantity: "0.5", rate: "16000.00", code: "5000" },
+      { description: "Cash Advances", quantity: "1", rate: "-3000.00", code: "1200" },
+    ]);
+    await approveWorkOrder({ companyId: phpCompany.id, workOrderId: withAdvance.id, role: "OWNER" });
+
+    // One still in draft, so the bulk screens have something unapproved.
+    await workOrder(abigail.id, new Date(Date.UTC(2026, 8, 15)), [
+      { description: "Consultation for period 081126-082526", quantity: "0.5", rate: "100000.00", code: "5000" },
+    ]);
+
+    await recordExpense({
+      companyId: phpCompany.id,
+      kind: "DIRECT",
+      vendorId: meralco.id,
+      date: new Date(Date.UTC(2026, 7, 10)),
+      currency: "PHP",
+      amount: "8750.00",
+      expenseAccountId: php("6250").id,
+      paymentAccountId: php("1000").id,
+      description: "July electricity",
+      role: "OWNER",
+    });
+    await recordExpense({
+      companyId: phpCompany.id,
+      kind: "BILL",
+      vendorId: meralco.id,
+      date: new Date(Date.UTC(2026, 8, 8)),
+      dueDate: new Date(Date.UTC(2026, 8, 28)),
+      currency: "PHP",
+      amount: "9420.00",
+      expenseAccountId: php("6250").id,
+      description: "August electricity",
+      role: "OWNER",
+    });
+  }
+
   const tb = await trialBalance({
     companyId: phpCompany.id,
     asOf: new Date(Date.UTC(2026, 11, 31)),
@@ -353,7 +504,9 @@ Seed complete.
   ${phpCompany.name} has a chart of accounts, opening balances, 8 manual
   entries across the 2025 and 2026 fiscal years, three customers and four
   invoices — one paid, one USD invoice part-paid at a different rate (realized
-  FX), one overdue and one still a draft. Trial balance ties at
+  FX), one overdue and one still a draft. Three consultants (one never emailed)
+  and two vendors, with work orders including a cash-advance deduction line, a
+  direct expense and an unpaid bill. Trial balance ties at
   ${tb.totalDebit.toFixed(2)} ${phpCompany.baseCurrency} on each side.
 `);
 }

@@ -9,7 +9,7 @@ not estimated from a list of categorised transactions.
 
 ## Status
 
-**Phases 1–3 are complete.** What works today:
+**Phases 1–4 are complete.** What works today:
 
 - Multi-company data model — Organization → Company → Membership, roles per
   company (`OWNER`, `BOOKKEEPER`, `CONSULTANT`)
@@ -62,9 +62,27 @@ not estimated from a list of categorised transactions.
 - **A/R Aging** per customer with CSV export, which checks itself against the
   A/R control account and says so if the two disagree
 
-Phases 4–9 (work orders and the Excel import, reports, time clock, PDFs and
-email, bulk send, bank import, dashboard) are specified in `SPEC.md` §14 and
-not yet built.
+**Phase 4 — money out:**
+
+- One `Vendor` table with `kind` = `CONSULTANT` or `REGULAR`. Consultant-only
+  fields (default rate, time-clock link, email recipients, import aliases) sit
+  on the same record, and the kind filter lives in the data layer — the
+  Consultants section never sees a regular vendor and vice versa
+- Work orders: description / quantity / rate lines, each naming its own
+  account, and **negative lines** for a cash advance being recovered. Approval
+  allocates `WO1001` onward and posts the A/P entry **dated the work order
+  date**, not the day you clicked approve
+- Bill payments settling work orders and vendor bills alike, with reversal
+- Expenses in both shapes — `DIRECT` (paid as recorded) and `BILL` (owed, then
+  cleared) — as two forms sharing one model
+- FX on the payables side: a PHP work order in USD books relieves A/P at the
+  work order's rate, cash at the payment's rate, difference to Realized FX
+- **A/P Aging** per vendor, filterable by kind, pinned to whichever side the
+  viewer's sections allow
+
+Phases 5–9 (reports, time clock, PDFs and email, the Excel work-order import,
+bulk send, bank import, dashboard) are specified in `SPEC.md` §14 and not yet
+built. Sales orders (§7.1a) are specified and not yet built.
 
 ## Local setup
 

@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { postJournalEntry, reverseJournalEntry, allocateNumber } from "@/lib/ledger/post";
 import { PostingError } from "@/lib/errors";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
-import { makeCompanyWithChart, prisma, resetDatabase } from "./helpers";
+import { makeCompanyWithChart, makeVendor, prisma, resetDatabase } from "./helpers";
 
 /**
  * SPEC §4.2: the hard rules. Every one of these is also enforced by a database
@@ -159,6 +159,7 @@ describe("postJournalEntry", () => {
     ).rejects.toThrow(/must carry a customer/);
 
     const ap = fixture.system(SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE);
+    const vendor = await makeVendor(fixture.company.id, "CONSULTANT");
     await expect(
       postJournalEntry({
         companyId: fixture.company.id,
@@ -169,7 +170,7 @@ describe("postJournalEntry", () => {
           { accountId: ap.id, credit: "100.00" },
         ],
       }),
-    ).rejects.toThrow(/consultant or vendor/);
+    ).rejects.toThrow(/must carry a vendor/);
 
     // With the party present, the same entry posts.
     const ok = await postJournalEntry({
@@ -178,10 +179,10 @@ describe("postJournalEntry", () => {
       sourceType: "WORK_ORDER",
       lines: [
         { accountId: fixture.code("5000").id, debit: "100.00" },
-        { accountId: ap.id, credit: "100.00", consultantId: "consultant-1" },
+        { accountId: ap.id, credit: "100.00", vendorId: vendor.id },
       ],
     });
-    expect(ok.lines[1].consultantId).toBe("consultant-1");
+    expect(ok.lines[1].vendorId).toBe(vendor.id);
   });
 
   it("blocks posting into a closed period for anyone but an owner", async () => {

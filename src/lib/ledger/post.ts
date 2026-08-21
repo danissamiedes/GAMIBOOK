@@ -22,7 +22,6 @@ export type PostLineInput = {
   credit?: Prisma.Decimal.Value;
   description?: string | null;
   customerId?: string | null;
-  consultantId?: string | null;
   vendorId?: string | null;
   currency?: string | null;
   fxRate?: Prisma.Decimal.Value | null;
@@ -156,12 +155,10 @@ export async function postJournalEntry(
       if (account.systemKey === SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE && !line.customerId) {
         throw new PostingError(`Line ${index + 1}: an A/R line must carry a customer`);
       }
-      if (
-        account.systemKey === SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE &&
-        !line.consultantId &&
-        !line.vendorId
-      ) {
-        throw new PostingError(`Line ${index + 1}: an A/P line must carry a consultant or vendor`);
+      if (account.systemKey === SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE && !line.vendorId) {
+        // Consultants are vendors with a kind (SPEC §6), so one party column
+        // covers both sides of payables and A/P aging groups by it.
+        throw new PostingError(`Line ${index + 1}: an A/P line must carry a vendor`);
       }
 
       return {
@@ -171,7 +168,6 @@ export async function postJournalEntry(
         credit,
         description: line.description ?? null,
         customerId: line.customerId ?? null,
-        consultantId: line.consultantId ?? null,
         vendorId: line.vendorId ?? null,
         currency: line.currency ?? null,
         fxRate: line.fxRate ?? null,
@@ -252,7 +248,6 @@ export async function reverseJournalEntry(
           credit: line.debit,
           description: line.description,
           customerId: line.customerId,
-          consultantId: line.consultantId,
           vendorId: line.vendorId,
           currency: line.currency,
           fxRate: line.fxRate,

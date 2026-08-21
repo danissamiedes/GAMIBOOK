@@ -155,6 +155,34 @@ take `SALES`, the ledger and reports `REPORTS`, chart of accounts and company
 settings `SETTINGS`. The dashboard stays role-only and will show per-section
 tiles.
 
+### Phase 4 — money out (2026-08-21)
+
+**One `PayableStatus` enum for work orders and bills.** SPEC §8.1 names the
+open state `APPROVED` on a work order and §8.2 names it `OPEN` on a bill. They
+are the same state, so the enum has one value, `APPROVED`, and the expenses
+screen labels it "open". Two enums differing by a synonym would be a trap for
+whoever writes the next status check.
+
+**The work order's A/P entry is dated the work order date.** `approvedAt`
+defaults to the document's own `issueDate` rather than today, per the user's
+answer of 2026-08-21, so approving August work in September still books the
+expense in August. A date inside a closed period fails that document alone.
+
+**Deduction lines post to their own account.** A negative line credits the
+account its row names instead of debiting a negative amount, which keeps the
+entry legal and makes a `Cash Advances` line coded to `Advances to Consultants`
+clear the advance while leaving consultant expense whole. A work order netting
+to zero or less is refused: that is a receivable, not a payable.
+
+**`JournalLine.consultantId` was dropped.** With consultants inside the vendor
+table, the party dimension on payables is `vendorId` alone. Two nullable columns
+meaning the same thing would drift.
+
+**A/P aging does not claim to tie when filtered.** Unfiltered, it is checked
+against the A/P control account like A/R is. Filtered to one kind it returns
+`tiesToLedger: null` and the report says it is showing a subset, rather than
+displaying a mismatch that is not a mismatch.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

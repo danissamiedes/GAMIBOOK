@@ -297,9 +297,14 @@ debits equal credits.
 
 ### 4.4 Historical migration
 
-**Confirmed (§16.4): the books do not start empty.** There is existing
-spreadsheet history to bring in, so prior periods must appear in the P&L and in
-retained earnings — opening balances alone are not enough.
+> **Not built — revised 2026-08-21.** The user confirmed there is no history to
+> bring in, so the books start from opening balances at a chosen date and this
+> section is not implemented. It is kept as the design to follow if history ever
+> needs migrating; nothing below has been written.
+
+The original decision was that the books do not start empty, with spreadsheet
+history to bring in, so prior periods would have to appear in the P&L and in
+retained earnings — opening balances alone not being enough.
 
 Treat migration as a one-off, reviewable import that goes through
 `postJournalEntry` like every other posting. No direct `JournalLine` writes, no
@@ -337,9 +342,9 @@ Rules:
   migration date MUST satisfy `Assets == Liabilities + Equity` before the
   company is considered live. Do not go live on a migration that does not tie.
 
-**Blocked on input:** the actual spreadsheet and the intended start date. The
-layers above are the shape; the parser cannot be written until the file is in
-hand (§16.4). Build layers 1 and 3 against the seed fixture in the meantime.
+**No longer blocked, and no longer needed:** there is no history to migrate
+(§16.4, revised). Opening balances at a start date is the whole of it, and that
+already exists.
 
 ---
 
@@ -1237,10 +1242,10 @@ The MVP is done when all of these pass, demonstrated against seeded data:
     the GL; settling it at a different rate books an FX gain or loss and leaves
     the A/P control account at exactly zero for that document; and a partial
     payment relieves A/P pro rata at the document's rate.
-16. The historical spreadsheet migrates (§4.4): open invoices and work orders
-    arrive as documents that can still be paid, closed periods appear in the
-    P&L, the Trial Balance ties at the migration date, and the Balance Sheet at
-    that date balances before the company is declared live.
+16. ~~The historical spreadsheet migrates (§4.4).~~ **Not applicable** — the
+    user confirmed on 2026-08-21 that there is no history to bring in, so the
+    books start from opening balances. The criterion is retired rather than
+    unmet.
 17. `npm run seed && npm test && npm run build` all succeed from a clean clone.
 18. The README explains local setup, deployment, backup, and restore.
 
@@ -1265,9 +1270,11 @@ before it.
 3. **Consultant classification — settled: contractors, no withholding.** Every
    consultant payment is a straight contractor expense. No withholding fields,
    no 1099/BIR anything (§1 non-goals).
-4. **Existing data — settled: migrate the history, do not just open balances.**
-   See §4.4 for the shape: open items as real documents, closed periods as
-   summarised `MIGRATION` entries, opening balances underneath.
+4. **Existing data — revised 2026-08-21: there is no history to bring in.**
+   The user confirmed the books start empty. §4.4 is therefore not built and
+   acceptance criterion 16 does not apply. The shape stays documented in §4.4
+   in case history turns up later; going live is opening balances at a chosen
+   start date, through the same `OPENING_BALANCE` entry as any other company.
    **Input still needed:** the actual spreadsheet and the intended start date.
    The parser cannot be written against a file nobody has seen — layers 1 and 3
    get built against the seed fixture meanwhile.

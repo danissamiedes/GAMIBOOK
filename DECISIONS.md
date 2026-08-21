@@ -14,7 +14,7 @@ changed in the spec.
 | 1   | Base currency             | **PHP**, clients invoiced in PHP **or USD**                    | §5 rewritten: FX is live on the receivables side, dormant on payables. Seed gains a USD invoice in the PHP company |
 | 2   | Sales tax / VAT           | None charged; build `TaxRate` and leave it unused              | No change — this was the spec default                                                                              |
 | 3   | Consultant classification | Contractors, no withholding                                    | No change — spec default                                                                                           |
-| 4   | Existing data             | **Migrate the spreadsheet history**, not just opening balances | New §4.4; Phase 8b extended; acceptance criterion 13 added                                                         |
+| 4   | Existing data             | ~~Migrate the spreadsheet history~~ → **revised 2026-08-21: no history to bring in** | §4.4 documented but not built; acceptance criterion 16 retired                                    |
 | 5   | Fiscal year               | January start                                                  | No change — spec default                                                                                           |
 | 6   | Approval flow             | No separate approver                                           | No change — spec default                                                                                           |
 | 7   | Excel import layout       | **Match the user's existing spreadsheet**                      | §8.3 column table marked provisional; columns must live in one map driving template + parser                       |
@@ -80,10 +80,15 @@ left to their per-row judgement.
 
 Neither blocks the phase it sits in, but both block go-live:
 
-- **The historical spreadsheet and the books' start date** (§16.4, §4.4). The
-  migration parser cannot be written until the file exists. Layers 1 and 3 of
-  §4.4 get built against the seed fixture in the meantime.
+- ~~**The historical spreadsheet and the books' start date**~~ — resolved
+  2026-08-21: **there is none.** The books start empty, so §4.4 is not built and
+  acceptance criterion 16 is retired rather than unmet. Going live is opening
+  balances at a chosen date, which already works.
 - ~~The work order spreadsheet~~ — received 2026-08-21, see above.
+
+Nothing now blocks go-live except connecting Gmail, and that only blocks
+*delivery*: every other part of sending — composing, attaching, previewing,
+logging, the bulk send screen — works in dry run and is tested.
 
 ## Build decisions
 
@@ -588,6 +593,24 @@ and more readable. That was the fix that moved the number.
 took the first 100–200 rows and said nothing, so the figures on the page were
 true and the impression they gave was false. Lists now state their total — "1–100
 of 10,084 invoices" — and page through it.
+
+## The books start empty — 2026-08-21
+
+The original answer to "existing data" was to migrate spreadsheet history, and
+§4.4 was written around it: open items as real documents, closed periods as
+summarised entries, opening balances underneath. Asked again with the app
+finished, the user confirmed there is **no history to bring in**.
+
+So §4.4 is not built. It stays in the spec as the design to follow if history
+ever turns up, clearly marked as unimplemented rather than quietly deleted — a
+spec that silently loses a section is worse than one that says what happened to
+it. Acceptance criterion 16 is retired rather than left failing: it describes
+work that is not needed, and carrying it as "unmet" would misreport the state
+of the app.
+
+Starting a company is what already exists — a chosen start date and opening
+balances through the single `OPENING_BALANCE` entry (§4.3), balancing to
+Opening Balance Equity.
 
 ## Deviations from the spec
 

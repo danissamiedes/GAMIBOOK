@@ -238,8 +238,11 @@ books rather than as a missing feature.
   the match created, and nothing when it created nothing
 - Unmatched count on the dashboard and beside each account
 
-The spec is complete. Remaining: the historical migration (§4.4), which needs
-your spreadsheet and a books start date.
+**The spec is complete.** The historical migration (§4.4) is not built and is
+not needed — the books start empty, so going live is opening balances at a
+chosen date. Connecting Gmail is the only outstanding setup step, and it gates
+delivery alone: composing, attaching, previewing and logging all work without
+it.
 
 ### Connecting Gmail
 

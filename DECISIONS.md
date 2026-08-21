@@ -54,6 +54,17 @@ Numbering: work order sequence starts at **WO1001**, prefix and start value
 being company settings. Allocation stays on approval (gap-free); drafts show the
 next number as a clearly-marked preview rather than reserving it.
 
+### Two follow-ups answered — 2026-08-21
+
+- **Numbering stays on approval.** Imported drafts carry no number; the preview
+  shows the numbers they will take, marked provisional. Keeps the sequence
+  gap-free when drafts are discarded. (The alternative — numbering at import —
+  was offered and declined.)
+- **A/P posts on the sheet's Work Order Date**, not on the approval click.
+  `approvedAt` now defaults to the work order's `issueDate`, so approving August
+  work in September books the expense in August. A date inside a closed period
+  fails that row and leaves the rest of the batch alone.
+
 ### Open coding point, flagged not decided
 
 In the sample, the `Cash Advances` line is coded to **Consultant Fees**, which

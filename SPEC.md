@@ -486,7 +486,8 @@ they'll be paid. It is a payable.
 
 `WorkOrder`: `companyId`, `consultantId`, `workOrderNumber` (null until
 approved), `issueDate`, `approvedAt` (**the date the A/P entry posts** — set on
-approval, defaults to today, editable by the approver), `dueDate`, `currency`
+approval, **defaulting to the work order's own `issueDate`**, editable by the
+approver), `dueDate`, `currency`
 (usually PHP), `fxRate`, `status`, `memo`, `total`, `amountPaid`, `balanceDue`,
 `lastEmailedAt`.
 
@@ -510,7 +511,12 @@ place of `ISSUED` — including the direct `APPROVED → PAID` transition, deriv
 paid states, number allocation on approval, and the block on editing or voiding
 a document that has payments applied.
 
-`APPROVED` is what posts the A/P entry, dated `approvedAt`. **Emailing is
+`APPROVED` is what posts the A/P entry, dated `approvedAt` — which defaults to
+the work order's `issueDate`, **not** to the day the approve button is clicked.
+Approving August work in September therefore books the expense in August, where
+it belongs. If that date falls in a closed period the posting is rejected per
+§4.2 rule 4 and the approver must either reopen the period (`OWNER` only) or
+move `approvedAt` forward deliberately. **Emailing is
 independent of approval** — the user may email a draft work order for the
 consultant's confirmation before approving it, and doing so posts nothing.
 
@@ -572,7 +578,7 @@ parser) so a future column is a data change, not a rewrite.
 
 | Column | Required | Notes |
 |---|---|---|
-| `Work Order Date` | yes | The work order's `issueDate`. Accepts Excel serial dates and `M/D/YYYY` text (the user's format — `8/15/2026` is 15 Aug 2026). The interpreted date is echoed back in the validation report so a D/M vs M/D mistake is caught before commit. `dueDate` is derived from the consultant's terms; the A/P entry posts on `approvedAt`, not on this date |
+| `Work Order Date` | yes | The work order's `issueDate`. Accepts Excel serial dates and `M/D/YYYY` text (the user's format — `8/15/2026` is 15 Aug 2026). The interpreted date is echoed back in the validation report so a D/M vs M/D mistake is caught before commit. `dueDate` is derived from the consultant's terms. The A/P entry posts on this date too: `approvedAt` defaults to it, so approving a batch dated 15 Aug books the expense on 15 Aug however late the approval happens (§8.1) |
 | `Consultant Name` | yes | Exact, case- and whitespace-insensitive match against **active** consultants. No code column exists in this sheet, so unmatched names stop in the validation report with a "map this to…" picker, and the choice is saved as an alias on that consultant (`Consultant.externalRef` / alias list) so the same spelling never has to be mapped twice |
 | `Line No.` | yes | The grouping key — see below. Integer ≥ 1 |
 | `Description` | yes | The work order line description |
@@ -662,7 +668,9 @@ reviewed as a group and — while every work order in it is still an untouched
 
 **Bulk approve.** On the work order list, selecting several `DRAFT` work orders
 and choosing "Approve" posts each one's journal entry (§4.3) individually, each
-in its own transaction, with a results summary naming any that failed and why.
+in its own transaction, **each dated its own `issueDate` from the sheet**, with
+a results summary naming any that failed and why. A document whose date sits in
+a closed period fails as its own row and does not stop the others.
 Cap a single bulk operation at 500 documents.
 
 Limits: 5,000 rows or 10 MB per file. Above that, tell the user to split it.

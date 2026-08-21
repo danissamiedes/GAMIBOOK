@@ -747,6 +747,23 @@ be taken from a restored local copy; Actions schedules are best-effort and run
 late under load; and emailing invoices still needs a Google Cloud OAuth client,
 which is a fourth thing to configure even when it is not a fourth service.
 
+## Both connection strings come from the pooler — 2026-08-21
+
+The obvious reading of "pooled for requests, direct for migrations" sends you to
+Supabase's **Direct connection** for `DIRECT_DATABASE_URL`, and it would have
+broken the nightly backup on its first run. Supabase serves that host over IPv6
+only unless you buy the IPv4 add-on, and GitHub Actions runners have no IPv6.
+
+The **session pooler** (port 5432) is the right answer for both jobs that need a
+held session — migrations and `pg_dump`. It is reachable over IPv4 and, unlike
+the transaction pooler on 6543, holds the session the migration engine's advisory
+locks depend on. So both strings come from the same pooler host and differ only
+in port.
+
+The backup workflow now rejects a `SUPABASE_DB_URL` on port 6543 up front, with
+the reason, rather than letting it surface as a confusing `pg_dump` failure at
+two in the morning.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

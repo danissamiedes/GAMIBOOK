@@ -6,7 +6,12 @@
 # database, which is the part that makes it a backup.
 #
 # Repository secrets — Settings → Secrets and variables → Actions:
-#   SUPABASE_DB_URL              the DIRECT connection string (not the pooler)
+#   SUPABASE_DB_URL              the SESSION POOLER string, port 5432. Not the
+#                                transaction pooler (6543), which will not hold
+#                                the session pg_dump needs; and not the direct
+#                                connection, which Supabase serves over IPv6
+#                                only unless you pay for the IPv4 add-on —
+#                                GitHub's runners have no IPv6.
 #   SUPABASE_S3_ENDPOINT         https://<project-ref>.storage.supabase.co/storage/v1/s3
 #   SUPABASE_S3_REGION           the project's region, e.g. ap-southeast-1
 #   SUPABASE_S3_ACCESS_KEY_ID    from Storage → S3 access keys
@@ -53,6 +58,12 @@ jobs:
         run: |
           set -euo pipefail
           [ -n "${SUPABASE_DB_URL:-}" ] || { echo "::error::Set SUPABASE_DB_URL."; exit 1; }
+
+          # Caught early rather than as a confusing dump failure: the
+          # transaction pooler cannot hold the session pg_dump needs.
+          case "${SUPABASE_DB_URL}" in
+            *:6543/*) echo "::error::That is the transaction pooler. Use the session pooler on port 5432."; exit 1 ;;
+          esac
 
           STAMP=$(date -u +%F)
           echo "STAMP=${STAMP}" >> "$GITHUB_ENV"

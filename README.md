@@ -422,11 +422,21 @@ You need three accounts, all free tier: **Vercel**, **Supabase** (Postgres and
 file storage in one), and **GitHub** (the repository, and the scheduler).
 
 **1. Create the database.** In Supabase, make a project and open Project
-Settings → Database. Copy **both** connection strings: the **transaction pooler**
-one (port 6543) and the **direct** one (port 5432). Serverless multiplies
-instances and each opens its own connections, so the app serves requests through
-the pooler; migrations need a session the pooler will not hold, so they use the
-direct connection.
+Settings → Database (or the **Connect** button). Copy **two** connection strings,
+both from the *pooler* host and differing only in port:
+
+- **Transaction pooler**, port **6543** — serves requests. Serverless multiplies
+  instances and each opens its own connections, which is what the pooler is for.
+- **Session pooler**, port **5432** — runs migrations. A transaction pooler
+  cannot: the migration engine needs advisory locks and a session it holds open.
+
+Not the **Direct connection**, even though it also holds a session. Supabase
+serves it over IPv6 only unless you buy the IPv4 add-on, and GitHub Actions
+runners are IPv4-only — the nightly backup would fail to connect every night.
+The session pooler is reachable over IPv4 and does the same job.
+
+Both strings arrive containing a literal `[YOUR-PASSWORD]`. Replace it, brackets
+and all, with the database password you set when you created the project.
 
 **2. Create the storage bucket.** In Supabase, Storage → new bucket named
 `ledger-files`, kept **private**. Then Storage → S3 access keys → new key, and
@@ -456,8 +466,8 @@ openssl rand -base64 32   # CRON_SECRET
 
 | Variable | Value |
 |---|---|
-| `DATABASE_URL` | Supabase **pooler** string (port 6543), with `?pgbouncer=true` |
-| `DIRECT_DATABASE_URL` | Supabase **direct** string (port 5432) |
+| `DATABASE_URL` | Supabase **transaction pooler**, port 6543, with `?pgbouncer=true` |
+| `DIRECT_DATABASE_URL` | Supabase **session pooler**, port 5432 |
 | `AUTH_SECRET` | generated above |
 | `AUTH_URL` | `https://your-project.vercel.app` — update it if you add a domain |
 | `TOKEN_ENCRYPTION_KEY` | generated above |
@@ -479,8 +489,11 @@ behind the code.
 machine, pointed at the production database:
 
 ```bash
-DATABASE_URL="<the DIRECT Supabase string>" npm run bootstrap
+DATABASE_URL="<the session pooler string, port 5432>" npm run bootstrap
 ```
+
+The session pooler, not the transaction pooler: bootstrap runs in a transaction,
+which port 6543 will not hold.
 
 Then sign in at your Vercel URL, and you land on the setup wizard.
 
@@ -524,7 +537,7 @@ would not be for anything time-critical.
 
 Supabase's free plan takes no automated backup you can download, so without
 something the only copy of the ledger is the live database.
-`.github/workflows/backup.yml` runs nightly: `pg_dump` of the direct connection,
+`.github/workflows/backup.yml` runs nightly: `pg_dump` over the session pooler,
 a `pg_restore --list` to prove the archive reads back, then upload to the
 `ledger-backups` bucket, keeping 30 days. It refuses to upload a dump under
 20 KB, so a half-connected run cannot quietly replace a good backup with an
@@ -532,7 +545,7 @@ empty one.
 
 | Secret | Value |
 |---|---|
-| `SUPABASE_DB_URL` | the **direct** connection string, not the pooler |
+| `SUPABASE_DB_URL` | the **session pooler** string, port 5432 |
 | `SUPABASE_S3_ENDPOINT` | `https://<project-ref>.storage.supabase.co/storage/v1/s3` |
 | `SUPABASE_S3_REGION` | the project's region |
 | `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY` | the S3 access key pair |
@@ -569,7 +582,7 @@ knowing before you meet them:
 |---|---|---|
 | Storage | local disk volume | S3-compatible bucket, required |
 | Scheduler | in-process timers | `/api/cron` plus an external schedule |
-| Database | one direct connection | pooled URL, plus a direct one for migrations |
+| Database | one direct connection | transaction pooler to serve, session pooler to migrate |
 | Login throttling | same table | same table — it lives in Postgres, not memory |
 | Backups | `scripts/backup.sh` from cron | `.github/workflows/backup.yml` nightly |
 | Upload size | 10 MB | 4 MB, capped by the platform |

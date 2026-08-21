@@ -3,6 +3,7 @@ import { money, sum, type Money } from "@/lib/money";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { accountBalance } from "@/lib/ledger/reports";
 import { toBase } from "@/lib/ledger/fx";
+import { liveAt, reversalDates, voidDates } from "@/lib/reports/as-of";
 
 /**
  * A/R aging (SPEC §12.5): per customer, current / 1–30 / 31–60 / 61–90 / 90+.
@@ -67,20 +68,54 @@ function addToBucket(buckets: AgingBuckets, daysOverdue: number, amount: Money) 
 }
 
 export async function arAging(options: { companyId: string; asOf: Date }): Promise<AgingReport> {
+  // Everything issued by the date, whatever it has become since. A PAID
+  // invoice was still owed before the payment landed, and a voided one was
+  // still owed before the void — so status cannot be the filter if the report
+  // is to mean anything for a past date.
   const invoices = await prisma.invoice.findMany({
     where: {
       companyId: options.companyId,
-      status: { in: ["ISSUED", "PARTIALLY_PAID"] },
+      status: { not: "DRAFT" },
       issueDate: { lte: options.asOf },
     },
-    include: { customer: { select: { id: true, name: true } } },
+    include: {
+      customer: { select: { id: true, name: true } },
+      applications: { include: { payment: true } },
+    },
     orderBy: [{ dueDate: "asc" }],
   });
+
+  const [voided, reversed] = await Promise.all([
+    voidDates(
+      options.companyId,
+      "INVOICE",
+      invoices.map((invoice) => invoice.id),
+    ),
+    reversalDates(
+      invoices.flatMap((invoice) =>
+        invoice.applications.map((application) => application.payment.reversalEntryId),
+      ),
+    ),
+  ]);
 
   const byCustomer = new Map<string, AgingRow>();
 
   for (const invoice of invoices) {
-    const balanceDue = money(invoice.balanceDue);
+    if (!liveAt(voided.get(invoice.id), options.asOf)) continue;
+
+    // What had actually been applied by the date: a payment dated later has
+    // not happened yet, and one reversed later was still in force.
+    const paid = invoice.applications.reduce((total, application) => {
+      const payment = application.payment;
+      if (payment.date > options.asOf) return total;
+      const reversedOn = payment.reversalEntryId
+        ? reversed.get(payment.reversalEntryId)
+        : undefined;
+      if (!liveAt(reversedOn, options.asOf)) return total;
+      return total.plus(money(application.amountApplied));
+    }, money(0));
+
+    const balanceDue = money(invoice.total).minus(paid);
     if (balanceDue.lessThanOrEqualTo(0)) continue;
 
     // Report in base currency, like every other report (SPEC §5). The open

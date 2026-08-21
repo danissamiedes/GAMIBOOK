@@ -1,9 +1,10 @@
-import type { VendorKind } from "@prisma/client";
+import type { Prisma, VendorKind } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { money, type Money } from "@/lib/money";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { accountBalance } from "@/lib/ledger/reports";
 import { toBase } from "@/lib/ledger/fx";
+import { liveAt, reversalDates, voidDates } from "@/lib/reports/as-of";
 
 /**
  * A/P aging (SPEC §12.6) — per vendor, and filterable by kind so the
@@ -69,27 +70,67 @@ export async function apAging(options: {
 }) {
   const vendorFilter = options.kind ? { kind: options.kind } : {};
 
+  // As with A/R, status cannot be the filter: a work order paid in August was
+  // still a payable in July. Everything that had become a payable by the date
+  // comes back, and whether it was still open is worked out below.
   const [workOrders, bills] = await Promise.all([
     prisma.workOrder.findMany({
       where: {
         companyId: options.companyId,
-        status: { in: ["APPROVED", "PARTIALLY_PAID"] },
-        issueDate: { lte: options.asOf },
+        status: { notIn: ["DRAFT"] },
+        approvedAt: { lte: options.asOf },
         vendor: vendorFilter,
       },
-      include: { vendor: { select: { id: true, name: true, kind: true } } },
+      include: {
+        vendor: { select: { id: true, name: true, kind: true } },
+        applications: { include: { billPayment: true } },
+      },
     }),
     prisma.expense.findMany({
       where: {
         companyId: options.companyId,
         kind: "BILL",
-        status: { in: ["APPROVED", "PARTIALLY_PAID"] },
         date: { lte: options.asOf },
         vendor: vendorFilter,
       },
-      include: { vendor: { select: { id: true, name: true, kind: true } } },
+      include: {
+        vendor: { select: { id: true, name: true, kind: true } },
+        applications: { include: { billPayment: true } },
+      },
     }),
   ]);
+
+  const [voidedWorkOrders, voidedBills, reversedPayments] = await Promise.all([
+    voidDates(
+      options.companyId,
+      "WORK_ORDER",
+      workOrders.map((workOrder) => workOrder.id),
+    ),
+    voidDates(
+      options.companyId,
+      "EXPENSE",
+      bills.map((bill) => bill.id),
+    ),
+    reversalDates(
+      [...workOrders, ...bills].flatMap((document) =>
+        document.applications.map((application) => application.billPayment.reversalEntryId),
+      ),
+    ),
+  ]);
+
+  /** What had been applied to a document by the as-of date. */
+  const paidBy = (
+    applications: { amountApplied: Prisma.Decimal; billPayment: { date: Date; reversalEntryId: string | null } }[],
+  ) =>
+    applications.reduce((total, application) => {
+      const payment = application.billPayment;
+      if (payment.date > options.asOf) return total;
+      const reversedOn = payment.reversalEntryId
+        ? reversedPayments.get(payment.reversalEntryId)
+        : undefined;
+      if (!liveAt(reversedOn, options.asOf)) return total;
+      return total.plus(money(application.amountApplied));
+    }, money(0));
 
   const byVendor = new Map<string, ApRow>();
 
@@ -110,7 +151,8 @@ export async function apAging(options: {
     Math.floor((options.asOf.getTime() - dueDate.getTime()) / 86_400_000);
 
   for (const workOrder of workOrders) {
-    const balanceDue = money(workOrder.balanceDue);
+    if (!liveAt(voidedWorkOrders.get(workOrder.id), options.asOf)) continue;
+    const balanceDue = money(workOrder.total).minus(paidBy(workOrder.applications));
     if (balanceDue.lessThanOrEqualTo(0)) continue;
     add(workOrder.vendor, {
       id: workOrder.id,
@@ -125,8 +167,10 @@ export async function apAging(options: {
   }
 
   for (const bill of bills) {
-    const balanceDue = money(bill.balanceDue);
-    if (balanceDue.lessThanOrEqualTo(0) || !bill.vendor) continue;
+    if (!bill.vendor) continue;
+    if (!liveAt(voidedBills.get(bill.id), options.asOf)) continue;
+    const balanceDue = money(bill.amount).minus(paidBy(bill.applications));
+    if (balanceDue.lessThanOrEqualTo(0)) continue;
     const due = bill.dueDate ?? bill.date;
     add(bill.vendor, {
       id: bill.id,

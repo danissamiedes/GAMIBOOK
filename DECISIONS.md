@@ -457,6 +457,52 @@ Worth recording because of how they were found, not what they were:
 - **Ten screens scrolled sideways on a phone**, all from bare tables with no
   scroll container, plus a Card that would not shrink below its widest child.
 
+## One bill payments register, and aging that means what it says — 2026-08-21
+
+**Paying a consultant and paying a regular vendor are one screen, scoped by
+vendor kind.** The user's framing, and the right one: the act is identical, so
+what varies is who may see which rows. A membership holding one section is
+pinned to that kind whatever the URL says; only a membership holding both gets
+a filter. This is the same rule the A/P aging report already followed.
+
+**The register records as well as lists.** One bank transfer usually settles
+several documents, so the screen shows everything a payee is owed on — work
+orders and bills together — and pays them in one action. The service already
+supported multiple applications; nothing had used it.
+
+**A payment could settle another vendor's document.** `loadDocument` scoped an
+application by company but never by vendor. The consequences were worse than
+they looked: the document went to PAID, and the A/P debit took the *payer* as
+its party while the original credit kept the real creditor — so the control
+account still netted to zero and the aging total still tied, while per vendor
+the ledger was wrong in both directions. It was also a section hole, since a
+vendors-only user could have settled a consultant's work order by naming its
+id. Applications must now belong to the vendor being paid.
+
+**A/P aging compares per vendor, not only in total.** Two equal and opposite
+errors cancel in a total, which is exactly how the above stayed invisible.
+Comparing each party's ledger balance against their open documents is what
+surfaces it, and the report names the vendors that disagree. The check paid for
+itself immediately by catching a seed that post-dated a payment nine days into
+the future.
+
+**Aging is now genuinely as at its date.** Both reports read each document's
+*current* balance, so "A/P as at 31 July" answered "what is open today" — a
+document settled in August looked settled in July, and any report for a closed
+period disagreed with the ledger for that period. Balances are now built from
+the applications that had actually landed by the date.
+
+Two details decide correctness, and both are accounting dates rather than
+wall-clock ones. `reversedAt` and `voidedAt` record when someone clicked; the
+reversing entry carries the date the books use. Taking the timestamps would
+misfile anything reversed in one period for another — precisely the case a
+historical aging exists to show. Status cannot be the filter either: a PAID
+invoice was still owed before its payment, and a voided one before its void.
+
+The assertion that matters is the tie-out to the control account *at the same
+past date*, which is what an accountant does at year end. Six tests cover it,
+and all six fail against the previous implementation.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

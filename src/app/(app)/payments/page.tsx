@@ -4,28 +4,53 @@ import { sectionScope } from "@/lib/session-scope";
 import { formatAccountingDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money, sum } from "@/lib/money";
-import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
+import {
+  Card,
+  DataTable,
+  EmptyState,
+  PageHeader,
+  Pagination,
+} from "@/components/ui";
+import { pageHref, pageSummary, readPage } from "@/lib/pagination";
 
 export const metadata = { title: "Customer payments — Ledger" };
 
-export default async function PaymentsPage() {
+export default async function PaymentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const scope = await sectionScope("SALES");
+
+  const params = await searchParams;
+  const page = readPage(params);
+  const total = await prisma.payment.count({ where: scope.where });
+  const summary = pageSummary(page, total, "payment");
 
   const payments = await prisma.payment.findMany({
     where: scope.where,
     include: {
       customer: { select: { name: true } },
-      applications: { include: { invoice: { select: { id: true, invoiceNumber: true } } } },
+      applications: {
+        include: { invoice: { select: { id: true, invoiceNumber: true } } },
+      },
     },
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-    take: 200,
+    skip: page.skip,
+    take: page.take,
   });
 
   return (
     <>
-      <PageHeader title="Customer payments" description="Money in. Reversal deletes nothing." />
+      <PageHeader
+        title="Customer payments"
+        description="Money in. Reversal deletes nothing."
+      />
       {payments.length === 0 ? (
-        <EmptyState title="No payments recorded yet" action={{ href: "/invoices", label: "Go to invoices" }}>
+        <EmptyState
+          title="No payments recorded yet"
+          action={{ href: "/invoices", label: "Go to invoices" }}
+        >
           Record one from an open invoice.
         </EmptyState>
       ) : (
@@ -44,12 +69,19 @@ export default async function PaymentsPage() {
             <tbody>
               {payments.map((payment) => {
                 const applied = sum(
-                  payment.applications.map((application) => money(application.amountApplied)),
+                  payment.applications.map((application) =>
+                    money(application.amountApplied),
+                  ),
                 );
                 const unapplied = money(payment.amount).minus(applied);
                 return (
-                  <tr key={payment.id} className="border-b border-slate-100 dark:border-slate-800/60">
-                    <td className="py-2">{formatAccountingDate(payment.date)}</td>
+                  <tr
+                    key={payment.id}
+                    className="border-b border-slate-100 dark:border-slate-800/60"
+                  >
+                    <td className="py-2">
+                      {formatAccountingDate(payment.date)}
+                    </td>
                     <td className="py-2">
                       {payment.customer.name}
                       {payment.reversedAt ? (
@@ -64,7 +96,10 @@ export default async function PaymentsPage() {
                         : payment.applications.map((application, index) => (
                             <span key={application.id}>
                               {index > 0 ? ", " : ""}
-                              <Link className="underline" href={`/invoices/${application.invoice.id}`}>
+                              <Link
+                                className="underline"
+                                href={`/invoices/${application.invoice.id}`}
+                              >
                                 {application.invoice.invoiceNumber ?? "draft"}
                               </Link>
                             </span>
@@ -86,6 +121,11 @@ export default async function PaymentsPage() {
               })}
             </tbody>
           </DataTable>
+          <Pagination
+            summary={summary}
+            previousHref={pageHref("/payments", params, page.page - 1)}
+            nextHref={pageHref("/payments", params, page.page + 1)}
+          />
         </Card>
       )}
     </>

@@ -3,7 +3,7 @@ import { money, sum, type Money } from "@/lib/money";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { accountBalance } from "@/lib/ledger/reports";
 import { toBase } from "@/lib/ledger/fx";
-import { liveAt, reversalDates, voidDates } from "@/lib/reports/as-of";
+import { openInvoicesAsOf } from "@/lib/reports/as-of";
 
 /**
  * A/R aging (SPEC §12.5): per customer, current / 1–30 / 31–60 / 61–90 / 90+.
@@ -58,89 +58,59 @@ function emptyBuckets(): AgingBuckets {
   };
 }
 
-function addToBucket(buckets: AgingBuckets, daysOverdue: number, amount: Money) {
+function addToBucket(
+  buckets: AgingBuckets,
+  daysOverdue: number,
+  amount: Money,
+) {
   if (daysOverdue <= 0) buckets.current = buckets.current.plus(amount);
-  else if (daysOverdue <= 30) buckets.days1to30 = buckets.days1to30.plus(amount);
-  else if (daysOverdue <= 60) buckets.days31to60 = buckets.days31to60.plus(amount);
-  else if (daysOverdue <= 90) buckets.days61to90 = buckets.days61to90.plus(amount);
+  else if (daysOverdue <= 30)
+    buckets.days1to30 = buckets.days1to30.plus(amount);
+  else if (daysOverdue <= 60)
+    buckets.days31to60 = buckets.days31to60.plus(amount);
+  else if (daysOverdue <= 90)
+    buckets.days61to90 = buckets.days61to90.plus(amount);
   else buckets.days90plus = buckets.days90plus.plus(amount);
   buckets.total = buckets.total.plus(amount);
 }
 
-export async function arAging(options: { companyId: string; asOf: Date }): Promise<AgingReport> {
-  // Everything issued by the date, whatever it has become since. A PAID
-  // invoice was still owed before the payment landed, and a voided one was
-  // still owed before the void — so status cannot be the filter if the report
-  // is to mean anything for a past date.
-  const invoices = await prisma.invoice.findMany({
-    where: {
-      companyId: options.companyId,
-      status: { not: "DRAFT" },
-      issueDate: { lte: options.asOf },
-    },
-    include: {
-      customer: { select: { id: true, name: true } },
-      applications: { include: { payment: true } },
-    },
-    orderBy: [{ dueDate: "asc" }],
-  });
-
-  const [voided, reversed] = await Promise.all([
-    voidDates(
-      options.companyId,
-      "INVOICE",
-      invoices.map((invoice) => invoice.id),
-    ),
-    reversalDates(
-      invoices.flatMap((invoice) =>
-        invoice.applications.map((application) => application.payment.reversalEntryId),
-      ),
-    ),
-  ]);
+export async function arAging(options: {
+  companyId: string;
+  asOf: Date;
+}): Promise<AgingReport> {
+  // Only what was actually open on the date, resolved in the database. The
+  // readable version — load every invoice with its payments and add them up
+  // here — is what this was, and it took thirteen seconds on six years of
+  // invoices because "open then" has to consider every invoice ever issued.
+  const open = await openInvoicesAsOf(options.companyId, options.asOf);
 
   const byCustomer = new Map<string, AgingRow>();
 
-  for (const invoice of invoices) {
-    if (!liveAt(voided.get(invoice.id), options.asOf)) continue;
-
-    // What had actually been applied by the date: a payment dated later has
-    // not happened yet, and one reversed later was still in force.
-    const paid = invoice.applications.reduce((total, application) => {
-      const payment = application.payment;
-      if (payment.date > options.asOf) return total;
-      const reversedOn = payment.reversalEntryId
-        ? reversed.get(payment.reversalEntryId)
-        : undefined;
-      if (!liveAt(reversedOn, options.asOf)) return total;
-      return total.plus(money(application.amountApplied));
-    }, money(0));
-
-    const balanceDue = money(invoice.total).minus(paid);
-    if (balanceDue.lessThanOrEqualTo(0)) continue;
+  for (const invoice of open) {
+    const balanceDue = money(invoice.balanceDue);
 
     // Report in base currency, like every other report (SPEC §5). The open
     // balance is converted at the invoice's own rate — the rate it sits in the
     // ledger at.
     const baseBalance = toBase(balanceDue, invoice.fxRate);
-
     const daysOverdue = Math.floor(
       (options.asOf.getTime() - invoice.dueDate.getTime()) / 86_400_000,
     );
 
-    let row = byCustomer.get(invoice.customerId);
+    let row = byCustomer.get(invoice.partyId);
     if (!row) {
       row = {
         ...emptyBuckets(),
-        customerId: invoice.customerId,
-        customerName: invoice.customer.name,
+        customerId: invoice.partyId,
+        customerName: invoice.partyName,
         invoices: [],
       };
-      byCustomer.set(invoice.customerId, row);
+      byCustomer.set(invoice.partyId, row);
     }
 
     row.invoices.push({
       id: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
+      invoiceNumber: invoice.label,
       dueDate: invoice.dueDate,
       currency: invoice.currency,
       balanceDue,
@@ -150,7 +120,9 @@ export async function arAging(options: { companyId: string; asOf: Date }): Promi
     addToBucket(row, daysOverdue, baseBalance);
   }
 
-  const rows = [...byCustomer.values()].sort((a, b) => a.customerName.localeCompare(b.customerName));
+  const rows = [...byCustomer.values()].sort((a, b) =>
+    a.customerName.localeCompare(b.customerName),
+  );
 
   const totals = emptyBuckets();
   for (const row of rows) {
@@ -163,7 +135,10 @@ export async function arAging(options: { companyId: string; asOf: Date }): Promi
   }
 
   const receivable = await prisma.account.findFirst({
-    where: { companyId: options.companyId, systemKey: SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE },
+    where: {
+      companyId: options.companyId,
+      systemKey: SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE,
+    },
     select: { id: true },
   });
 

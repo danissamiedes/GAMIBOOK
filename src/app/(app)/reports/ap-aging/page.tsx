@@ -19,6 +19,12 @@ import {
 
 export const metadata = { title: "A/P Aging — Ledger" };
 
+/** How many documents to name inline before linking to the rest. */
+const INLINE_DOCUMENTS = 5;
+
+/** And how many when narrowed to a single party. */
+const FOCUSED_DOCUMENTS = 200;
+
 /**
  * A/P aging (SPEC §12.6). Which kinds a viewer may see is decided by their
  * sections, not by a dropdown: a VENDORS-only user gets the regular-vendor
@@ -27,7 +33,7 @@ export const metadata = { title: "A/P Aging — Ledger" };
 export default async function ApAgingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ asOf?: string; kind?: string }>;
+  searchParams: Promise<{ asOf?: string; kind?: string; vendor?: string }>;
 }) {
   const scope = await companyScope();
   scope.requireRole("OWNER", "BOOKKEEPER");
@@ -43,17 +49,32 @@ export default async function ApAgingPage({
   const asOf = parseAccountingDate(params.asOf ?? "") ?? today();
 
   // A viewer who holds only one side is pinned to it, whatever the URL says.
-  const requested = params.kind === "CONSULTANT" || params.kind === "REGULAR" ? params.kind : null;
+  const requested =
+    params.kind === "CONSULTANT" || params.kind === "REGULAR"
+      ? params.kind
+      : null;
   const kind: VendorKind | null = !seesConsultants
     ? "REGULAR"
     : !seesVendors
       ? "CONSULTANT"
       : (requested as VendorKind | null);
 
-  const [company, report] = await Promise.all([
+  const [company, full] = await Promise.all([
     prisma.company.findFirstOrThrow({ where: { id: scope.companyId } }),
     apAging({ companyId: scope.companyId, asOf, kind }),
   ]);
+
+  // One vendor at a time lists everything; the whole report names only the
+  // oldest few per vendor, or a payables ledger with thousands of open
+  // documents renders a page nobody can read.
+  const focused = params.vendor
+    ? (full.rows.find((row) => row.vendorId === params.vendor) ?? null)
+    : null;
+  const report = focused ? { ...full, rows: [focused] } : full;
+  // Even focused on one party the list is bounded: a customer with three
+  // thousand open documents is still three thousand entries in one cell.
+  // Everything is in the full data export for whoever needs all of it.
+  const inlineLimit = focused ? FOCUSED_DOCUMENTS : INLINE_DOCUMENTS;
 
   const labels = agingBucketLabels();
   const canSwitch = seesConsultants && seesVendors;
@@ -63,16 +84,26 @@ export default async function ApAgingPage({
       <PageHeader
         title="A/P Aging"
         description={`${company.name} · as at ${formatAccountingDate(asOf)} · ${
-          kind === "CONSULTANT" ? "consultants" : kind === "REGULAR" ? "regular vendors" : "all payables"
+          kind === "CONSULTANT"
+            ? "consultants"
+            : kind === "REGULAR"
+              ? "regular vendors"
+              : "all payables"
         } · ${company.baseCurrency}`}
       />
 
       <Card className="mb-4 print:hidden">
         <form className="flex flex-wrap items-end gap-3">
           <Field label="As of">
-            <Input type="date" name="asOf" defaultValue={formatAccountingDate(asOf)} />
+            <Input
+              type="date"
+              name="asOf"
+              defaultValue={formatAccountingDate(asOf)}
+            />
           </Field>
-          {canSwitch ? <input type="hidden" name="kind" value={kind ?? ""} /> : null}
+          {canSwitch ? (
+            <input type="hidden" name="kind" value={kind ?? ""} />
+          ) : null}
           <Button type="submit">Update</Button>
         </form>
         {canSwitch ? (
@@ -88,7 +119,11 @@ export default async function ApAgingPage({
                   option.value ? `&kind=${option.value}` : ""
                 }`}
               >
-                <Button variant={(kind ?? "") === option.value ? "primary" : "secondary"}>
+                <Button
+                  variant={
+                    (kind ?? "") === option.value ? "primary" : "secondary"
+                  }
+                >
                   {option.label}
                 </Button>
               </Link>
@@ -99,8 +134,9 @@ export default async function ApAgingPage({
 
       {report.tiesToLedger === false ? (
         <Alert tone="error">
-          This aging totals {report.totals.total.toFixed(2)} but the A/P control account holds{" "}
-          {report.controlBalance.toFixed(2)}. Investigate before relying on either figure.
+          This aging totals {report.totals.total.toFixed(2)} but the A/P control
+          account holds {report.controlBalance.toFixed(2)}. Investigate before
+          relying on either figure.
         </Alert>
       ) : null}
       {report.mismatchedVendors.length > 0 ? (
@@ -127,15 +163,29 @@ export default async function ApAgingPage({
       ) : null}
       {report.tiesToLedger === null ? (
         <Alert tone="info">
-          Showing one kind of payable, so this total is a subset of the A/P control account
-          ({report.controlBalance.toFixed(2)} {company.baseCurrency} in total).
+          Showing one kind of payable, so this total is a subset of the A/P
+          control account ({report.controlBalance.toFixed(2)}{" "}
+          {company.baseCurrency} in total).
+        </Alert>
+      ) : null}
+
+      {focused ? (
+        <Alert tone="info">
+          Showing {focused.vendorName} only.{" "}
+          <Link
+            className="underline"
+            href={`/reports/ap-aging?asOf=${formatAccountingDate(asOf)}${kind ? `&kind=${kind}` : ""}`}
+          >
+            Show every payee
+          </Link>
         </Alert>
       ) : null}
 
       {report.rows.length === 0 ? (
         <EmptyState title="Nothing outstanding">
-          No work order or bill has a balance as at this date. If you expected one, check the date
-          above — an unapproved work order is not yet a payable.
+          No work order or bill has a balance as at this date. If you expected
+          one, check the date above — an unapproved work order is not yet a
+          payable.
         </EmptyState>
       ) : (
         <Card>
@@ -153,26 +203,49 @@ export default async function ApAgingPage({
             </thead>
             <tbody>
               {report.rows.map((row) => (
-                <tr key={row.vendorId} className="border-b border-slate-100 dark:border-slate-800/60">
+                <tr
+                  key={row.vendorId}
+                  className="border-b border-slate-100 dark:border-slate-800/60"
+                >
                   <td className="py-2">
                     {row.vendorName}
                     <span className="ml-2 text-[10px] uppercase tracking-wide text-slate-400">
                       {row.kind === "CONSULTANT" ? "consultant" : "vendor"}
                     </span>
                     <div className="text-xs text-slate-500">
-                      {row.documents.map((document, index) => (
-                        <span key={document.id}>
-                          {index > 0 ? " · " : ""}
-                          {document.type === "workOrder" ? (
-                            <Link className="underline" href={`/work-orders/${document.id}`}>
-                              {document.label}
-                            </Link>
-                          ) : (
-                            document.label
-                          )}
-                          {document.daysOverdue > 0 ? ` (${document.daysOverdue}d)` : ""}
+                      {row.documents
+                        .slice(0, inlineLimit)
+                        .map((document, index) => (
+                          <span key={document.id}>
+                            {index > 0 ? " · " : ""}
+                            {document.type === "workOrder" ? (
+                              <Link
+                                className="underline"
+                                href={`/work-orders/${document.id}`}
+                              >
+                                {document.label}
+                              </Link>
+                            ) : (
+                              document.label
+                            )}
+                            {document.daysOverdue > 0
+                              ? ` (${document.daysOverdue}d)`
+                              : ""}
+                          </span>
+                        ))}
+                      {row.documents.length > inlineLimit ? (
+                        <span>
+                          {" · "}
+                          <Link
+                            className="underline"
+                            href={`/reports/ap-aging?asOf=${formatAccountingDate(asOf)}${
+                              kind ? `&kind=${kind}` : ""
+                            }&vendor=${row.vendorId}`}
+                          >
+                            and {row.documents.length - inlineLimit} more
+                          </Link>
                         </span>
-                      ))}
+                      ) : null}
                     </div>
                   </td>
                   {apBucketValues(row).map((value, index) => (
@@ -195,7 +268,10 @@ export default async function ApAgingPage({
                   </td>
                 ))}
                 <td className="py-2 text-right tabular-nums">
-                  {formatMoney(report.totals.total.toFixed(2), company.baseCurrency)}
+                  {formatMoney(
+                    report.totals.total.toFixed(2),
+                    company.baseCurrency,
+                  )}
                 </td>
               </tr>
             </tfoot>

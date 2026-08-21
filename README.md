@@ -224,7 +224,22 @@ books rather than as a missing feature.
 - "Coming in the next 30 days", with anything already past flagged as overdue —
   which is how you notice the scheduler is not running
 
-Remaining from the spec: the CSV bank import (§8.5).
+**CSV bank import (§8.4):**
+
+- A bank account per real account, tied to the ledger account its cash sits in
+- Column mapping with a live preview, both statement layouts (one signed
+  column, or separate debit and credit), and a date format you choose — the
+  mapping is saved per account so the next import is one click
+- Dedupe on (account, date, amount, description), so a re-imported overlap is
+  reported rather than duplicated
+- **Three match outcomes, and they do not overlap:** link to a payment already
+  recorded (posts nothing), settle an open document (creates the payment), or
+  categorise directly (posts against the bank). Unmatching reverses whatever
+  the match created, and nothing when it created nothing
+- Unmatched count on the dashboard and beside each account
+
+The spec is complete. Remaining: the historical migration (§4.4), which needs
+your spreadsheet and a books start date.
 
 ### Connecting Gmail
 

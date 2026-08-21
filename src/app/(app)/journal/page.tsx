@@ -4,25 +4,48 @@ import { sectionScope } from "@/lib/session-scope";
 import { formatAccountingDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money, sum } from "@/lib/money";
-import { Button, Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
+import {
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  PageHeader,
+  Pagination,
+} from "@/components/ui";
+import { pageHref, pageSummary, readPage } from "@/lib/pagination";
 
 export const metadata = { title: "Journal — Ledger" };
 
-export default async function JournalPage() {
+export default async function JournalPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const scope = await sectionScope("REPORTS");
-  const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });
+  const company = await prisma.company.findFirstOrThrow({
+    where: { id: scope.companyId },
+  });
+
+  const params = await searchParams;
+  const page = readPage(params);
+  const total = await prisma.journalEntry.count({ where: scope.where });
+  const summary = pageSummary(page, total, "entry", "entries");
 
   const entries = await prisma.journalEntry.findMany({
     where: scope.where,
     orderBy: [{ date: "desc" }, { entryNumber: "desc" }],
-    take: 100,
+    skip: page.skip,
+    take: page.take,
     include: { lines: { select: { debit: true } } },
   });
 
   return (
     <>
       <div className="mb-6 flex items-start justify-between gap-4">
-        <PageHeader title="Journal" description="Every posting, newest first." />
+        <PageHeader
+          title="Journal"
+          description="Every posting, newest first."
+        />
         <Link href="/journal/new">
           <Button>New entry</Button>
         </Link>
@@ -30,8 +53,8 @@ export default async function JournalPage() {
 
       {entries.length === 0 ? (
         <EmptyState title="Nothing posted yet">
-          Manual entries, opening balances and — from Phase 3 — invoices and work orders all land
-          here.
+          Manual entries, opening balances and — from Phase 3 — invoices and
+          work orders all land here.
         </EmptyState>
       ) : (
         <Card>
@@ -47,8 +70,13 @@ export default async function JournalPage() {
             </thead>
             <tbody>
               {entries.map((entry) => (
-                <tr key={entry.id} className="border-b border-slate-100 dark:border-slate-800/60">
-                  <td className="py-2 font-mono text-xs">{entry.entryNumber}</td>
+                <tr
+                  key={entry.id}
+                  className="border-b border-slate-100 dark:border-slate-800/60"
+                >
+                  <td className="py-2 font-mono text-xs">
+                    {entry.entryNumber}
+                  </td>
                   <td className="py-2">{formatAccountingDate(entry.date)}</td>
                   <td className="py-2 text-xs text-slate-500">
                     {entry.sourceType.toLowerCase().replace(/_/g, " ")}
@@ -65,7 +93,9 @@ export default async function JournalPage() {
                   </td>
                   <td className="py-2 text-right tabular-nums">
                     {formatMoney(
-                      sum(entry.lines.map((line) => money(line.debit))).toFixed(2),
+                      sum(entry.lines.map((line) => money(line.debit))).toFixed(
+                        2,
+                      ),
                       company.baseCurrency,
                     )}
                   </td>
@@ -73,6 +103,11 @@ export default async function JournalPage() {
               ))}
             </tbody>
           </DataTable>
+          <Pagination
+            summary={summary}
+            previousHref={pageHref("/journal", params, page.page - 1)}
+            nextHref={pageHref("/journal", params, page.page + 1)}
+          />
         </Card>
       )}
     </>

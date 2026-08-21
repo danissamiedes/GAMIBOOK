@@ -1,4 +1,5 @@
 import type { JournalSourceType } from "@prisma/client";
+import { Prisma, type VendorKind } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 /**
@@ -67,4 +68,170 @@ export async function reversalDates(
     select: { id: true, date: true },
   });
   return new Map(entries.map((entry) => [entry.id, entry.date]));
+}
+
+/**
+ * Documents still open as at a date, resolved in SQL rather than by loading
+ * every document ever issued.
+ *
+ * The readable version — fetch each document with its applications and add
+ * them up in JavaScript — is correct and was what this started as. It also
+ * took thirteen seconds on six years of invoices, because "still open then"
+ * cannot be answered without considering every document, and hydrating ten
+ * thousand of them with their payments is the whole cost. The database can
+ * answer it and return only the handful that are actually open.
+ *
+ * The three date rules are the same ones stated above: a payment counts only
+ * if it was dated on or before the date, a reversal only removes it if the
+ * reversing entry was dated on or before the date, and a document voided later
+ * was still owed then.
+ */
+export type OpenDocumentRow = {
+  id: string;
+  partyId: string;
+  partyName: string;
+  label: string;
+  dueDate: Date;
+  currency: string;
+  fxRate: Prisma.Decimal;
+  balanceDue: Prisma.Decimal;
+};
+
+export async function openInvoicesAsOf(
+  companyId: string,
+  asOf: Date,
+): Promise<OpenDocumentRow[]> {
+  return prisma.$queryRaw<OpenDocumentRow[]>`
+    SELECT i."id",
+           i."customerId"    AS "partyId",
+           c."name"          AS "partyName",
+           COALESCE(i."invoiceNumber", 'draft') AS "label",
+           i."dueDate",
+           i."currency",
+           i."fxRate",
+           i."total" - COALESCE(SUM(
+             CASE WHEN pay."date" <= ${asOf}::date
+                   AND (rev."date" IS NULL OR rev."date" > ${asOf}::date)
+                  THEN pa."amountApplied" ELSE 0 END
+           ), 0) AS "balanceDue"
+    FROM "Invoice" i
+    JOIN "Customer" c ON c."id" = i."customerId"
+    LEFT JOIN "PaymentApplication" pa ON pa."invoiceId" = i."id"
+    LEFT JOIN "Payment" pay ON pay."id" = pa."paymentId"
+    LEFT JOIN "JournalEntry" rev ON rev."id" = pay."reversalEntryId"
+    WHERE i."companyId" = ${companyId}
+      AND i."status" <> 'DRAFT'
+      AND i."issueDate" <= ${asOf}::date
+      -- Voided on or before the date: gone. Voided later: still owed then.
+      AND NOT EXISTS (
+        SELECT 1 FROM "JournalEntry" e
+        JOIN "JournalEntry" vr ON vr."id" = e."reversedByEntryId"
+        WHERE e."companyId" = i."companyId"
+          AND e."sourceType" = 'INVOICE'
+          AND e."sourceId" = i."id"
+          AND vr."date" <= ${asOf}::date
+      )
+    GROUP BY i."id", c."name"
+    HAVING i."total" - COALESCE(SUM(
+             CASE WHEN pay."date" <= ${asOf}::date
+                   AND (rev."date" IS NULL OR rev."date" > ${asOf}::date)
+                  THEN pa."amountApplied" ELSE 0 END
+           ), 0) > 0
+    ORDER BY i."dueDate" ASC
+  `;
+}
+
+/** The same, for the payables side: work orders and vendor bills together. */
+export async function openPayablesAsOf(
+  companyId: string,
+  asOf: Date,
+  kind: VendorKind | null,
+): Promise<
+  (OpenDocumentRow & { type: "workOrder" | "bill"; partyKind: VendorKind })[]
+> {
+  const kindFilter = kind
+    ? Prisma.sql`AND v."kind" = ${kind}::"VendorKind"`
+    : Prisma.empty;
+
+  return prisma.$queryRaw`
+    SELECT w."id",
+           'workOrder' AS "type",
+           w."vendorId" AS "partyId",
+           v."name"     AS "partyName",
+           v."kind"     AS "partyKind",
+           COALESCE(w."workOrderNumber", 'draft') AS "label",
+           w."dueDate",
+           w."currency",
+           w."fxRate",
+           w."total" - COALESCE(SUM(
+             CASE WHEN bp."date" <= ${asOf}::date
+                   AND (rev."date" IS NULL OR rev."date" > ${asOf}::date)
+                  THEN a."amountApplied" ELSE 0 END
+           ), 0) AS "balanceDue"
+    FROM "WorkOrder" w
+    JOIN "Vendor" v ON v."id" = w."vendorId"
+    LEFT JOIN "BillPaymentApplication" a ON a."workOrderId" = w."id"
+    LEFT JOIN "BillPayment" bp ON bp."id" = a."billPaymentId"
+    LEFT JOIN "JournalEntry" rev ON rev."id" = bp."reversalEntryId"
+    WHERE w."companyId" = ${companyId}
+      AND w."status" <> 'DRAFT'
+      AND w."approvedAt" <= ${asOf}::date
+      ${kindFilter}
+      AND NOT EXISTS (
+        SELECT 1 FROM "JournalEntry" e
+        JOIN "JournalEntry" vr ON vr."id" = e."reversedByEntryId"
+        WHERE e."companyId" = w."companyId"
+          AND e."sourceType" = 'WORK_ORDER'
+          AND e."sourceId" = w."id"
+          AND vr."date" <= ${asOf}::date
+      )
+    GROUP BY w."id", v."name", v."kind"
+    HAVING w."total" - COALESCE(SUM(
+             CASE WHEN bp."date" <= ${asOf}::date
+                   AND (rev."date" IS NULL OR rev."date" > ${asOf}::date)
+                  THEN a."amountApplied" ELSE 0 END
+           ), 0) > 0
+
+    UNION ALL
+
+    SELECT x."id",
+           'bill' AS "type",
+           x."vendorId" AS "partyId",
+           v."name"     AS "partyName",
+           v."kind"     AS "partyKind",
+           x."description" AS "label",
+           COALESCE(x."dueDate", x."date") AS "dueDate",
+           x."currency",
+           x."fxRate",
+           x."amount" - COALESCE(SUM(
+             CASE WHEN bp."date" <= ${asOf}::date
+                   AND (rev."date" IS NULL OR rev."date" > ${asOf}::date)
+                  THEN a."amountApplied" ELSE 0 END
+           ), 0) AS "balanceDue"
+    FROM "Expense" x
+    JOIN "Vendor" v ON v."id" = x."vendorId"
+    LEFT JOIN "BillPaymentApplication" a ON a."expenseId" = x."id"
+    LEFT JOIN "BillPayment" bp ON bp."id" = a."billPaymentId"
+    LEFT JOIN "JournalEntry" rev ON rev."id" = bp."reversalEntryId"
+    WHERE x."companyId" = ${companyId}
+      AND x."kind" = 'BILL'
+      AND x."date" <= ${asOf}::date
+      ${kindFilter}
+      AND NOT EXISTS (
+        SELECT 1 FROM "JournalEntry" e
+        JOIN "JournalEntry" vr ON vr."id" = e."reversedByEntryId"
+        WHERE e."companyId" = x."companyId"
+          AND e."sourceType" = 'EXPENSE'
+          AND e."sourceId" = x."id"
+          AND vr."date" <= ${asOf}::date
+      )
+    GROUP BY x."id", v."name", v."kind"
+    HAVING x."amount" - COALESCE(SUM(
+             CASE WHEN bp."date" <= ${asOf}::date
+                   AND (rev."date" IS NULL OR rev."date" > ${asOf}::date)
+                  THEN a."amountApplied" ELSE 0 END
+           ), 0) > 0
+
+    ORDER BY "dueDate" ASC
+  `;
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
@@ -27,7 +28,9 @@ import {
   Input,
   PageHeader,
   Select,
+  Pagination,
 } from "@/components/ui";
+import { pageHref, pageSummary, readPage } from "@/lib/pagination";
 
 export const metadata = { title: "Match bank transactions — Ledger" };
 
@@ -58,6 +61,7 @@ export default async function BankMatchPage({
     line?: string;
     payee?: string;
     show?: string;
+    page?: string;
     error?: string;
     imported?: string;
     done?: string;
@@ -78,20 +82,24 @@ export default async function BankMatchPage({
   // Captured by the server actions below, so it must be a plain string.
   const accountId = bankAccount.id;
 
-  const [transactions, unmatchedTotal] = await Promise.all([
+  const page = readPage(params);
+  const transactionWhere: Prisma.BankTransactionWhereInput = {
+    companyId: scope.companyId,
+    bankAccountId: bankAccount.id,
+    status: showMatched ? "MATCHED" : { in: ["UNMATCHED", "EXCLUDED"] },
+  };
+
+  const [transactions, unmatchedTotal, listTotal] = await Promise.all([
     prisma.bankTransaction.findMany({
-      where: {
-        companyId: scope.companyId,
-        bankAccountId: bankAccount.id,
-        status: showMatched ? "MATCHED" : { in: ["UNMATCHED", "EXCLUDED"] },
-      },
+      where: transactionWhere,
       include: {
         matchedPayment: { include: { customer: { select: { name: true } } } },
         matchedBillPayment: { include: { vendor: { select: { name: true } } } },
         matchedJournalEntry: { select: { entryNumber: true, id: true } },
       },
       orderBy: { date: "asc" },
-      take: 200,
+      skip: page.skip,
+      take: page.take,
     }),
     prisma.bankTransaction.count({
       where: {
@@ -100,7 +108,10 @@ export default async function BankMatchPage({
         status: "UNMATCHED",
       },
     }),
+    prisma.bankTransaction.count({ where: transactionWhere }),
   ]);
+
+  const summary = pageSummary(page, listTotal, "line");
 
   // The line being worked on, with everything needed to offer all three routes.
   const selected = params.line
@@ -486,6 +497,11 @@ export default async function BankMatchPage({
               })}
             </tbody>
           </DataTable>
+          <Pagination
+            summary={summary}
+            previousHref={pageHref("/banking/match", params, page.page - 1)}
+            nextHref={pageHref("/banking/match", params, page.page + 1)}
+          />
         </Card>
       )}
 

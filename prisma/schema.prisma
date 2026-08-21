@@ -612,6 +612,8 @@ model Invoice {
 
   @@unique([companyId, invoiceNumber])
   @@index([companyId, status])
+  /// The aging reports scan by issue date, not by status (SPEC §12.5).
+  @@index([companyId, issueDate])
   @@index([companyId, customerId])
 }
 
@@ -760,6 +762,8 @@ model WorkOrder {
 
   @@unique([companyId, workOrderNumber])
   @@index([companyId, status])
+  /// Approval is what makes it a payable, so that is what aging filters on.
+  @@index([companyId, approvedAt])
   @@index([companyId, vendorId])
 }
 
@@ -816,6 +820,7 @@ model Expense {
   applications BillPaymentApplication[]
 
   @@index([companyId, kind, status])
+  @@index([companyId, kind, date])
   @@index([companyId, vendorId])
 }
 

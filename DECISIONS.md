@@ -542,6 +542,53 @@ list until issued, because totals were only computed on issue — a month of
 retainer drafts would have been a column of zeroes. Fixed for the manual
 draft path too, which had the same wart.
 
+## Bank import, and what volume actually broke — 2026-08-21
+
+**The three match outcomes are one enum-like decision, and the flag that
+matters is "did this match cause the entry".** A line that *found* an existing
+entry and a line that *wrote* one both end up pointing at exactly one entry;
+only the second has anything to undo. Getting that wrong once — I marked a
+settled line as having created nothing — would have let unmatching orphan a
+payment it had just created.
+
+**Dedupe is a hash of (bank account, date, amount, description).** Not the file
+and not the row position: banks re-issue statements with different orders and
+names, and the overlap that matters is with the *last* statement.
+
+**Debit is negative.** Statements print money out unsigned in a debit column;
+taking it as written flips every payment into a receipt.
+
+### What six years of data actually broke
+
+Measured rather than guessed, on 10,084 invoices, 7,563 work orders, 17,661
+journal entries and 25,920 bank lines:
+
+| Screen | Before | After |
+|---|---|---|
+| A/R aging | 13.2s, 4.3 MB | 0.28s, 55 KB |
+| A/P aging | 9.5s, 3.2 MB | 0.30s, 59 KB |
+| Invoices | 0.9s, capped at 200 silently | 0.49s, paged, states the total |
+| Bank matching | 1.4s, capped at 200 | 0.91s, paged |
+
+Two separate faults, and the first fix alone changed nothing:
+
+**The aging reports loaded every document ever issued.** That is what "still
+open on this date" needs, and hydrating ten thousand invoices with their
+payments is the cost. Now one grouped query per side returns only the documents
+actually open, with the three date rules — payment dated on or before, reversal
+dated after, void dated after — expressed in SQL. The dashboard, which uses the
+same function, went from 1.7s to 0.37s.
+
+**The pages then rendered every one of them.** 4.3 MB of HTML with ten thousand
+invoice links crammed into five table cells. The aging report's job is the
+buckets; naming five documents per party with a link to the rest is both faster
+and more readable. That was the fix that moved the number.
+
+**Silent truncation is worse than slowness on a financial screen.** Every list
+took the first 100–200 rows and said nothing, so the figures on the page were
+true and the impression they gave was false. Lists now state their total — "1–100
+of 10,084 invoices" — and page through it.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

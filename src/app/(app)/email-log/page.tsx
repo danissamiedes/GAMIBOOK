@@ -2,7 +2,15 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { companyScope } from "@/lib/session-scope";
 import { formatDateTimeInZone } from "@/lib/time/zone";
-import { Alert, Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
+import {
+  Alert,
+  Card,
+  DataTable,
+  EmptyState,
+  PageHeader,
+  Pagination,
+} from "@/components/ui";
+import { pageHref, pageSummary, readPage } from "@/lib/pagination";
 
 export const metadata = { title: "Email log — Ledger" };
 
@@ -16,26 +24,44 @@ const STATUS_STYLES: Record<string, string> = {
 export default async function EmailLogPage({
   searchParams,
 }: {
-  searchParams: Promise<{ relatedId?: string; batch?: string; status?: string }>;
+  searchParams: Promise<{
+    relatedId?: string;
+    batch?: string;
+    status?: string;
+    page?: string;
+  }>;
 }) {
   const scope = await companyScope();
   scope.requireRole("OWNER", "BOOKKEEPER");
   const params = await searchParams;
 
-  const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });
-
-  const logs = await prisma.emailLog.findMany({
-    where: {
-      ...scope.where,
-      ...(params.relatedId ? { relatedId: params.relatedId } : {}),
-      ...(params.batch ? { emailBatchId: params.batch } : {}),
-      ...(params.status ? { status: params.status as "QUEUED" | "SENT" | "FAILED" } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: 200,
+  const company = await prisma.company.findFirstOrThrow({
+    where: { id: scope.companyId },
   });
 
-  const dryRunCount = logs.filter((log) => log.gmailMessageId === "dry-run").length;
+  const page = readPage(params);
+  const logWhere = {
+    ...scope.where,
+    ...(params.relatedId ? { relatedId: params.relatedId } : {}),
+    ...(params.batch ? { emailBatchId: params.batch } : {}),
+    ...(params.status
+      ? { status: params.status as "QUEUED" | "SENT" | "FAILED" }
+      : {}),
+  };
+
+  const logs = await prisma.emailLog.findMany({
+    where: logWhere,
+    orderBy: { createdAt: "desc" },
+    skip: page.skip,
+    take: page.take,
+  });
+
+  const total = await prisma.emailLog.count({ where: logWhere });
+  const summary = pageSummary(page, total, "message");
+
+  const dryRunCount = logs.filter(
+    (log) => log.gmailMessageId === "dry-run",
+  ).length;
 
   return (
     <>
@@ -52,8 +78,9 @@ export default async function EmailLogPage({
 
       {logs.length === 0 ? (
         <EmptyState title="Nothing sent yet">
-          Every attempt lands here — successes and failures alike, with the reason a message was
-          refused. Send an invoice or a work order and it will show up.
+          Every attempt lands here — successes and failures alike, with the
+          reason a message was refused. Send an invoice or a work order and it
+          will show up.
         </EmptyState>
       ) : (
         <Card>
@@ -70,14 +97,24 @@ export default async function EmailLogPage({
             </thead>
             <tbody>
               {logs.map((log) => (
-                <tr key={log.id} className="border-b border-slate-100 dark:border-slate-800/60">
+                <tr
+                  key={log.id}
+                  className="border-b border-slate-100 dark:border-slate-800/60"
+                >
                   <td className="py-2 whitespace-nowrap">
-                    {formatDateTimeInZone(log.createdAt, company.operatingTimeZone)}
+                    {formatDateTimeInZone(
+                      log.createdAt,
+                      company.operatingTimeZone,
+                    )}
                   </td>
                   <td className="py-2">
-                    {log.toAddresses.join(", ") || <span className="text-slate-400">—</span>}
+                    {log.toAddresses.join(", ") || (
+                      <span className="text-slate-400">—</span>
+                    )}
                     {log.cc.length > 0 ? (
-                      <div className="text-xs text-slate-500">cc {log.cc.join(", ")}</div>
+                      <div className="text-xs text-slate-500">
+                        cc {log.cc.join(", ")}
+                      </div>
                     ) : null}
                   </td>
                   <td className="py-2">{log.subject}</td>
@@ -86,11 +123,17 @@ export default async function EmailLogPage({
                   </td>
                   <td className="py-2 text-xs">
                     {log.relatedType === "Invoice" && log.relatedId ? (
-                      <Link className="underline" href={`/invoices/${log.relatedId}`}>
+                      <Link
+                        className="underline"
+                        href={`/invoices/${log.relatedId}`}
+                      >
                         invoice
                       </Link>
                     ) : log.relatedType === "WorkOrder" && log.relatedId ? (
-                      <Link className="underline" href={`/work-orders/${log.relatedId}`}>
+                      <Link
+                        className="underline"
+                        href={`/work-orders/${log.relatedId}`}
+                      >
                         work order
                       </Link>
                     ) : (
@@ -103,7 +146,9 @@ export default async function EmailLogPage({
                         STATUS_STYLES[log.status]
                       }`}
                     >
-                      {log.gmailMessageId === "dry-run" ? "dry run" : log.status.toLowerCase()}
+                      {log.gmailMessageId === "dry-run"
+                        ? "dry run"
+                        : log.status.toLowerCase()}
                     </span>
                     {log.error ? (
                       <div className="mt-1 max-w-sm text-xs text-red-600 dark:text-red-400">
@@ -115,6 +160,11 @@ export default async function EmailLogPage({
               ))}
             </tbody>
           </DataTable>
+          <Pagination
+            summary={summary}
+            previousHref={pageHref("/email-log", params, page.page - 1)}
+            nextHref={pageHref("/email-log", params, page.page + 1)}
+          />
         </Card>
       )}
     </>

@@ -4,14 +4,23 @@ import { sectionScope } from "@/lib/session-scope";
 import { formatAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money } from "@/lib/money";
-import { Button, Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
+import {
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  PageHeader,
+  Pagination,
+} from "@/components/ui";
+import { pageHref, pageSummary, readPage } from "@/lib/pagination";
 
 export const metadata = { title: "Invoices — Ledger" };
 
 const STATUS_STYLES: Record<string, string> = {
   DRAFT: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   ISSUED: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
-  PARTIALLY_PAID: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+  PARTIALLY_PAID:
+    "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
   PAID: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
   VOID: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200",
 };
@@ -19,22 +28,37 @@ const STATUS_STYLES: Record<string, string> = {
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; page?: string }>;
 }) {
   const scope = await sectionScope("SALES");
-  const { status } = await searchParams;
+  const params = await searchParams;
+  const { status } = params;
+  const page = readPage(params);
+
+  const invoiceWhere = {
+    ...scope.where,
+    ...(status && status !== "ALL"
+      ? {
+          status: status as
+            | "DRAFT"
+            | "ISSUED"
+            | "PARTIALLY_PAID"
+            | "PAID"
+            | "VOID",
+        }
+      : {}),
+  };
 
   const invoices = await prisma.invoice.findMany({
-    where: {
-      ...scope.where,
-      ...(status && status !== "ALL"
-        ? { status: status as "DRAFT" | "ISSUED" | "PARTIALLY_PAID" | "PAID" | "VOID" }
-        : {}),
-    },
+    where: invoiceWhere,
     include: { customer: { select: { name: true } } },
     orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
-    take: 200,
+    skip: page.skip,
+    take: page.take,
   });
+
+  const total = await prisma.invoice.count({ where: invoiceWhere });
+  const summary = pageSummary(page, total, "invoice");
 
   // Whether the screen is empty because there is nothing, or because the
   // filter excluded everything. Telling someone with 400 invoices that they
@@ -43,7 +67,9 @@ export default async function InvoicesPage({
   // Only asked when it can change the answer: the screen is empty and a filter
   // is on.
   const hiddenByFilter =
-    invoices.length === 0 && filtering && (await prisma.invoice.count({ where: scope.where })) > 0;
+    invoices.length === 0 &&
+    filtering &&
+    (await prisma.invoice.count({ where: scope.where })) > 0;
 
   const now = today();
 
@@ -57,13 +83,17 @@ export default async function InvoicesPage({
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
-        {["ALL", "DRAFT", "ISSUED", "PARTIALLY_PAID", "PAID", "VOID"].map((value) => (
-          <Link key={value} href={`/invoices?status=${value}`}>
-            <Button variant={(status ?? "ALL") === value ? "primary" : "secondary"}>
-              {value.replace("_", " ").toLowerCase()}
-            </Button>
-          </Link>
-        ))}
+        {["ALL", "DRAFT", "ISSUED", "PARTIALLY_PAID", "PAID", "VOID"].map(
+          (value) => (
+            <Link key={value} href={`/invoices?status=${value}`}>
+              <Button
+                variant={(status ?? "ALL") === value ? "primary" : "secondary"}
+              >
+                {value.replace("_", " ").toLowerCase()}
+              </Button>
+            </Link>
+          ),
+        )}
       </div>
 
       {invoices.length === 0 ? (
@@ -79,8 +109,9 @@ export default async function InvoicesPage({
             title="No invoices yet"
             action={{ href: "/invoices/new", label: "New invoice" }}
           >
-            An invoice needs a customer and at least one line. Issuing it — not emailing it — is
-            what posts it to the ledger and allocates its number.
+            An invoice needs a customer and at least one line. Issuing it — not
+            emailing it — is what posts it to the ledger and allocates its
+            number.
           </EmptyState>
         )
       ) : (
@@ -104,15 +135,25 @@ export default async function InvoicesPage({
                   money(invoice.balanceDue).greaterThan(0) &&
                   ["ISSUED", "PARTIALLY_PAID"].includes(invoice.status);
                 return (
-                  <tr key={invoice.id} className="border-b border-slate-100 dark:border-slate-800/60">
+                  <tr
+                    key={invoice.id}
+                    className="border-b border-slate-100 dark:border-slate-800/60"
+                  >
                     <td className="py-2 font-mono text-xs">
-                      <Link className="underline" href={`/invoices/${invoice.id}`}>
+                      <Link
+                        className="underline"
+                        href={`/invoices/${invoice.id}`}
+                      >
                         {invoice.invoiceNumber ?? "draft"}
                       </Link>
                     </td>
                     <td className="py-2">{invoice.customer.name}</td>
-                    <td className="py-2">{formatAccountingDate(invoice.issueDate)}</td>
-                    <td className={`py-2 ${overdue ? "text-red-600 dark:text-red-400" : ""}`}>
+                    <td className="py-2">
+                      {formatAccountingDate(invoice.issueDate)}
+                    </td>
+                    <td
+                      className={`py-2 ${overdue ? "text-red-600 dark:text-red-400" : ""}`}
+                    >
                       {formatAccountingDate(invoice.dueDate)}
                       {overdue ? " · overdue" : ""}
                     </td>
@@ -126,16 +167,27 @@ export default async function InvoicesPage({
                       </span>
                     </td>
                     <td className="py-2 text-right tabular-nums">
-                      {formatMoney(money(invoice.total).toFixed(2), invoice.currency)}
+                      {formatMoney(
+                        money(invoice.total).toFixed(2),
+                        invoice.currency,
+                      )}
                     </td>
                     <td className="py-2 text-right tabular-nums">
-                      {formatMoney(money(invoice.balanceDue).toFixed(2), invoice.currency)}
+                      {formatMoney(
+                        money(invoice.balanceDue).toFixed(2),
+                        invoice.currency,
+                      )}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </DataTable>
+          <Pagination
+            summary={summary}
+            previousHref={pageHref("/invoices", params, page.page - 1)}
+            nextHref={pageHref("/invoices", params, page.page + 1)}
+          />
         </Card>
       )}
     </>

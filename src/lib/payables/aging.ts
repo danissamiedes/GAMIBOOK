@@ -1,10 +1,10 @@
-import type { Prisma, VendorKind } from "@prisma/client";
+import type { VendorKind } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { money, type Money } from "@/lib/money";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { accountBalance } from "@/lib/ledger/reports";
 import { toBase } from "@/lib/ledger/fx";
-import { liveAt, reversalDates, voidDates } from "@/lib/reports/as-of";
+import { openPayablesAsOf } from "@/lib/reports/as-of";
 
 /**
  * A/P aging (SPEC §12.6) — per vendor, and filterable by kind so the
@@ -55,9 +55,12 @@ function empty(): ApBuckets {
 
 function addToBucket(buckets: ApBuckets, daysOverdue: number, amount: Money) {
   if (daysOverdue <= 0) buckets.current = buckets.current.plus(amount);
-  else if (daysOverdue <= 30) buckets.days1to30 = buckets.days1to30.plus(amount);
-  else if (daysOverdue <= 60) buckets.days31to60 = buckets.days31to60.plus(amount);
-  else if (daysOverdue <= 90) buckets.days61to90 = buckets.days61to90.plus(amount);
+  else if (daysOverdue <= 30)
+    buckets.days1to30 = buckets.days1to30.plus(amount);
+  else if (daysOverdue <= 60)
+    buckets.days31to60 = buckets.days31to60.plus(amount);
+  else if (daysOverdue <= 90)
+    buckets.days61to90 = buckets.days61to90.plus(amount);
   else buckets.days90plus = buckets.days90plus.plus(amount);
   buckets.total = buckets.total.plus(amount);
 }
@@ -68,123 +71,52 @@ export async function apAging(options: {
   /** Omit for everything; pass a kind to read one side of payables. */
   kind?: VendorKind | null;
 }) {
-  const vendorFilter = options.kind ? { kind: options.kind } : {};
-
-  // As with A/R, status cannot be the filter: a work order paid in August was
-  // still a payable in July. Everything that had become a payable by the date
-  // comes back, and whether it was still open is worked out below.
-  const [workOrders, bills] = await Promise.all([
-    prisma.workOrder.findMany({
-      where: {
-        companyId: options.companyId,
-        status: { notIn: ["DRAFT"] },
-        approvedAt: { lte: options.asOf },
-        vendor: vendorFilter,
-      },
-      include: {
-        vendor: { select: { id: true, name: true, kind: true } },
-        applications: { include: { billPayment: true } },
-      },
-    }),
-    prisma.expense.findMany({
-      where: {
-        companyId: options.companyId,
-        kind: "BILL",
-        date: { lte: options.asOf },
-        vendor: vendorFilter,
-      },
-      include: {
-        vendor: { select: { id: true, name: true, kind: true } },
-        applications: { include: { billPayment: true } },
-      },
-    }),
-  ]);
-
-  const [voidedWorkOrders, voidedBills, reversedPayments] = await Promise.all([
-    voidDates(
-      options.companyId,
-      "WORK_ORDER",
-      workOrders.map((workOrder) => workOrder.id),
-    ),
-    voidDates(
-      options.companyId,
-      "EXPENSE",
-      bills.map((bill) => bill.id),
-    ),
-    reversalDates(
-      [...workOrders, ...bills].flatMap((document) =>
-        document.applications.map((application) => application.billPayment.reversalEntryId),
-      ),
-    ),
-  ]);
-
-  /** What had been applied to a document by the as-of date. */
-  const paidBy = (
-    applications: { amountApplied: Prisma.Decimal; billPayment: { date: Date; reversalEntryId: string | null } }[],
-  ) =>
-    applications.reduce((total, application) => {
-      const payment = application.billPayment;
-      if (payment.date > options.asOf) return total;
-      const reversedOn = payment.reversalEntryId
-        ? reversedPayments.get(payment.reversalEntryId)
-        : undefined;
-      if (!liveAt(reversedOn, options.asOf)) return total;
-      return total.plus(money(application.amountApplied));
-    }, money(0));
+  // Only what was open on the date, resolved in the database — see the A/R
+  // side for why this is not a readable loop over every document.
+  const open = await openPayablesAsOf(
+    options.companyId,
+    options.asOf,
+    options.kind ?? null,
+  );
 
   const byVendor = new Map<string, ApRow>();
-
-  const add = (
-    vendor: { id: string; name: string; kind: VendorKind },
-    document: ApRow["documents"][number],
-  ) => {
-    let row = byVendor.get(vendor.id);
-    if (!row) {
-      row = { ...empty(), vendorId: vendor.id, vendorName: vendor.name, kind: vendor.kind, documents: [] };
-      byVendor.set(vendor.id, row);
-    }
-    row.documents.push(document);
-    addToBucket(row, document.daysOverdue, document.baseBalance);
-  };
 
   const daysOverdue = (dueDate: Date) =>
     Math.floor((options.asOf.getTime() - dueDate.getTime()) / 86_400_000);
 
-  for (const workOrder of workOrders) {
-    if (!liveAt(voidedWorkOrders.get(workOrder.id), options.asOf)) continue;
-    const balanceDue = money(workOrder.total).minus(paidBy(workOrder.applications));
-    if (balanceDue.lessThanOrEqualTo(0)) continue;
-    add(workOrder.vendor, {
-      id: workOrder.id,
-      type: "workOrder",
-      label: workOrder.workOrderNumber ?? "draft",
-      dueDate: workOrder.dueDate,
-      currency: workOrder.currency,
+  for (const document of open) {
+    const balanceDue = money(document.balanceDue);
+    const overdue = daysOverdue(document.dueDate);
+
+    let row = byVendor.get(document.partyId);
+    if (!row) {
+      row = {
+        ...empty(),
+        vendorId: document.partyId,
+        vendorName: document.partyName,
+        kind: document.partyKind,
+        documents: [],
+      };
+      byVendor.set(document.partyId, row);
+    }
+
+    const baseBalance = toBase(balanceDue, document.fxRate);
+    row.documents.push({
+      id: document.id,
+      type: document.type,
+      label: document.label,
+      dueDate: document.dueDate,
+      currency: document.currency,
       balanceDue,
-      baseBalance: toBase(balanceDue, workOrder.fxRate),
-      daysOverdue: daysOverdue(workOrder.dueDate),
+      baseBalance,
+      daysOverdue: overdue,
     });
+    addToBucket(row, overdue, baseBalance);
   }
 
-  for (const bill of bills) {
-    if (!bill.vendor) continue;
-    if (!liveAt(voidedBills.get(bill.id), options.asOf)) continue;
-    const balanceDue = money(bill.amount).minus(paidBy(bill.applications));
-    if (balanceDue.lessThanOrEqualTo(0)) continue;
-    const due = bill.dueDate ?? bill.date;
-    add(bill.vendor, {
-      id: bill.id,
-      type: "bill",
-      label: bill.description,
-      dueDate: due,
-      currency: bill.currency,
-      balanceDue,
-      baseBalance: toBase(balanceDue, bill.fxRate),
-      daysOverdue: daysOverdue(due),
-    });
-  }
-
-  const rows = [...byVendor.values()].sort((a, b) => a.vendorName.localeCompare(b.vendorName));
+  const rows = [...byVendor.values()].sort((a, b) =>
+    a.vendorName.localeCompare(b.vendorName),
+  );
 
   const totals = empty();
   for (const row of rows) {
@@ -197,7 +129,10 @@ export async function apAging(options: {
   }
 
   const payableAccount = await prisma.account.findFirst({
-    where: { companyId: options.companyId, systemKey: SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE },
+    where: {
+      companyId: options.companyId,
+      systemKey: SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE,
+    },
     select: { id: true },
   });
 
@@ -218,12 +153,16 @@ export async function apAging(options: {
     ? await payableByVendor(options.companyId, payableAccount.id, options.asOf)
     : new Map<string, Money>();
 
-  const documentByVendor = new Map(rows.map((row) => [row.vendorId, row.total]));
+  const documentByVendor = new Map(
+    rows.map((row) => [row.vendorId, row.total]),
+  );
   const mismatchedIds = options.kind
     ? []
     : [...new Set([...perVendor.keys(), ...documentByVendor.keys()])].filter(
         (vendorId) =>
-          !(perVendor.get(vendorId) ?? money(0)).equals(documentByVendor.get(vendorId) ?? money(0)),
+          !(perVendor.get(vendorId) ?? money(0)).equals(
+            documentByVendor.get(vendorId) ?? money(0),
+          ),
       );
 
   // Names come from the vendor table, not from `rows`: the interesting case is

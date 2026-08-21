@@ -17,6 +17,15 @@ export type RawRow = {
   raw: Record<string, unknown>;
 };
 
+/** A sheet read without any opinion about what its columns mean. */
+export type RawSheet = {
+  sheetName: string;
+  sheetNames: string[];
+  /** Positional: a saved mapping refers to a column by index. */
+  headers: string[];
+  rows: { rowNumber: number; raw: Record<string, unknown> }[];
+};
+
 export type ParsedSheet = {
   sheetName: string;
   sheetNames: string[];
@@ -39,22 +48,33 @@ function cellValue(cell: ExcelJS.Cell): unknown {
   if (value instanceof Date) return value;
   if (typeof value === "object") {
     // Formulas, rich text and hyperlinks all carry their display value.
-    if ("result" in value) return (value as { result?: unknown }).result ?? null;
+    if ("result" in value)
+      return (value as { result?: unknown }).result ?? null;
     if ("richText" in value) {
-      return (value as { richText: { text: string }[] }).richText.map((part) => part.text).join("");
+      return (value as { richText: { text: string }[] }).richText
+        .map((part) => part.text)
+        .join("");
     }
     if ("text" in value) return (value as { text: string }).text;
   }
   return value;
 }
 
-export async function parseWorkbook(options: {
+/**
+ * Read a spreadsheet or CSV into headers and rows keyed by header, with no
+ * view on what those headers mean. The work order import knows its columns in
+ * advance; a bank import cannot, because every bank names them differently and
+ * the user maps them by hand (SPEC §8.4).
+ */
+export async function readWorkbook(options: {
   bytes: Buffer;
   fileName: string;
   sheetName?: string | null;
-}): Promise<ParsedSheet> {
+}): Promise<RawSheet> {
   if (options.bytes.length > MAX_IMPORT_BYTES) {
-    throw new ImportParseError("That file is over 10 MB. Split it and import in parts.");
+    throw new ImportParseError(
+      "That file is over 10 MB. Split it and import in parts.",
+    );
   }
 
   const workbook = new ExcelJS.Workbook();
@@ -78,22 +98,29 @@ export async function parseWorkbook(options: {
   }
 
   const sheetNames = workbook.worksheets.map((sheet) => sheet.name);
-  if (sheetNames.length === 0) throw new ImportParseError("That workbook has no sheets.");
+  if (sheetNames.length === 0)
+    throw new ImportParseError("That workbook has no sheets.");
 
   const worksheet = options.sheetName
     ? workbook.worksheets.find((sheet) => sheet.name === options.sheetName)
     : workbook.worksheets[0];
-  if (!worksheet) throw new ImportParseError(`No sheet named "${options.sheetName}".`);
+  if (!worksheet)
+    throw new ImportParseError(`No sheet named "${options.sheetName}".`);
 
   // The header row is the first row with any content — a sheet often opens
   // with a blank line or a title.
   let headerRowNumber = 0;
   worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     if (headerRowNumber !== 0) return;
-    const hasText = row.values && Object.values(row.values).some((value) => typeof value === "string" && value.trim());
+    const hasText =
+      row.values &&
+      Object.values(row.values).some(
+        (value) => typeof value === "string" && value.trim(),
+      );
     if (hasText) headerRowNumber = rowNumber;
   });
-  if (headerRowNumber === 0) throw new ImportParseError("That sheet appears to be empty.");
+  if (headerRowNumber === 0)
+    throw new ImportParseError("That sheet appears to be empty.");
 
   const headerRow = worksheet.getRow(headerRowNumber);
   const headers: string[] = [];
@@ -102,37 +129,59 @@ export async function parseWorkbook(options: {
     headers[colNumber - 1] = value === null ? "" : String(value).trim();
   });
 
-  const { mapping, unmatched, missingRequired } = mapHeaders(headers);
-
-  const rows: RawRow[] = [];
+  const rows: RawSheet["rows"] = [];
   worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     if (rowNumber <= headerRowNumber) return;
     if (rows.length >= MAX_IMPORT_ROWS) return;
 
     const raw: Record<string, unknown> = {};
-    const values: Partial<Record<ColumnKey, unknown>> = {};
     let hasAnything = false;
 
     headers.forEach((header, index) => {
       const value = cellValue(row.getCell(index + 1));
       if (value !== null && String(value).trim() !== "") hasAnything = true;
-      raw[header || `Column ${index + 1}`] = value instanceof Date ? value.toISOString() : value;
+      raw[header || `Column ${index + 1}`] =
+        value instanceof Date ? value.toISOString() : value;
     });
 
     // A blank row is skipped, not reported: spreadsheets are full of them.
     if (!hasAnything) return;
-
-    for (const [key, index] of Object.entries(mapping) as [ColumnKey, number][]) {
-      values[key] = cellValue(row.getCell(index + 1));
-    }
-
-    rows.push({ rowNumber, values, raw });
+    rows.push({ rowNumber, raw });
   });
 
   return {
     sheetName: worksheet.name,
     sheetNames,
-    headers: headers.filter(Boolean),
+    headers,
+    rows,
+  };
+}
+
+/** The work order import (SPEC §8.3): a read, plus this app's own column map. */
+export async function parseWorkbook(options: {
+  bytes: Buffer;
+  fileName: string;
+  sheetName?: string | null;
+}): Promise<ParsedSheet> {
+  const sheet = await readWorkbook(options);
+  const { mapping, unmatched, missingRequired } = mapHeaders(sheet.headers);
+
+  const rows: RawRow[] = sheet.rows.map((row) => {
+    const values: Partial<Record<ColumnKey, unknown>> = {};
+    for (const [key, index] of Object.entries(mapping) as [
+      ColumnKey,
+      number,
+    ][]) {
+      const header = sheet.headers[index];
+      values[key] = header ? (row.raw[header] ?? null) : null;
+    }
+    return { rowNumber: row.rowNumber, values, raw: row.raw };
+  });
+
+  return {
+    sheetName: sheet.sheetName,
+    sheetNames: sheet.sheetNames,
+    headers: sheet.headers.filter(Boolean),
     unmatchedHeaders: unmatched,
     missingRequired,
     rows,

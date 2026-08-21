@@ -169,6 +169,22 @@ enum SalesOrderStatus {
   CANCELLED
 }
 
+/// SPEC §8.4. A bank line is unmatched until it points at exactly one journal
+/// entry, whether it created that entry or found one already there.
+enum BankTransactionStatus {
+  UNMATCHED
+  MATCHED
+  EXCLUDED
+}
+
+/// SPEC §8.4. Statements come in two shapes and the mapping has to say which.
+enum BankAmountLayout {
+  /// One column, negative for money out.
+  SIGNED
+  /// Separate debit (out) and credit (in) columns.
+  DEBIT_CREDIT
+}
+
 /// SPEC §7.2.
 enum RecurringFrequency {
   WEEKLY
@@ -260,6 +276,8 @@ model Company {
 
   memberships               Membership[]
   invitations               Invitation[]
+  bankAccounts              BankAccount[]
+  bankTransactions          BankTransaction[]
   sequences                 NumberSequence[]
   auditLogs                 AuditLog[]
   accounts                  Account[]
@@ -409,10 +427,11 @@ model Account {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
-  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  parent   Account?      @relation("AccountTree", fields: [parentId], references: [id])
-  children Account[]     @relation("AccountTree")
-  lines    JournalLine[]
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent       Account?      @relation("AccountTree", fields: [parentId], references: [id])
+  children     Account[]     @relation("AccountTree")
+  lines        JournalLine[]
+  bankAccounts BankAccount[]
 
   @@unique([companyId, code])
   @@unique([companyId, systemKey])
@@ -437,8 +456,9 @@ model JournalEntry {
   reversedBy        JournalEntry? @relation("Reversal", fields: [reversedByEntryId], references: [id])
   reverses          JournalEntry? @relation("Reversal")
 
-  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  lines   JournalLine[]
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines            JournalLine[]
+  bankTransactions BankTransaction[]
 
   @@unique([companyId, entryNumber])
   @@index([companyId, date])
@@ -636,9 +656,10 @@ model Payment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  customer     Customer             @relation(fields: [customerId], references: [id])
-  applications PaymentApplication[]
+  company          Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer         Customer             @relation(fields: [customerId], references: [id])
+  applications     PaymentApplication[]
+  bankTransactions BankTransaction[]
 
   @@index([companyId, date])
   @@index([companyId, customerId])
@@ -731,10 +752,11 @@ model WorkOrder {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  company      Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  vendor       Vendor                   @relation(fields: [vendorId], references: [id])
-  lines        WorkOrderLine[]
-  applications BillPaymentApplication[]
+  company          Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor           Vendor                   @relation(fields: [vendorId], references: [id])
+  lines            WorkOrderLine[]
+  applications     BillPaymentApplication[]
+  bankTransactions BankTransaction[]
 
   @@unique([companyId, workOrderNumber])
   @@index([companyId, status])
@@ -818,9 +840,10 @@ model BillPayment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company      Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  vendor       Vendor                   @relation(fields: [vendorId], references: [id])
-  applications BillPaymentApplication[]
+  company          Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor           Vendor                   @relation(fields: [vendorId], references: [id])
+  applications     BillPaymentApplication[]
+  bankTransactions BankTransaction[]
 
   @@index([companyId, date])
   @@index([companyId, vendorId])
@@ -1167,4 +1190,85 @@ model RecurringInvoiceRun {
   invoice  Invoice?                 @relation(fields: [invoiceId], references: [id])
 
   @@unique([templateId, scheduledDate])
+}
+
+/// SPEC §8.4. A real bank account, tied to the GL account its money lands in.
+model BankAccount {
+  id        String  @id @default(cuid())
+  companyId String
+  name      String
+  /// CASH, UNDEPOSITED_FUNDS or CREDIT_CARD — where this account's cash sits.
+  accountId String
+  currency  String  @db.Char(3)
+  isActive  Boolean @default(true)
+
+  /// The saved column mapping (SPEC §8.4), so the second import is one click.
+  /// Header names rather than indexes: banks reorder columns, and a name that
+  /// no longer exists is a clear error where a shifted index is a silent one.
+  dateColumn        String?
+  descriptionColumn String?
+  amountColumn      String?
+  debitColumn       String?
+  creditColumn      String?
+  referenceColumn   String?
+  amountLayout      BankAmountLayout @default(SIGNED)
+  /// A date-fns pattern, e.g. dd/MM/yyyy. Banks disagree, and guessing is how
+  /// a statement silently lands in the wrong month.
+  dateFormat        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  account      Account           @relation(fields: [accountId], references: [id])
+  transactions BankTransaction[]
+
+  @@unique([companyId, name])
+  @@index([companyId, isActive])
+}
+
+model BankTransaction {
+  id            String   @id @default(cuid())
+  companyId     String
+  bankAccountId String
+  date          DateTime @db.Date
+  description   String
+  /// Positive is money in, negative is money out, in the account's currency.
+  amount        Decimal  @db.Decimal(18, 2)
+  reference     String?
+  importBatchId String?
+
+  status BankTransactionStatus @default(UNMATCHED)
+
+  /// Exactly one route is taken once matched (SPEC §8.4). The payment links
+  /// exist so "link to an already-recorded payment" can post nothing and still
+  /// be traceable to the entry that payment already wrote.
+  matchedPaymentId      String?
+  matchedBillPaymentId  String?
+  /// The single journal entry this line accounts for, however it got there.
+  matchedJournalEntryId String?
+  matchedAt             DateTime?
+  matchedByUserId       String?
+  /// True when the match posted its own entry, so unmatching knows to reverse
+  /// it rather than orphan it.
+  createdEntry          Boolean   @default(false)
+
+  /// (bankAccountId, date, amount, description), so a re-imported overlap is
+  /// recognised rather than duplicated.
+  dedupeHash String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company             Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  bankAccount         BankAccount   @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  matchedPayment      Payment?      @relation(fields: [matchedPaymentId], references: [id])
+  matchedBillPayment  BillPayment?  @relation(fields: [matchedBillPaymentId], references: [id])
+  matchedJournalEntry JournalEntry? @relation(fields: [matchedJournalEntryId], references: [id])
+  workOrder           WorkOrder?    @relation(fields: [workOrderId], references: [id])
+  workOrderId         String?
+
+  @@unique([bankAccountId, dedupeHash])
+  @@index([companyId, status])
+  @@index([bankAccountId, date])
 }

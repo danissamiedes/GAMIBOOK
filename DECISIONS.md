@@ -9,16 +9,16 @@ The eight open questions in SPEC.md §16 were put to the user and answered. The
 answers are recorded in §16 itself; this is the short form, plus what each one
 changed in the spec.
 
-| # | Question | Answer | Changed |
-|---|---|---|---|
-| 1 | Base currency | **PHP**, clients invoiced in PHP **or USD** | §5 rewritten: FX is live on the receivables side, dormant on payables. Seed gains a USD invoice in the PHP company |
-| 2 | Sales tax / VAT | None charged; build `TaxRate` and leave it unused | No change — this was the spec default |
-| 3 | Consultant classification | Contractors, no withholding | No change — spec default |
-| 4 | Existing data | **Migrate the spreadsheet history**, not just opening balances | New §4.4; Phase 8b extended; acceptance criterion 13 added |
-| 5 | Fiscal year | January start | No change — spec default |
-| 6 | Approval flow | No separate approver | No change — spec default |
-| 7 | Excel import layout | **Match the user's existing spreadsheet** | §8.3 column table marked provisional; columns must live in one map driving template + parser |
-| 8 | Bulk send grouping | One email per work order | No change — spec default; combine toggle still built |
+| #   | Question                  | Answer                                                         | Changed                                                                                                            |
+| --- | ------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 1   | Base currency             | **PHP**, clients invoiced in PHP **or USD**                    | §5 rewritten: FX is live on the receivables side, dormant on payables. Seed gains a USD invoice in the PHP company |
+| 2   | Sales tax / VAT           | None charged; build `TaxRate` and leave it unused              | No change — this was the spec default                                                                              |
+| 3   | Consultant classification | Contractors, no withholding                                    | No change — spec default                                                                                           |
+| 4   | Existing data             | **Migrate the spreadsheet history**, not just opening balances | New §4.4; Phase 8b extended; acceptance criterion 13 added                                                         |
+| 5   | Fiscal year               | January start                                                  | No change — spec default                                                                                           |
+| 6   | Approval flow             | No separate approver                                           | No change — spec default                                                                                           |
+| 7   | Excel import layout       | **Match the user's existing spreadsheet**                      | §8.3 column table marked provisional; columns must live in one map driving template + parser                       |
+| 8   | Bulk send grouping        | One email per work order                                       | No change — spec default; combine toggle still built                                                               |
 
 ### Consequence worth restating
 
@@ -126,12 +126,12 @@ The user asked for the app to be divided into Sales, Consultant and Regular
 Vendor sections, with access filtered per user, and for vendors to be classified
 as one or the other. Four questions were put to them and answered:
 
-| Question | Answer |
-|---|---|
-| One vendor list or two tables? | **One `Vendor` table with `kind` = CONSULTANT \| REGULAR** |
-| How should sections work? | **Per-user grants on top of the role**, enforced in nav, route and data layer |
-| What is a Sales Order? | **Non-posting; converts to a draft invoice.** Revenue is recognised only on issue |
-| What can the Vendors section reach? | Bills and payments, **plus direct expense entry** |
+| Question                            | Answer                                                                            |
+| ----------------------------------- | --------------------------------------------------------------------------------- |
+| One vendor list or two tables?      | **One `Vendor` table with `kind` = CONSULTANT \| REGULAR**                        |
+| How should sections work?           | **Per-user grants on top of the role**, enforced in nav, route and data layer     |
+| What is a Sales Order?              | **Non-posting; converts to a draft invoice.** Revenue is recognised only on issue |
+| What can the Vendors section reach? | Bills and payments, **plus direct expense entry**                                 |
 
 SPEC §2.1 (new), §6 (rewritten), §7.1a (new), §12.6, §12.8, Phases 1/3/4 and the
 acceptance criteria were updated to match.
@@ -365,13 +365,37 @@ through.
 **Labels are derived from the documents inside `composeMessage`.** They were
 originally passed in by the caller, and the send path passed none — so the
 preview read "Work order WO1001" and the message that actually went out read
-"Work order  from …". Caught by sending a real batch rather than by the test,
+"Work order from …". Caught by sending a real batch rather than by the test,
 which only checked for unresolved `{{`; the test now asserts the number is
 present in the sent subject and body.
 
 **Attachment size is checked before Gmail sees it.** One consultant with many
 documents can exceed the 25 MB limit; that message fails with a clear reason
 naming the size, rather than a rejection from Google.
+
+## Gmail deployment shape — 2026-08-21
+
+Answered by the user so the setup guide could be exact rather than branching:
+
+| Question                     | Answer                                                  | What it settles                                                                                                                                                          |
+| ---------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Workspace or personal Gmail? | `bookkeepingpoint.com` is a **Google Workspace domain** | The consent screen is **Internal**: no verification review, no test-user list, and no seven-day refresh-token expiry. Only accounts in that domain can connect a mailbox |
+| Where will it run?           | **Localhost for now**                                   | One redirect URI to register: `http://localhost:3000/api/email/google/callback`. The deployed one is added to the same client later                                      |
+
+**The redirect URI is derived from the request, not from `NODE_ENV`.** Writing
+the guide surfaced a real bug rather than a documentation gap: the authorize
+call chose the scheme from `NODE_ENV` while the callback used `request.url`.
+A production build over plain HTTP would ask for `https://localhost:3000/…`,
+and a deployment behind a TLS proxy would have the token exchange disagree with
+the authorize call. Both now use `requestOrigin`, which reads the forwarded
+headers and falls back to HTTPS unless the host is loopback. Google compares
+this string exactly, so one derivation is the only safe number of derivations.
+
+**`npm run email:check` exists because the failure was invisible.** Configuration
+lives across `.env` and the database (a connected mailbox is per company), so
+"why did nothing send" had no single place to look. The script reports both, and
+given an address sends through `sendEmail` — the same path the app uses, not a
+parallel one that could pass while the app fails.
 
 ## Deviations from the spec
 

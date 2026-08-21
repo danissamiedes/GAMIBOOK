@@ -13,6 +13,9 @@ not estimated from a list of categorised transactions.
 
 - Multi-company data model — Organization → Company → Membership, roles per
   company (`OWNER`, `BOOKKEEPER`, `CONSULTANT`)
+- **Section access** — Sales, Consultants, Vendors, Banking, Reports, Settings
+  granted per membership. A bookkeeper with only Vendors cannot reach a
+  customer or an invoice, by menu or by URL
 - `withCompanyScope()` — the single data-access guard every query goes through
 - Auth.js sign-in with Argon2id passwords, rate-limited; optional Google sign-in
 - Invitations (7-day expiry) and self-service password reset, both setting the

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { formatAccountingDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money, sum } from "@/lib/money";
@@ -9,7 +9,7 @@ import { Card, EmptyState, PageHeader } from "@/components/ui";
 export const metadata = { title: "Customer payments — Ledger" };
 
 export default async function PaymentsPage() {
-  const scope = await financialScope();
+  const scope = await sectionScope("SALES");
 
   const payments = await prisma.payment.findMany({
     where: scope.where,

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { arAging, agingBucketLabels, bucketValues } from "@/lib/invoices/aging";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
@@ -13,7 +13,7 @@ export default async function ArAgingPage({
 }: {
   searchParams: Promise<{ asOf?: string }>;
 }) {
-  const scope = await financialScope();
+  const scope = await sectionScope("SALES");
   const params = await searchParams;
 
   const asOf = parseAccountingDate(params.asOf ?? "") ?? today();

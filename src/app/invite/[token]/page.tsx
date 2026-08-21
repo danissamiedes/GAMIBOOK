@@ -64,8 +64,13 @@ export default async function InvitePage({
 
       await tx.membership.upsert({
         where: { userId_companyId: { userId: user.id, companyId: current.companyId } },
-        create: { userId: user.id, companyId: current.companyId, role: current.role },
-        update: { role: current.role },
+        create: {
+          userId: user.id,
+          companyId: current.companyId,
+          role: current.role,
+          sections: current.sections,
+        },
+        update: { role: current.role, sections: current.sections },
       });
 
       await tx.invitation.update({

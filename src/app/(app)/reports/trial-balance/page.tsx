@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { trialBalance } from "@/lib/ledger/reports";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
@@ -17,7 +17,7 @@ export default async function TrialBalancePage({
 }: {
   searchParams: Promise<{ from?: string; asOf?: string; zero?: string }>;
 }) {
-  const scope = await financialScope();
+  const scope = await sectionScope("REPORTS");
   const params = await searchParams;
 
   const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });

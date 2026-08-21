@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { SUPPORTED_CURRENCIES, formatMoney, isSupportedCurrency } from "@/lib/currency";
 import { money, sum } from "@/lib/money";
@@ -13,7 +13,7 @@ export default async function CustomersPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const scope = await financialScope();
+  const scope = await sectionScope("SALES");
   const { error } = await searchParams;
 
   const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });
@@ -30,7 +30,7 @@ export default async function CustomersPage({
 
   async function create(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SALES");
     const name = String(formData.get("name") || "").trim();
     const currency = String(formData.get("defaultCurrency") || "").toUpperCase();
     const emails = String(formData.get("emails") || "")
@@ -66,7 +66,7 @@ export default async function CustomersPage({
 
   async function toggleActive(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SALES");
     const id = String(formData.get("customerId") || "");
     const customer = await prisma.customer.findFirst({ where: { id, ...inner.where } });
     if (!customer) redirect("/customers");

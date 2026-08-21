@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { postJournalEntry } from "@/lib/ledger/post";
 import { parseMoney } from "@/lib/money";
@@ -16,7 +16,7 @@ export default async function NewJournalEntryPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const scope = await financialScope();
+  const scope = await sectionScope("REPORTS");
   const { error } = await searchParams;
 
   const accounts = await prisma.account.findMany({
@@ -27,7 +27,7 @@ export default async function NewJournalEntryPage({
 
   async function post(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("REPORTS");
 
     const date = parseAccountingDate(String(formData.get("date") || ""));
     if (!date) redirect("/journal/new?error=date");

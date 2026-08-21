@@ -60,14 +60,28 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           />
           <nav className="flex flex-1 flex-wrap items-center gap-1">
             <NavLink href="/dashboard">Dashboard</NavLink>
-            <NavLink href="/customers">Customers</NavLink>
-            <NavLink href="/invoices">Invoices</NavLink>
-            <NavLink href="/payments">Payments</NavLink>
-            <NavLink href="/reports/ar-aging">A/R Aging</NavLink>
-            <NavLink href="/accounts">Accounts</NavLink>
-            <NavLink href="/journal">Journal</NavLink>
-            <NavLink href="/reports/trial-balance">Trial Balance</NavLink>
-            <NavLink href="/settings/company">Company</NavLink>
+            {/* Nav follows the sections this membership holds (SPEC §2.1).
+                Hiding a link is not the guard — every page re-checks. */}
+            {scope.hasSection("SALES") ? (
+              <>
+                <NavLink href="/customers">Customers</NavLink>
+                <NavLink href="/invoices">Invoices</NavLink>
+                <NavLink href="/payments">Payments</NavLink>
+                <NavLink href="/reports/ar-aging">A/R Aging</NavLink>
+              </>
+            ) : null}
+            {scope.hasSection("REPORTS") ? (
+              <>
+                <NavLink href="/journal">Journal</NavLink>
+                <NavLink href="/reports/trial-balance">Trial Balance</NavLink>
+              </>
+            ) : null}
+            {scope.hasSection("SETTINGS") ? (
+              <>
+                <NavLink href="/accounts">Accounts</NavLink>
+                <NavLink href="/settings/company">Company</NavLink>
+              </>
+            ) : null}
             {scope.role === "OWNER" ? <NavLink href="/settings/users">Users</NavLink> : null}
           </nav>
           <form action={endSession}>

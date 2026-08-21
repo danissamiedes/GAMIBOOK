@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { formatAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money } from "@/lib/money";
@@ -21,7 +21,7 @@ export default async function InvoicesPage({
 }: {
   searchParams: Promise<{ status?: string }>;
 }) {
-  const scope = await financialScope();
+  const scope = await sectionScope("SALES");
   const { status } = await searchParams;
 
   const invoices = await prisma.invoice.findMany({

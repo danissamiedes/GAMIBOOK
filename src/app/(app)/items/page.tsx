@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export const metadata = { title: "Items — Ledger" };
@@ -11,7 +11,7 @@ export default async function ItemsPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const scope = await financialScope();
+  const scope = await sectionScope("SALES");
   const { error } = await searchParams;
 
   const [items, accounts] = await Promise.all([
@@ -24,7 +24,7 @@ export default async function ItemsPage({
 
   async function create(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SALES");
     const name = String(formData.get("name") || "").trim();
     if (!name) redirect("/items?error=name");
 

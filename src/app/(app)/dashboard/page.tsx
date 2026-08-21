@@ -1,7 +1,4 @@
-import { redirect } from "next/navigation";
-import { currentUserId } from "@/lib/auth";
-import { withFinancialScope } from "@/lib/company-scope";
-import { resolveActiveCompanyId } from "@/lib/active-company";
+import { financialScope } from "@/lib/session-scope";
 import { prisma } from "@/lib/db";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { MONTHS } from "@/lib/currency";
@@ -12,10 +9,7 @@ import { MONTHS } from "@/lib/currency";
  * not exist yet (SPEC §12).
  */
 export default async function DashboardPage() {
-  const userId = await currentUserId();
-  if (!userId) redirect("/login");
-  const companyId = await resolveActiveCompanyId(userId);
-  const scope = await withFinancialScope(userId, companyId);
+  const scope = await financialScope();
 
   const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });
   const memberCount = await prisma.membership.count({ where: scope.where });

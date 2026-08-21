@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { reverseJournalEntry } from "@/lib/ledger/post";
 import { PostingError } from "@/lib/errors";
@@ -17,7 +17,7 @@ export default async function JournalEntryPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ error?: string }>;
 }) {
-  const scope = await financialScope();
+  const scope = await sectionScope("REPORTS");
   const { id } = await params;
   const { error } = await searchParams;
 
@@ -36,7 +36,7 @@ export default async function JournalEntryPage({
 
   async function reverse(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("REPORTS");
     const date = new Date(`${String(formData.get("date"))}T00:00:00Z`);
     try {
       const reversal = await reverseJournalEntry({

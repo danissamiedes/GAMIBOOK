@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { createDefaultChartOfAccounts, deactivateAccount } from "@/lib/ledger/chart";
 import { SUBTYPES_BY_TYPE, TYPE_ORDER, normalBalance } from "@/lib/ledger/accounts";
@@ -30,7 +30,7 @@ export default async function AccountsPage({
 }: {
   searchParams: Promise<{ error?: string; created?: string }>;
 }) {
-  const scope = await financialScope();
+  const scope = await sectionScope("SETTINGS");
   const { error, created } = await searchParams;
 
   const accounts = await prisma.account.findMany({
@@ -41,7 +41,7 @@ export default async function AccountsPage({
 
   async function installDefaults() {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SETTINGS");
     const result = await createDefaultChartOfAccounts(inner.companyId);
     await writeAudit({
       companyId: inner.companyId,
@@ -55,7 +55,7 @@ export default async function AccountsPage({
 
   async function addAccount(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SETTINGS");
     const code = String(formData.get("code") || "").trim();
     const name = String(formData.get("name") || "").trim();
     const type = String(formData.get("type") || "") as AccountType;
@@ -83,7 +83,7 @@ export default async function AccountsPage({
 
   async function toggleActive(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SETTINGS");
     const accountId = String(formData.get("accountId") || "");
     const account = await prisma.account.findFirst({
       where: { id: accountId, ...inner.where },

@@ -1,4 +1,4 @@
-import { PrismaClient, type Role } from "@prisma/client";
+import { PrismaClient, type Role, type Section } from "@prisma/client";
 import { createDefaultChartOfAccounts } from "@/lib/ledger/chart";
 
 export const prisma = new PrismaClient();
@@ -68,7 +68,12 @@ export async function makeCompanyWithChart(name: string, baseCurrency = "PHP") {
   };
 }
 
-export async function makeUser(role: Role, companyId: string, email?: string) {
+export async function makeUser(
+  role: Role,
+  companyId: string,
+  email?: string,
+  sections: Section[] = [],
+) {
   const user = await prisma.user.create({
     data: {
       email: email ?? `${role.toLowerCase()}-${unique()}@example.test`,
@@ -76,7 +81,7 @@ export async function makeUser(role: Role, companyId: string, email?: string) {
       passwordHash: "not-a-real-hash",
     },
   });
-  await prisma.membership.create({ data: { userId: user.id, companyId, role } });
+  await prisma.membership.create({ data: { userId: user.id, companyId, role, sections } });
   return user;
 }
 

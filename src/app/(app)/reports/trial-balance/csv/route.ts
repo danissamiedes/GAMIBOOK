@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { trialBalance } from "@/lib/ledger/reports";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 
@@ -9,7 +9,7 @@ function csvCell(value: string): string {
 }
 
 export async function GET(request: Request) {
-  const scope = await financialScope();
+  const scope = await sectionScope("REPORTS");
   const url = new URL(request.url);
 
   const asOf = parseAccountingDate(url.searchParams.get("asOf") ?? "") ?? today();

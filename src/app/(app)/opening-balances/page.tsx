@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { postOpeningBalances } from "@/lib/ledger/opening-balances";
 import { isBalanceSheet, SYSTEM_ACCOUNTS, TYPE_ORDER, normalBalance } from "@/lib/ledger/accounts";
@@ -22,7 +22,7 @@ export default async function OpeningBalancesPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const scope = await financialScope();
+  const scope = await sectionScope("SETTINGS");
   const { error } = await searchParams;
 
   const existing = await prisma.journalEntry.findFirst({
@@ -41,7 +41,7 @@ export default async function OpeningBalancesPage({
 
   async function post(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SETTINGS");
     const date = parseAccountingDate(String(formData.get("date") || ""));
     if (!date) redirect("/opening-balances?error=Enter%20a%20valid%20date");
 

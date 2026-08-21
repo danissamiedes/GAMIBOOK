@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { issueInvoice, computeLine } from "@/lib/invoices/service";
 import { parseMoney } from "@/lib/money";
@@ -16,7 +16,7 @@ export default async function NewInvoicePage({
 }: {
   searchParams: Promise<{ error?: string; customerId?: string }>;
 }) {
-  const scope = await financialScope();
+  const scope = await sectionScope("SALES");
   const params = await searchParams;
 
   const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });
@@ -42,7 +42,7 @@ export default async function NewInvoicePage({
 
   async function create(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SALES");
     const alsoIssue = String(formData.get("intent")) === "issue";
 
     const customerId = String(formData.get("customerId") || "");

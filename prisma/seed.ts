@@ -8,7 +8,7 @@
  * invoices (Phase 3), consultants and work orders (Phase 4), 18 months of
  * history spanning a fiscal-year boundary, and the import fixtures.
  */
-import { PrismaClient, type Role } from "@prisma/client";
+import { PrismaClient, type Role, type Section } from "@prisma/client";
 import { hashPassword } from "../src/lib/password";
 import { createDefaultChartOfAccounts } from "../src/lib/ledger/chart";
 import { postJournalEntry } from "../src/lib/ledger/post";
@@ -29,11 +29,16 @@ async function upsertUser(email: string, name: string, passwordHash: string) {
   });
 }
 
-async function member(userId: string, companyId: string, role: Role) {
+async function member(
+  userId: string,
+  companyId: string,
+  role: Role,
+  sections: Section[] = [],
+) {
   await prisma.membership.upsert({
     where: { userId_companyId: { userId, companyId } },
-    create: { userId, companyId, role },
-    update: { role },
+    create: { userId, companyId, role, sections },
+    update: { role, sections },
   });
 }
 
@@ -101,7 +106,22 @@ async function main() {
 
   await member(owner.id, phpCompany.id, "OWNER");
   await member(owner.id, usdCompany.id, "OWNER");
-  await member(bookkeeper.id, phpCompany.id, "BOOKKEEPER");
+  // A full bookkeeper, plus two deliberately narrow ones so section access can
+  // be seen working rather than taken on trust (SPEC §2.1).
+  await member(bookkeeper.id, phpCompany.id, "BOOKKEEPER", [
+    "SALES",
+    "CONSULTANTS",
+    "VENDORS",
+    "BANKING",
+    "REPORTS",
+    "SETTINGS",
+  ]);
+
+  const salesUser = await upsertUser("sales@example.com", "Sofia Sales", passwordHash);
+  await member(salesUser.id, phpCompany.id, "BOOKKEEPER", ["SALES"]);
+
+  const apUser = await upsertUser("payables@example.com", "Paolo Payables", passwordHash);
+  await member(apUser.id, phpCompany.id, "BOOKKEEPER", ["VENDORS"]);
   await member(consultantOne.id, phpCompany.id, "CONSULTANT");
   await member(consultantTwo.id, phpCompany.id, "CONSULTANT");
 
@@ -323,7 +343,9 @@ Seed complete.
   Sign in with any of these — password: ${PASSWORD}
 
     owner@example.com            OWNER of both companies
-    bookkeeper@example.com       BOOKKEEPER of ${phpCompany.name}
+    bookkeeper@example.com       BOOKKEEPER of ${phpCompany.name}, all sections
+    sales@example.com            BOOKKEEPER, SALES section only
+    payables@example.com         BOOKKEEPER, VENDORS section only
     usd-bookkeeper@example.com   BOOKKEEPER of ${usdCompany.name}
     abigail@example.com          CONSULTANT (time clock only)
     johnrex@example.com          CONSULTANT (time clock only)

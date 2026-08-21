@@ -73,6 +73,40 @@ directly on the time clock screen and MUST NOT be able to reach any accounting
 route — enforce this in middleware **and** at the data-access layer, not only by
 hiding nav links.
 
+### 2.1 Sections — the second axis of access
+
+The role says *how much* someone can do; a **section** says *which part of the
+business* they can see. The two are independent, and both are checked.
+
+| Section | Covers |
+|---|---|
+| `SALES` | Customers, sales orders, invoices, customer payments, sales reports, A/R aging |
+| `CONSULTANTS` | Consultant records, work orders, consultant bills, payments to consultants, the consultant side of A/P aging |
+| `VENDORS` | Regular vendors, their bills, marking bills paid, direct expenses and receipts, the vendor side of A/P aging |
+| `BANKING` | Bank accounts, CSV import, the matching screen |
+| `REPORTS` | P&L, Balance Sheet, Trial Balance, General Ledger |
+| `SETTINGS` | Chart of accounts, company settings, email settings, templates |
+
+Rules:
+
+- Sections are granted **per membership**, so the same person can hold
+  different sections in different companies.
+- `OWNER` implicitly holds every section and cannot have them removed — someone
+  must be able to see the whole business.
+- A `BOOKKEEPER` holds whichever sections the owner grants. A bookkeeper with
+  only `VENDORS` records bills and expenses and **cannot see sales figures or
+  consultant information at all** — not the screens, not the reports, not by
+  typing a URL.
+- `CONSULTANT` holds no sections. The time clock is not a section; it is that
+  role's only screen.
+- **MUST** enforce sections in three places: the navigation (what is offered),
+  the route guard (what a URL reaches), and the data-access layer (what a query
+  returns). The first two are convenience; the third is the guarantee. A test
+  MUST prove a `VENDORS`-only user cannot read an invoice, a customer, or a
+  consultant's rate by direct ID.
+- A user who reaches a section they do not hold gets a plain "you do not have
+  access to this section" page, not a 500 and not a redirect loop.
+
 A single `User` record may hold memberships in several companies with different
 roles in each.
 
@@ -375,10 +409,42 @@ The recipient setup is per consultant and is what the bulk send in §10.1 uses.
 Do not let a consultant with `sendEmails = true` and no `primaryEmail` be saved.
 A consultant with no linked user simply cannot clock in — that's valid.
 
-**Vendor:** name, email, default currency, default expense account, notes,
-active flag. A real table, not free text — A/P aging (§12.6) needs a party to
-group by, and the ledger carries `vendorId` on payable lines (§4.2). Keep the
-form to those fields; this is not a procurement system.
+**Vendor — one list, two kinds.** Consultants and regular suppliers are the
+same kind of record: someone the business owes money to. They live in one
+`Vendor` table with a **`kind`** of `CONSULTANT` or `REGULAR`, chosen when the
+vendor is created and changeable afterwards only while the vendor has no
+postings. A single list means "is this person already set up?" has one answer,
+and the ledger's payable lines carry one `vendorId` rather than two nullable
+party columns.
+
+Shared fields: name, email, default currency, default expense/COGS account,
+payment terms, notes, active flag.
+
+`kind = CONSULTANT` adds:
+
+- `defaultRate` — pre-fills work order lines
+- an optional link to a `User` record, so they can log in to the time clock. A
+  consultant with no linked user simply cannot clock in — that's valid
+- the **email recipient setup** used by the bulk send in §10.1:
+  - `primaryEmail` (required if they are ever to be emailed)
+  - `ccEmails` (a list — some consultants want a manager or agency copied)
+  - `sendEmails` (boolean; a consultant may be paid but never emailed)
+  - `externalRef` and `importAliases` — how the import in §8.3 recognises this
+    person in a spreadsheet that names them by name alone
+
+`kind = REGULAR` uses only the shared fields. Keep that form short; this is not
+a procurement system.
+
+Which section sees which kind is not decoration — it is the point (§2.1). The
+`CONSULTANTS` section sees `kind = CONSULTANT` and nothing else; the `VENDORS`
+section sees `kind = REGULAR` and nothing else. **Filter by kind in the data
+layer, not in the view.** A/P aging (§12.6) groups by vendor and is filtered the
+same way, so a vendors-only user sees a payables report covering regular
+vendors alone.
+
+Work orders (§8.1) are only ever raised against a `CONSULTANT`; vendor bills
+(§8.2) against either kind, though in practice a consultant's payable comes
+from a work order.
 
 **Item / Service** (light): name, description, default rate, default income
 account (for invoices) or expense account (for work orders). Used to pre-fill
@@ -443,6 +509,28 @@ silently discard it.
 
 **Reversing a payment** posts a reversing journal entry, deletes nothing, and
 recomputes `amountPaid` / `balanceDue` / `status` on every invoice it touched.
+
+### 7.1a Sales orders
+
+A **sales order** records what a customer has agreed to buy, before there is an
+invoice. It is **not an accounting record**: confirming one posts nothing, and
+revenue is recognised only when an invoice is issued (§7.1). Anything else books
+income for work that has not been billed.
+
+`SalesOrder`: `companyId`, `customerId`, `orderNumber` (allocated on
+confirmation, own sequence), `orderDate`, `expectedDate?`, `currency`, `fxRate`,
+`status`, `memo`, `total`, `convertedInvoiceId?`.
+`SalesOrderLine`: same shape as an invoice line — `itemId?`, `description`,
+`quantity`, `rate`, `amount`, `incomeAccountId`.
+
+States: `DRAFT` → `CONFIRMED` → `INVOICED` | `CANCELLED`. Confirmation allocates
+the number. **Convert to invoice** copies the lines into a `DRAFT` invoice,
+links the two, and moves the order to `INVOICED`; issuing that invoice is what
+posts. A partially invoiced order is out of scope for the MVP — one order
+becomes one invoice.
+
+The order list shows what is agreed but not yet billed, which is the number the
+sales side actually wants. It appears nowhere in the P&L, and that is correct.
 
 ### 7.2 Recurring invoices
 
@@ -917,8 +1005,13 @@ document. This is the feature that makes the system trustworthy.
    that match. Your first debugging tool; build it early.
 4. **General Ledger / Account detail** — running balance per account for a period.
 5. **A/R Aging** — per customer: current, 1–30, 31–60, 61–90, 90+.
-6. **A/P Aging** — same, per consultant/vendor.
+6. **A/P Aging** — same, per vendor, and **filterable by vendor kind** so the
+   consultant side and the regular-vendor side can be read separately. A user
+   holding only `VENDORS` sees the regular-vendor rows only (§2.1).
 7. **Time report** — hours per consultant per day/week/period in PHT.
+8. **Sales by customer** — invoiced and paid totals per customer for a period,
+   with open balance. Part of the `SALES` section rather than `REPORTS`, because
+   it is the report the sales side lives in.
 
 Fiscal year start month is a company setting (default January).
 
@@ -1022,22 +1115,29 @@ Ship each phase working and tested before starting the next.
 **Phase 1 — Foundation.** Project scaffold, Postgres + Prisma, auth, user
 invites and password reset, Organization/Company/User/Membership, company setup
 wizard (base currency, fiscal year, time zones), company switcher, role
-middleware, storage adapter, layout and nav, audit log, seed script skeleton.
-Test: a user in company A cannot read company B's data.
+middleware, **section grants (§2.1)**, storage adapter, layout and nav, audit
+log, seed script skeleton.
+Test: a user in company A cannot read company B's data; a user holding only
+`VENDORS` cannot read a customer, an invoice or a consultant by direct ID.
 
 **Phase 2 — The ledger.** Account model + chart-of-accounts CRUD + default CoA
 template, `JournalEntry`/`JournalLine`, the single `postJournalEntry` service,
 manual journal entries, opening balances, and the **Trial Balance** report.
 Test: unbalanced entries are rejected; trial balance totals match.
 
-**Phase 3 — Money in.** Customers, items, invoices with the full status machine,
-payments with applications (one-to-many), payment reversal, A/R aging. Test:
-every posting rule in §4.3 for the receivables side.
+**Phase 3 — Money in.** Customers, items, **sales orders (§7.1a)**, invoices
+with the full status machine, payments with applications (one-to-many), payment
+reversal, A/R aging, sales by customer. All behind the `SALES` section. Test:
+every posting rule in §4.3 for the receivables side; confirming a sales order
+posts nothing and converting it produces a draft invoice.
 
-**Phase 4 — Money out.** Consultants, vendors, work orders
-(description/quantity/rate), bill payments, expenses (both `DIRECT` and `BILL`),
-A/P aging. Test: payables posting rules; FX gain/loss on a PHP work order
-settled at a different rate; the line-rounding residual case.
+**Phase 4 — Money out.** The one `Vendor` table with `kind` (§6), work orders
+(description/quantity/rate) against consultants, bill payments, expenses (both
+`DIRECT` and `BILL`), A/P aging filterable by kind. Split across the
+`CONSULTANTS` and `VENDORS` sections, which is what makes the separation real
+rather than cosmetic. Test: payables posting rules; FX gain/loss on a PHP work
+order settled at a different rate; the line-rounding residual case; a
+`VENDORS`-only user cannot read a work order or a consultant's rate.
 
 **Phase 5 — Reports.** P&L and Balance Sheet, GL detail, the drill-down layer
 applied across all reports including the Trial Balance, CSV export and print
@@ -1090,49 +1190,59 @@ The MVP is done when all of these pass, demonstrated against seeded data:
 
 1. Two companies exist with separate books; switching companies changes every
    figure on screen, and cross-company access is impossible by direct URL.
-2. A customer invoice can be created, previewed as PDF, emailed via Gmail, part-
+2. **Section access holds.** A bookkeeper granted only `VENDORS` sees vendor
+   bills and expenses, and cannot reach a customer, an invoice, a sales report
+   or a consultant's rate — by navigation or by typing the URL. A `SALES`-only
+   user is refused work orders the same way. Both refusals come from the data
+   layer, not just the menu.
+3. A customer invoice can be created, previewed as PDF, emailed via Gmail, part-
    paid, then fully paid — and A/R on the Balance Sheet moves correctly at each
    step.
-3. A work order with description/quantity/rate lines can be created, emailed to
+4. A sales order is confirmed, posts nothing, and converts into a draft invoice
+   whose issue is what finally posts revenue.
+5. A work order with description/quantity/rate lines can be created, emailed to
    a consultant, approved, and paid — and A/P moves correctly at each step.
-4. An Excel file in the user's own layout imports as draft work orders: a
+6. An Excel file in the user's own layout imports as draft work orders: a
    `Line No.` run groups into one multi-line document, each line posts to the
    account its row names, a negative advance line reduces the payable without
-   unbalancing the entry, bad rows are reported without blocking good ones, and
-   nothing posts to the ledger until approved — at which point numbering starts
-   at `WO1001` with no gaps.
-5. From the bulk send screen, ten work orders across six consultants are
+   unbalancing the entry, bad rows are reported without blocking the valid ones,
+   and nothing posts to the ledger until approved — at which point numbering
+   starts at `WO1001` with no gaps.
+7. From the bulk send screen, ten work orders across six consultants are
    selected and sent in one action — each consultant receives their own
    work order PDF at the addresses configured on their record, consultants with
    no email on file are visibly excluded rather than silently skipped, and a
    simulated failure on two of them is reported and retried without re-sending
    the eight that succeeded.
-6. An expense can be recorded and appears in the P&L in the right period.
-7. **The Balance Sheet balances**, and its current-year earnings figure equals
-   the P&L net income for the same fiscal year to date. It also balances when
-   dated inside a *prior* fiscal year, with that year's profit appearing in
-   retained earnings on a later-dated report.
-8. Every number on the P&L and Balance Sheet drills through to journal lines and
-   then to source documents.
-9. A consultant logs in, sees only the time clock, clocks in and out, and the
-   admin sees those times in PHT on the timesheet grid — including an entry that
-   crosses midnight Manila time.
-10. A recurring monthly invoice template generates its invoice on schedule, once
+8. A vendor is created as a regular vendor, its bill recorded and marked paid,
+   and it never appears in the consultant list or the consultant side of A/P
+   aging.
+9. An expense can be recorded and appears in the P&L in the right period.
+10. **The Balance Sheet balances**, and its current-year earnings figure equals
+    the P&L net income for the same fiscal year to date. It also balances when
+    dated inside a *prior* fiscal year, with that year's profit appearing in
+    retained earnings on a later-dated report.
+11. Every number on the P&L and Balance Sheet drills through to journal lines
+    and then to source documents.
+12. A consultant logs in, sees only the time clock, clocks in and out, and the
+    admin sees those times in PHT on the timesheet grid — including an entry
+    that crosses midnight Manila time.
+13. A recurring monthly invoice template generates its invoice on schedule, once
     and only once, even if the job runs twice.
-11. A bank CSV imports, maps columns, and dedupes on re-import. A transaction can
+14. A bank CSV imports, maps columns, and dedupes on re-import. A transaction can
     be **linked** to an already-recorded payment without posting anything new,
     **and** separately can create a payment against an open invoice — cash is
     counted exactly once either way.
-12. A PHP-denominated work order in a USD-base company posts converted amounts to
+15. A PHP-denominated work order in a USD-base company posts converted amounts to
     the GL; settling it at a different rate books an FX gain or loss and leaves
     the A/P control account at exactly zero for that document; and a partial
     payment relieves A/P pro rata at the document's rate.
-13. The historical spreadsheet migrates (§4.4): open invoices and work orders
+16. The historical spreadsheet migrates (§4.4): open invoices and work orders
     arrive as documents that can still be paid, closed periods appear in the
     P&L, the Trial Balance ties at the migration date, and the Balance Sheet at
     that date balances before the company is declared live.
-14. `npm run seed && npm test && npm run build` all succeed from a clean clone.
-15. The README explains local setup, deployment, backup, and restore.
+17. `npm run seed && npm test && npm run build` all succeed from a clean clone.
+18. The README explains local setup, deployment, backup, and restore.
 
 ---
 

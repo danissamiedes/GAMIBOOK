@@ -14,6 +14,14 @@ export class RoleError extends Error {
   }
 }
 
+/** The caller's membership does not include the section they asked for (SPEC §2.1). */
+export class SectionError extends Error {
+  constructor(message = "You do not have access to this section") {
+    super(message);
+    this.name = "SectionError";
+  }
+}
+
 /** A posting was rejected — never swallowed, always surfaced (SPEC §13). */
 export class PostingError extends Error {
   constructor(message: string) {

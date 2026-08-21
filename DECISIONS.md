@@ -120,6 +120,41 @@ open coding point above.
 trigger allows to change, so the audit trail reads in both directions without
 making entries editable.
 
+## Section access, vendor kinds and sales orders — 2026-08-21
+
+The user asked for the app to be divided into Sales, Consultant and Regular
+Vendor sections, with access filtered per user, and for vendors to be classified
+as one or the other. Four questions were put to them and answered:
+
+| Question | Answer |
+|---|---|
+| One vendor list or two tables? | **One `Vendor` table with `kind` = CONSULTANT \| REGULAR** |
+| How should sections work? | **Per-user grants on top of the role**, enforced in nav, route and data layer |
+| What is a Sales Order? | **Non-posting; converts to a draft invoice.** Revenue is recognised only on issue |
+| What can the Vendors section reach? | Bills and payments, **plus direct expense entry** |
+
+SPEC §2.1 (new), §6 (rewritten), §7.1a (new), §12.6, §12.8, Phases 1/3/4 and the
+acceptance criteria were updated to match.
+
+**Sections are a second axis, not a replacement for roles.** The role says how
+much someone can do; the section says which part of the business they can see.
+An OWNER implicitly holds every section and cannot have one removed — someone
+has to be able to see the whole business. A CONSULTANT holds none; the time
+clock is that role's only screen, not a section.
+
+**The guard lives in the data layer.** `withSectionScope()` throws a
+`SectionError`, and every page and action obtains its scope through it. The nav
+only shows what the membership holds and a refused page redirects to a plain
+explanation, but neither of those is the protection: a vendors-only user who
+types an invoice URL is refused by the scope, not by the menu. The test proves
+exactly that, by ID.
+
+**Retrofit, not a rewrite.** Phases 1–3 were already built against
+`financialScope()`; each screen now names its section instead. Sales screens
+take `SALES`, the ledger and reports `REPORTS`, chart of accounts and company
+settings `SETTINGS`. The dashboard stays role-only and will show per-section
+tiles.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

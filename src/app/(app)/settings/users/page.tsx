@@ -1,9 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
-import type { Role } from "@prisma/client";
+import type { Role, Section } from "@prisma/client";
 import { currentUserId } from "@/lib/auth";
-import { withCompanyScope } from "@/lib/company-scope";
+import {
+  withCompanyScope,
+  ALL_SECTIONS,
+  SECTION_LABELS,
+  SECTION_DESCRIPTIONS,
+} from "@/lib/company-scope";
 import { resolveActiveCompanyId } from "@/lib/active-company";
 import { prisma } from "@/lib/db";
 import { generateToken, hashToken, inviteExpiry } from "@/lib/tokens";
@@ -46,7 +51,9 @@ export default async function UsersPage({
   const [members, invitations] = await Promise.all([
     prisma.membership.findMany({
       where: scope.where,
-      include: { user: { select: { id: true, name: true, email: true, isActive: true, lastLoginAt: true } } },
+      include: {
+        user: { select: { id: true, name: true, email: true, isActive: true, lastLoginAt: true } },
+      },
       orderBy: { user: { name: "asc" } },
     }),
     prisma.invitation.findMany({
@@ -67,6 +74,13 @@ export default async function UsersPage({
     if (!email.includes("@")) redirect("/settings/users?error=email");
     if (!["OWNER", "BOOKKEEPER", "CONSULTANT"].includes(role)) redirect("/settings/users?error=role");
 
+    // Sections only mean anything for a bookkeeper: an owner holds all of them
+    // and a consultant holds none (SPEC §2.1).
+    const sections =
+      role === "BOOKKEEPER"
+        ? ALL_SECTIONS.filter((section) => formData.get(`section-${section}`) === "on")
+        : [];
+
     const existing = await prisma.membership.findFirst({
       where: { companyId: inner.companyId, user: { email } },
     });
@@ -81,6 +95,7 @@ export default async function UsersPage({
         tokenHash: hashToken(token),
         expiresAt: inviteExpiry(),
         invitedByUserId: inner.userId,
+        sections,
       },
     });
     await writeAudit({
@@ -132,6 +147,12 @@ export default async function UsersPage({
     const membershipId = String(formData.get("membershipId") || "");
     const role = String(formData.get("role") || "") as Role;
     if (!["OWNER", "BOOKKEEPER", "CONSULTANT"].includes(role)) redirect("/settings/users");
+    const sections =
+      role === "BOOKKEEPER"
+        ? ALL_SECTIONS.filter(
+            (section) => formData.get(`membership-${membershipId}-${section}`) === "on",
+          )
+        : [];
 
     const membership = await prisma.membership.findFirst({
       where: { id: membershipId, companyId: inner.companyId },
@@ -146,14 +167,14 @@ export default async function UsersPage({
       if (owners <= 1) redirect("/settings/users?error=lastowner");
     }
 
-    await prisma.membership.update({ where: { id: membership.id }, data: { role } });
+    await prisma.membership.update({ where: { id: membership.id }, data: { role, sections } });
     await writeAudit({
       companyId: inner.companyId,
       userId: inner.userId,
       action: "membership.role_changed",
       entityType: "Membership",
       entityId: membership.id,
-      data: { from: membership.role, to: role },
+      data: { from: membership.role, to: role, sections },
     });
     redirect("/settings/users");
   }
@@ -195,16 +216,42 @@ export default async function UsersPage({
                   <td className="py-2">{member.user.name}</td>
                   <td className="py-2 text-slate-600 dark:text-slate-400">{member.user.email}</td>
                   <td className="py-2">
-                    <form action={changeRole} className="flex items-center gap-2">
+                    <form action={changeRole} className="space-y-2">
                       <input type="hidden" name="membershipId" value={member.id} />
-                      <Select name="role" defaultValue={member.role} className="w-40">
-                        <option value="OWNER">Owner</option>
-                        <option value="BOOKKEEPER">Bookkeeper</option>
-                        <option value="CONSULTANT">Consultant</option>
-                      </Select>
-                      <Button variant="secondary" type="submit">
-                        Save
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Select name="role" defaultValue={member.role} className="w-40">
+                          <option value="OWNER">Owner</option>
+                          <option value="BOOKKEEPER">Bookkeeper</option>
+                          <option value="CONSULTANT">Consultant</option>
+                        </Select>
+                        <Button variant="secondary" type="submit">
+                          Save
+                        </Button>
+                      </div>
+                      {member.role === "BOOKKEEPER" ? (
+                        <div className="flex flex-wrap gap-x-3 gap-y-1">
+                          {ALL_SECTIONS.map((section) => (
+                            <label
+                              key={section}
+                              className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-400"
+                              title={SECTION_DESCRIPTIONS[section]}
+                            >
+                              <input
+                                type="checkbox"
+                                name={`membership-${member.id}-${section}`}
+                                defaultChecked={member.sections.includes(section as Section)}
+                              />
+                              {SECTION_LABELS[section]}
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500">
+                          {member.role === "OWNER"
+                            ? "Owners see every section."
+                            : "Consultants see only the time clock."}
+                        </p>
+                      )}
                     </form>
                   </td>
                 </tr>
@@ -254,6 +301,26 @@ export default async function UsersPage({
                 <option value="CONSULTANT">Consultant</option>
               </Select>
             </Field>
+
+            <fieldset className="space-y-1.5">
+              <legend className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                Sections
+              </legend>
+              <p className="text-xs text-slate-500">
+                Applies to bookkeepers. Owners hold every section; consultants hold none.
+              </p>
+              {ALL_SECTIONS.map((section) => (
+                <label key={section} className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" name={`section-${section}`} className="mt-1" />
+                  <span>
+                    {SECTION_LABELS[section]}
+                    <span className="block text-xs text-slate-500">
+                      {SECTION_DESCRIPTIONS[section]}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
             <Button type="submit">Create invitation</Button>
           </form>
           <p className="mt-3 text-xs text-slate-500">

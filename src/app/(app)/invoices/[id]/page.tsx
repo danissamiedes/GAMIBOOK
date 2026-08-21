@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { financialScope } from "@/lib/session-scope";
+import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { issueInvoice, voidInvoice, deleteDraftInvoice } from "@/lib/invoices/service";
 import { recordPayment, reversePayment } from "@/lib/invoices/payments";
@@ -18,7 +18,7 @@ export default async function InvoicePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ error?: string }>;
 }) {
-  const scope = await financialScope();
+  const scope = await sectionScope("SALES");
   const { id } = await params;
   const { error } = await searchParams;
 
@@ -53,7 +53,7 @@ export default async function InvoicePage({
 
   async function issue() {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SALES");
     try {
       const result = await issueInvoice({
         companyId: inner.companyId,
@@ -78,7 +78,7 @@ export default async function InvoicePage({
 
   async function discard() {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SALES");
     try {
       await deleteDraftInvoice(inner.companyId, id);
     } catch (thrown) {
@@ -90,7 +90,7 @@ export default async function InvoicePage({
 
   async function makeVoid(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SALES");
     const date = parseAccountingDate(String(formData.get("date") || "")) ?? today();
     try {
       await voidInvoice({
@@ -116,7 +116,7 @@ export default async function InvoicePage({
 
   async function pay(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SALES");
     const amount = parseMoney(String(formData.get("amount") || ""));
     const date = parseAccountingDate(String(formData.get("date") || "")) ?? today();
     const depositAccountId = String(formData.get("depositAccountId") || "");
@@ -155,7 +155,7 @@ export default async function InvoicePage({
 
   async function undoPayment(formData: FormData) {
     "use server";
-    const inner = await financialScope();
+    const inner = await sectionScope("SALES");
     try {
       await reversePayment({
         companyId: inner.companyId,

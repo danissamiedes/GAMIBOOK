@@ -1,7 +1,5 @@
 import { redirect } from "next/navigation";
-import { currentUserId } from "@/lib/auth";
-import { withFinancialScope } from "@/lib/company-scope";
-import { resolveActiveCompanyId } from "@/lib/active-company";
+import { sectionScope } from "@/lib/session-scope";
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
@@ -12,18 +10,13 @@ export default async function CompanySettingsPage({
 }: {
   searchParams: Promise<{ saved?: string }>;
 }) {
-  const userId = await currentUserId();
-  if (!userId) redirect("/login");
-  const activeId = await resolveActiveCompanyId(userId);
-  const scope = await withFinancialScope(userId, activeId);
+  const scope = await sectionScope("SETTINGS");
   const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });
   const { saved } = await searchParams;
 
   async function save(formData: FormData) {
     "use server";
-    const uid = await currentUserId();
-    const cid = await resolveActiveCompanyId(uid ?? "");
-    const inner = await withFinancialScope(uid, cid);
+    const inner = await sectionScope("SETTINGS");
 
     const name = String(formData.get("name") || "").trim();
     const fiscalYearStartMonth = Number(formData.get("fiscalYearStartMonth"));

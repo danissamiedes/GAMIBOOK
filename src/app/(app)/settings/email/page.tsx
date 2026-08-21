@@ -12,6 +12,7 @@ import {
   connectedMailbox,
 } from "@/lib/email/gmail";
 import { encryptionAvailable } from "@/lib/email/crypto";
+import { requestOrigin } from "@/lib/request-origin";
 import {
   DEFAULT_TEMPLATES,
   TEMPLATE_LABELS,
@@ -25,7 +26,12 @@ import { Alert, Button, Card, Field, Input, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Email settings — Ledger" };
 
-const KINDS: EmailTemplateKind[] = ["INVOICE", "INVOICE_REMINDER", "WORK_ORDER", "PAYMENT_RECEIPT"];
+const KINDS: EmailTemplateKind[] = [
+  "INVOICE",
+  "INVOICE_REMINDER",
+  "WORK_ORDER",
+  "PAYMENT_RECEIPT",
+];
 
 const PREVIEW_VALUES: Record<string, string> = {
   customer_name: "Cebu Retail Group",
@@ -44,7 +50,12 @@ const PREVIEW_VALUES: Record<string, string> = {
 export default async function EmailSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; error?: string; connected?: string; sent?: string }>;
+  searchParams: Promise<{
+    saved?: string;
+    error?: string;
+    connected?: string;
+    sent?: string;
+  }>;
 }) {
   const scope = await sectionScope("SETTINGS");
   const params = await searchParams;
@@ -52,18 +63,22 @@ export default async function EmailSettingsPage({
   const [company, connection, templates] = await Promise.all([
     prisma.company.findFirstOrThrow({ where: { id: scope.companyId } }),
     connectedMailbox(scope.companyId),
-    Promise.all(KINDS.map(async (kind) => ({ kind, template: await templateFor(scope.companyId, kind) }))),
+    Promise.all(
+      KINDS.map(async (kind) => ({
+        kind,
+        template: await templateFor(scope.companyId, kind),
+      })),
+    ),
   ]);
 
-  const host = (await headers()).get("host") ?? "localhost:3000";
-  const origin = `${process.env.NODE_ENV === "production" ? "https" : "http"}://${host}`;
+  const origin = requestOrigin(await headers());
 
   async function connect() {
     "use server";
     const inner = await sectionScope("SETTINGS");
-    const innerHost = (await headers()).get("host") ?? "localhost:3000";
-    const innerOrigin = `${process.env.NODE_ENV === "production" ? "https" : "http"}://${innerHost}`;
-    if (!gmailConfigured()) redirect("/settings/email?error=Google%20OAuth%20is%20not%20configured");
+    const innerOrigin = requestOrigin(await headers());
+    if (!gmailConfigured())
+      redirect("/settings/email?error=Google%20OAuth%20is%20not%20configured");
     if (!encryptionAvailable()) {
       redirect("/settings/email?error=TOKEN_ENCRYPTION_KEY%20is%20not%20set");
     }
@@ -94,7 +109,9 @@ export default async function EmailSettingsPage({
       create: {
         companyId: inner.companyId,
         kind,
-        subject: String(formData.get("subject") || DEFAULT_TEMPLATES[kind].subject),
+        subject: String(
+          formData.get("subject") || DEFAULT_TEMPLATES[kind].subject,
+        ),
         body: String(formData.get("body") || DEFAULT_TEMPLATES[kind].body),
       },
       update: {
@@ -108,7 +125,9 @@ export default async function EmailSettingsPage({
   async function resetTemplates() {
     "use server";
     const inner = await sectionScope("SETTINGS");
-    await prisma.emailTemplate.deleteMany({ where: { companyId: inner.companyId } });
+    await prisma.emailTemplate.deleteMany({
+      where: { companyId: inner.companyId },
+    });
     await installDefaultTemplates(inner.companyId);
     redirect("/settings/email?saved=1");
   }
@@ -118,10 +137,13 @@ export default async function EmailSettingsPage({
     const inner = await sectionScope("SETTINGS");
     const kind = String(formData.get("kind")) as EmailTemplateKind;
     const to = String(formData.get("to") || "").trim();
-    if (!to) redirect("/settings/email?error=Enter%20an%20address%20to%20test%20with");
+    if (!to)
+      redirect("/settings/email?error=Enter%20an%20address%20to%20test%20with");
 
     const template = await templateFor(inner.companyId, kind);
-    const innerCompany = await prisma.company.findFirstOrThrow({ where: { id: inner.companyId } });
+    const innerCompany = await prisma.company.findFirstOrThrow({
+      where: { id: inner.companyId },
+    });
     const values = { ...PREVIEW_VALUES, company_name: innerCompany.name };
 
     const result = await sendEmail({
@@ -147,21 +169,28 @@ export default async function EmailSettingsPage({
       />
 
       {params.saved ? <Alert tone="success">Saved.</Alert> : null}
-      {params.connected ? <Alert tone="success">Google account connected.</Alert> : null}
-      {params.error ? <Alert tone="error">{decodeURIComponent(params.error)}</Alert> : null}
+      {params.connected ? (
+        <Alert tone="success">Google account connected.</Alert>
+      ) : null}
+      {params.error ? (
+        <Alert tone="error">{decodeURIComponent(params.error)}</Alert>
+      ) : null}
       {params.sent === "sent" ? (
         <Alert tone="success">
           Test {dryRun() ? "logged (dry run — nothing actually sent)" : "sent"}.
         </Alert>
       ) : null}
       {params.sent === "failed" ? (
-        <Alert tone="error">The test failed. The email log has the reason.</Alert>
+        <Alert tone="error">
+          The test failed. The email log has the reason.
+        </Alert>
       ) : null}
 
       {dryRun() ? (
         <Alert tone="warning">
-          <strong>EMAIL_DRY_RUN is on.</strong> Every send is written to the log and nothing leaves
-          this machine. Turn it off in the environment when you are ready to send real mail.
+          <strong>EMAIL_DRY_RUN is on.</strong> Every send is written to the log
+          and nothing leaves this machine. Turn it off in the environment when
+          you are ready to send real mail.
         </Alert>
       ) : null}
 
@@ -171,10 +200,12 @@ export default async function EmailSettingsPage({
 
           {!gmailConfigured() ? (
             <Alert tone="warning">
-              Set <code>AUTH_GOOGLE_ID</code> and <code>AUTH_GOOGLE_SECRET</code>, and add{" "}
-              <code>{origin}/api/email/google/callback</code> as an authorised redirect URI in the
-              Google Cloud console. Only the <code>gmail.send</code> scope is requested — this app
-              cannot read your mail.
+              Set <code>AUTH_GOOGLE_ID</code> and{" "}
+              <code>AUTH_GOOGLE_SECRET</code>, and add{" "}
+              <code>{origin}/api/email/google/callback</code> as an authorised
+              redirect URI in the Google Cloud console. Only the{" "}
+              <code>gmail.send</code> scope is requested — this app cannot read
+              your mail.
             </Alert>
           ) : connection ? (
             <div className="space-y-3">
@@ -183,9 +214,12 @@ export default async function EmailSettingsPage({
               </p>
               {connection.needsReconnectAt ? (
                 <Alert tone="error">
-                  Google has stopped accepting this connection — reconnect to keep sending.
+                  Google has stopped accepting this connection — reconnect to
+                  keep sending.
                   {connection.lastError ? (
-                    <span className="mt-1 block text-xs">{connection.lastError}</span>
+                    <span className="mt-1 block text-xs">
+                      {connection.lastError}
+                    </span>
                   ) : null}
                 </Alert>
               ) : null}
@@ -198,8 +232,8 @@ export default async function EmailSettingsPage({
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                No mailbox connected. Until one is, invitations and documents fall back to a
-                copyable link.
+                No mailbox connected. Until one is, invitations and documents
+                fall back to a copyable link.
               </p>
               <form action={connect}>
                 <Button type="submit">Connect Google account</Button>
@@ -246,7 +280,9 @@ export default async function EmailSettingsPage({
               <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
                 <form action={saveTemplate} className="space-y-3">
                   <input type="hidden" name="kind" value={kind} />
-                  <h3 className="text-sm font-semibold">{TEMPLATE_LABELS[kind]}</h3>
+                  <h3 className="text-sm font-semibold">
+                    {TEMPLATE_LABELS[kind]}
+                  </h3>
                   <Field label="Subject">
                     <Input name="subject" defaultValue={template.subject} />
                   </Field>
@@ -269,8 +305,12 @@ export default async function EmailSettingsPage({
                 </form>
 
                 <div className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-800/60">
-                  <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">Preview</p>
-                  <p className="font-medium">{renderTemplate(template.subject, values)}</p>
+                  <p className="mb-2 text-xs uppercase tracking-wide text-slate-500">
+                    Preview
+                  </p>
+                  <p className="font-medium">
+                    {renderTemplate(template.subject, values)}
+                  </p>
                   <p className="mt-2 whitespace-pre-wrap text-slate-700 dark:text-slate-300">
                     {renderTemplate(template.body, values)}
                   </p>

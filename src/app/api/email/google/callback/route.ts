@@ -3,6 +3,7 @@ import { currentUserId } from "@/lib/auth";
 import { withSectionScope } from "@/lib/company-scope";
 import { connectMailbox } from "@/lib/email/gmail";
 import { writeAudit } from "@/lib/audit";
+import { requestOrigin } from "@/lib/request-origin";
 
 /**
  * OAuth callback (SPEC §10). `state` carries the company the connection is
@@ -16,7 +17,8 @@ export async function GET(request: Request) {
   const error = url.searchParams.get("error");
 
   if (error) redirect(`/settings/email?error=${encodeURIComponent(error)}`);
-  if (!code || !state) redirect("/settings/email?error=Google%20returned%20no%20code");
+  if (!code || !state)
+    redirect("/settings/email?error=Google%20returned%20no%20code");
 
   const userId = await currentUserId();
   if (!userId) redirect("/login");
@@ -28,7 +30,7 @@ export async function GET(request: Request) {
     const connection = await connectMailbox({
       companyId: scope.companyId,
       code,
-      origin: url.origin,
+      origin: requestOrigin(request.headers),
       userId,
     });
     await writeAudit({
@@ -40,7 +42,8 @@ export async function GET(request: Request) {
       summary: connection.emailAddress,
     });
   } catch (thrown) {
-    const message = thrown instanceof Error ? thrown.message : "Could not connect";
+    const message =
+      thrown instanceof Error ? thrown.message : "Could not connect";
     redirect(`/settings/email?error=${encodeURIComponent(message)}`);
   }
 

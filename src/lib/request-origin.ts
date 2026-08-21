@@ -10,13 +10,35 @@
  * only a loopback host is assumed to be plain HTTP.
  */
 export function requestOrigin(source: Headers): string {
-  const host =
-    firstValue(source.get("x-forwarded-host") ?? source.get("host")) ??
-    "localhost:3000";
+  // x-forwarded-host first, and not merely as a preference: Vercel sets it and
+  // sets no plain Host header at all, so reading Host alone yields nothing and
+  // whatever default sits behind it — which is how invitation links to a live
+  // deployment came out pointing at localhost.
+  const forwarded = firstValue(source.get("x-forwarded-host") ?? source.get("host"));
+  const host = forwarded ?? configuredHost() ?? "localhost:3000";
   const protocol =
     firstValue(source.get("x-forwarded-proto")) ??
     (isLoopback(host) ? "http" : "https");
   return `${protocol}://${host}`;
+}
+
+/**
+ * Last resort before the localhost literal: the public URL the operator
+ * configured. A host that answers on neither header is unusual, but guessing
+ * localhost there produces a link that is confidently wrong rather than
+ * obviously broken, and these links are single-use.
+ */
+function configuredHost(): string | undefined {
+  const configured = process.env.AUTH_URL || process.env.NEXTAUTH_URL;
+  if (configured) {
+    try {
+      return new URL(configured).host;
+    } catch {
+      // A malformed AUTH_URL is not worth throwing over here.
+    }
+  }
+  // Vercel sets this to the deployment's own hostname, without a scheme.
+  return process.env.VERCEL_URL || undefined;
 }
 
 /** Proxies may append rather than replace, leaving `https,http`. The client's own value is first. */

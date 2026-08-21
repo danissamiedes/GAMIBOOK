@@ -764,6 +764,31 @@ The backup workflow now rejects a `SUPABASE_DB_URL` on port 6543 up front, with
 the reason, rather than letting it surface as a confusing `pg_dump` failure at
 two in the morning.
 
+## Vercel sets no Host header — 2026-08-21
+
+An invitation issued from the live deployment produced a link to
+`localhost:3000`. The users page was building the URL from
+`headers().get("host")` with the scheme guessed from `NODE_ENV`, rather than
+from `requestOrigin()` — the helper written for exactly this and already used by
+both Gmail OAuth paths.
+
+The mechanism is worth recording because it is not the obvious one: Vercel does
+not set a plain `Host` header at all, only `x-forwarded-host`. So the lookup did
+not return the wrong value, it returned nothing, and fell through to the
+`"localhost:3000"` literal sitting behind it. A duplicated implementation and a
+silent default hid it until someone clicked a real invitation.
+
+Two changes. The page now uses the helper. And the helper's own last resort is
+no longer localhost: it tries `AUTH_URL`, then `VERCEL_URL`, before that
+literal. A host answering on neither header is unusual, but guessing localhost
+there yields a link that is confidently wrong rather than obviously broken, and
+these links are single-use and expire in seven days — a bad one wastes the
+invitation, not just a click.
+
+The general lesson, which the OAuth work in Phase 8 already taught once: the
+origin a browser used is knowable from the request, and every attempt to infer
+it from `NODE_ENV` or a bare `Host` has been wrong somewhere.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

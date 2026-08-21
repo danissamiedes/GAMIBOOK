@@ -205,6 +205,16 @@ leaves the machine.
 5. Set `EMAIL_DRY_RUN=false` when you actually want mail to go out.
 6. Connect the mailbox under Settings → Email.
 
+`docs/gmail-setup.md` walks the console screens step by step, including which
+consent-screen type to pick and what each OAuth error means.
+
+To check the wiring without clicking through the app:
+
+```bash
+npm run email:check                  # what is configured, what is missing
+npm run email:check you@example.com  # plus one real test message
+```
+
 ## Local setup
 
 Requires Node 22+ and Postgres 16 (or Docker).

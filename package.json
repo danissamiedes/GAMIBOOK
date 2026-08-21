@@ -14,7 +14,8 @@
     "db:reset": "prisma migrate reset --force",
     "seed": "tsx prisma/seed.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "email:check": "tsx scripts/check-email.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

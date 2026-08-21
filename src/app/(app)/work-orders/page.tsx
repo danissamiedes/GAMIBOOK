@@ -93,6 +93,9 @@ export default async function WorkOrdersPage({
       <div className="mb-6 flex items-start justify-between gap-4">
         <PageHeader title="Work orders" description="What consultants are owed, and for what." />
         <div className="flex gap-2">
+          <Link href="/work-orders/send">
+            <Button variant="secondary">Send in bulk</Button>
+          </Link>
           <Link href="/work-orders/import">
             <Button variant="secondary">Import from spreadsheet</Button>
           </Link>

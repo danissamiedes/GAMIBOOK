@@ -167,8 +167,28 @@ not estimated from a list of categorised transactions.
 `npm run seed` writes `fixtures/work-orders-september-2026.xlsx` — five good
 rows and three deliberately broken ones — to try it against.
 
-Remaining: the bulk work-order send (§10.1), recurring invoices and the CSV
-bank import (§8.5), and Phase 9 (dashboard, data export, polish).
+**Phase 8b — bulk work-order send:**
+
+- A filterable work order list — status, consultant, date range, import batch,
+  and **"never emailed"** as the default working filter — with a checkbox per
+  row
+- Each row shows **where that email would go**, resolved from the consultant's
+  own setup. A consultant who cannot be emailed is greyed out with the reason
+  and cannot be selected
+- **One email per work order** by default, or one per consultant with all their
+  PDFs attached — a toggle, both implemented
+- A confirmation step naming the email count, consultant count and address
+  count, with the rendered subject, and a warning when the selection includes
+  unapproved drafts
+- Sending is throttled, a partial failure never aborts the batch, and
+  **"retry failed only"** cannot re-send anything that already succeeded
+- Every message writes its own `EmailLog` row under one batch;
+  `lastEmailedAt` is stamped only on success
+- Attachments over 20 MB for one consultant fail that message with a clear
+  reason rather than being rejected by Gmail
+
+Remaining: recurring invoices and the CSV bank import (§8.5), and Phase 9
+(dashboard, data export, polish).
 
 ### Connecting Gmail
 

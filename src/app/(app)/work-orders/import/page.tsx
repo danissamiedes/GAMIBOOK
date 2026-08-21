@@ -113,7 +113,9 @@ export default async function ImportWorkOrdersPage({
               ))}
             </tbody>
           </table>
-          <a href="/work-orders/import/template" className="mt-4 inline-block">
+          {/* A file download from a route handler, not a page: Link would
+              prefetch and soft-navigate a binary response. */}
+          <a href="/work-orders/import/template" className="mt-4 inline-block" download>
             <Button variant="secondary" type="button">
               Download template
             </Button>

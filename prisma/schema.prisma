@@ -137,6 +137,21 @@ enum EmailStatus {
   FAILED
 }
 
+/// SPEC §10.1. A bulk send, and each message inside it.
+enum EmailBatchStatus {
+  QUEUED
+  SENDING
+  COMPLETED
+  COMPLETED_WITH_FAILURES
+}
+
+enum EmailBatchItemStatus {
+  QUEUED
+  SENT
+  FAILED
+  SKIPPED
+}
+
 /// SPEC §10. The per-company templates.
 enum EmailTemplateKind {
   INVOICE
@@ -244,6 +259,7 @@ model Company {
   emailConnection EmailConnection?
   emailTemplates  EmailTemplate[]
   emailLogs       EmailLog[]
+  emailBatches    EmailBatch[]
   importBatches   ImportBatch[]
   workOrders      WorkOrder[]
   expenses        Expense[]
@@ -998,4 +1014,52 @@ model ImportRow {
 
   @@unique([importBatchId, rowNumber])
   @@index([importBatchId, status])
+}
+
+/// SPEC §10.1. One bulk send. Progress is read from here while it runs and
+/// stays as the permanent record of what went out.
+model EmailBatch {
+  id        String           @id @default(cuid())
+  companyId String
+  kind      String           @default("WORK_ORDER")
+  status    EmailBatchStatus @default(QUEUED)
+
+  totalCount   Int @default(0)
+  sentCount    Int @default(0)
+  failedCount  Int @default(0)
+  skippedCount Int @default(0)
+
+  /// One email per document, or one per consultant with several attached.
+  groupByConsultant Boolean @default(false)
+
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  company Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items   EmailBatchItem[]
+
+  @@index([companyId, createdAt])
+}
+
+/// One outgoing message. Keyed by batch and item, so "retry failed only" can
+/// never re-send something that already succeeded (SPEC §10.1).
+model EmailBatchItem {
+  id           String               @id @default(cuid())
+  emailBatchId String
+  vendorId     String
+  /// The documents attached to this one message.
+  workOrderIds String[]
+  toAddresses  String[]
+  ccAddresses  String[]
+  status       EmailBatchItemStatus @default(QUEUED)
+  /// Why it was skipped or how it failed, in words the user can act on.
+  reason       String?
+  emailLogId   String?
+  attempts     Int                  @default(0)
+  sentAt       DateTime?
+
+  batch EmailBatch @relation(fields: [emailBatchId], references: [id], onDelete: Cascade)
+
+  @@index([emailBatchId, status])
 }

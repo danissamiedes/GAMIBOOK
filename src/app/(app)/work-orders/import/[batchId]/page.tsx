@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { commitImport, discardBatch, rollbackImport } from "@/lib/imports/work-orders";
 import { validateRows } from "@/lib/imports/validate";
-import { WORK_ORDER_IMPORT_COLUMNS, COLUMN_LABEL, type ColumnKey } from "@/lib/imports/columns";
+import { WORK_ORDER_IMPORT_COLUMNS, type ColumnKey } from "@/lib/imports/columns";
 import { PostingError } from "@/lib/errors";
 import { formatAccountingDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
@@ -323,7 +323,13 @@ export default async function ImportReviewPage({
                                 : "text-slate-500"
                           }
                         >
-                          {issue.column !== "row" ? `${COLUMN_LABEL[issue.column]}: ` : ""}
+                          {issue.column !== "row"
+                            ? `${
+                                WORK_ORDER_IMPORT_COLUMNS.find(
+                                  (column) => column.key === issue.column,
+                                )?.header ?? issue.column
+                              }: `
+                            : ""}
                           {issue.message}
                         </div>
                       ))

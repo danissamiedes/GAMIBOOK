@@ -344,6 +344,35 @@ order it made is still an untouched draft. Once one is approved or emailed,
 undo refuses and points at handling those individually — deleting a posted
 document is never the answer.
 
+### Phase 8b — bulk work-order send (2026-08-21)
+
+**Excluded consultants are recorded on the batch, not filtered out of it.** A
+consultant with no address or marked not-to-be-emailed becomes a `SKIPPED` item
+carrying the reason, so the results screen can say who got nothing and why. The
+selection list greys them out for the same reason: silence is the failure mode
+the user asked to avoid.
+
+**Retry is keyed on the item, not the batch.** `EmailBatchItem` holds each
+message's own state, so "retry failed only" re-queues exactly the failures.
+Processing a batch twice is a no-op for anything already sent — verified by a
+test that calls `processBatch` twice and asserts one log row.
+
+**The email log keeps every attempt, so counts differ on purpose.** A batch of
+three where one fails and is retried leaves four log rows and three sends. The
+log is the record of what was attempted; the batch is the record of what got
+through.
+
+**Labels are derived from the documents inside `composeMessage`.** They were
+originally passed in by the caller, and the send path passed none — so the
+preview read "Work order WO1001" and the message that actually went out read
+"Work order  from …". Caught by sending a real batch rather than by the test,
+which only checked for unresolved `{{`; the test now asserts the number is
+present in the sent subject and body.
+
+**Attachment size is checked before Gmail sees it.** One consultant with many
+documents can exceed the 25 MB limit; that message fails with a clear reason
+naming the size, rather than a rejection from Google.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

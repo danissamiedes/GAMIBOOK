@@ -13,6 +13,7 @@ import { resolveActiveCompanyId } from "@/lib/active-company";
 import { prisma } from "@/lib/db";
 import { generateToken, hashToken, inviteExpiry } from "@/lib/tokens";
 import { writeAudit } from "@/lib/audit";
+import { requestOrigin } from "@/lib/request-origin";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export const metadata = { title: "Users — Ledger" };
@@ -107,9 +108,14 @@ export default async function UsersPage({
       summary: `${email} invited as ${role}`,
     });
 
-    const host = (await headers()).get("host") ?? "localhost:3000";
-    const proto = process.env.NODE_ENV === "production" ? "https" : "http";
-    redirect(`/settings/users?link=${encodeURIComponent(`${proto}://${host}/invite/${token}`)}`);
+    // requestOrigin, not host + a guess at the scheme. Behind a proxy — Vercel,
+    // Caddy, anything — the origin the browser used is in the x-forwarded-*
+    // headers, and NODE_ENV says nothing about it: a production build served
+    // over plain http would hand out an https link, and a proxied dev build the
+    // reverse. An invitation link is single-use and expires in seven days, so
+    // one that points at the wrong host wastes the invitation, not just a click.
+    const origin = requestOrigin(await headers());
+    redirect(`/settings/users?link=${encodeURIComponent(`${origin}/invite/${token}`)}`);
   }
 
   async function revoke(formData: FormData) {

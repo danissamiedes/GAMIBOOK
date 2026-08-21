@@ -60,6 +60,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           />
           <nav className="flex flex-1 flex-wrap items-center gap-1">
             <NavLink href="/dashboard">Dashboard</NavLink>
+            <NavLink href="/accounts">Accounts</NavLink>
+            <NavLink href="/journal">Journal</NavLink>
+            <NavLink href="/reports/trial-balance">Trial Balance</NavLink>
             <NavLink href="/settings/company">Company</NavLink>
             {scope.role === "OWNER" ? <NavLink href="/settings/users">Users</NavLink> : null}
           </nav>

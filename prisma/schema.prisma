@@ -20,6 +20,48 @@ enum Role {
   CONSULTANT
 }
 
+/// SPEC §4.1. Normal balance is derived: ASSET and EXPENSE are debit-normal.
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+/// Report grouping (SPEC §4.1).
+enum AccountSubtype {
+  CASH
+  UNDEPOSITED_FUNDS
+  ACCOUNTS_RECEIVABLE
+  OTHER_CURRENT_ASSET
+  FIXED_ASSET
+  ACCOUNTS_PAYABLE
+  CREDIT_CARD
+  OTHER_CURRENT_LIABILITY
+  LONG_TERM_LIABILITY
+  EQUITY
+  RETAINED_EARNINGS
+  INCOME
+  OTHER_INCOME
+  COST_OF_SALES
+  EXPENSE
+  OTHER_EXPENSE
+}
+
+/// SPEC §4.2, extended with MIGRATION by SPEC §4.4.
+enum JournalSourceType {
+  MANUAL
+  INVOICE
+  INVOICE_PAYMENT
+  WORK_ORDER
+  CONSULTANT_PAYMENT
+  EXPENSE
+  BANK_TRANSACTION
+  OPENING_BALANCE
+  MIGRATION
+}
+
 /// Gap-free per-company document sequences (SPEC §7.1, §8.1, §13).
 enum SequenceKind {
   INVOICE
@@ -70,10 +112,12 @@ model Company {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  memberships Membership[]
-  invitations Invitation[]
-  sequences   NumberSequence[]
-  auditLogs   AuditLog[]
+  memberships    Membership[]
+  invitations    Invitation[]
+  sequences      NumberSequence[]
+  auditLogs      AuditLog[]
+  accounts       Account[]
+  journalEntries JournalEntry[]
 
   @@index([organizationId])
 }
@@ -174,4 +218,91 @@ model AuditLog {
 
   @@index([companyId, at])
   @@index([entityType, entityId])
+}
+
+/// Chart of accounts (SPEC §4.1). Per company — nothing is shared.
+model Account {
+  id          String         @id @default(cuid())
+  companyId   String
+  code        String
+  name        String
+  type        AccountType
+  subtype     AccountSubtype
+  parentId    String?
+  /// Soft-disable. An account with postings is never hard-deleted (SPEC §13).
+  isActive    Boolean        @default(true)
+  /// The app posts to these automatically; they cannot be deleted or retyped.
+  isSystem    Boolean        @default(false)
+  /// Set on system accounts so code can find them without matching on name.
+  systemKey   String?
+  description String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   Account?      @relation("AccountTree", fields: [parentId], references: [id])
+  children Account[]     @relation("AccountTree")
+  lines    JournalLine[]
+
+  @@unique([companyId, code])
+  @@unique([companyId, systemKey])
+  @@index([companyId, type])
+}
+
+/// SPEC §4.2. Posted entries are immutable — corrected by reversal, never edited.
+model JournalEntry {
+  id              String            @id @default(cuid())
+  companyId       String
+  entryNumber     Int
+  /// A DATE. Accounting dates have no time zone (SPEC §13).
+  date            DateTime          @db.Date
+  memo            String?
+  sourceType      JournalSourceType
+  sourceId        String?
+  postedAt        DateTime          @default(now())
+  createdByUserId String?
+
+  /// Set on the entry that was reversed, pointing at its reversal.
+  reversedByEntryId String?       @unique
+  reversedBy        JournalEntry? @relation("Reversal", fields: [reversedByEntryId], references: [id])
+  reverses          JournalEntry? @relation("Reversal")
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines   JournalLine[]
+
+  @@unique([companyId, entryNumber])
+  @@index([companyId, date])
+  @@index([companyId, sourceType, sourceId])
+}
+
+/// SPEC §4.2. Exactly one of debit/credit is non-zero; both are >= 0.
+model JournalLine {
+  id             String  @id @default(cuid())
+  journalEntryId String
+  lineNumber     Int
+  accountId      String
+  /// Base-currency amounts. Decimal, never float (SPEC §13).
+  debit          Decimal @default(0) @db.Decimal(18, 2)
+  credit         Decimal @default(0) @db.Decimal(18, 2)
+  description    String?
+
+  /// The party dimension (SPEC §4.2). Required on A/R and A/P lines so aging
+  /// is built from the ledger. Relations arrive with those tables in Phases 3-4.
+  customerId   String?
+  consultantId String?
+  vendorId     String?
+
+  /// Foreign-currency detail (SPEC §5). Null when the line is in base currency.
+  currency      String?  @db.Char(3)
+  fxRate        Decimal? @db.Decimal(18, 8)
+  foreignAmount Decimal? @db.Decimal(18, 2)
+
+  entry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account Account      @relation(fields: [accountId], references: [id])
+
+  @@unique([journalEntryId, lineNumber])
+  @@index([accountId])
+  @@index([customerId])
+  @@index([consultantId])
+  @@index([vendorId])
 }

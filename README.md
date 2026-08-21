@@ -9,7 +9,7 @@ not estimated from a list of categorised transactions.
 
 ## Status
 
-**Phase 1 (Foundation) is complete.** What works today:
+**Phases 1–2 are complete.** What works today:
 
 - Multi-company data model — Organization → Company → Membership, roles per
   company (`OWNER`, `BOOKKEEPER`, `CONSULTANT`)
@@ -22,8 +22,25 @@ not estimated from a list of categorised transactions.
 - Storage adapter with local-disk and S3 implementations
 - Seed script and the Phase 1 test: a user in company A cannot read company B
 
-Phases 2–9 (ledger, invoicing, work orders, reports, time clock, PDFs and
-email, imports, dashboard) are specified in `SPEC.md` §14 and not yet built.
+**Phase 2 — the ledger:**
+
+- Chart of accounts: per-company, with a default template of ~30 accounts
+  including every system account the app posts to automatically
+- `postJournalEntry()` — the single posting service. Nothing else writes a
+  journal line
+- Balance, immutability and one-side-per-line rules enforced by **database
+  constraints and triggers** as well as in code, so a bug or a psql prompt
+  cannot break the books
+- Manual journal entries with a keyboard-first line editor and live difference
+- Reversal (posted entries are never edited), opening balances with the
+  difference plugged to Opening Balance Equity
+- Gap-free per-company numbering, safe under concurrent posting
+- **Trial Balance** with date range, CSV export and a loud banner if it ever
+  fails to balance
+
+Phases 3–9 (invoicing, work orders and the Excel import, reports, time clock,
+PDFs and email, bulk send, bank import, dashboard) are specified in `SPEC.md`
+§14 and not yet built.
 
 ## Local setup
 

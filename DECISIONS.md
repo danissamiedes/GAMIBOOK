@@ -85,6 +85,41 @@ Neither blocks the phase it sits in, but both block go-live:
   §4.4 get built against the seed fixture in the meantime.
 - ~~The work order spreadsheet~~ — received 2026-08-21, see above.
 
+## Build decisions
+
+### Phase 2 — the ledger (2026-08-21)
+
+**Database triggers, not just service checks.** SPEC §4.2 asks for the hard
+rules "in code and with a DB constraint or trigger where you can". All of it is
+in the database: CHECK constraints for non-negative amounts and one side per
+line, deferred constraint triggers for "at least two lines" and "debits equal
+credits", and BEFORE triggers making posted entries and lines immutable. The
+service produces the readable error; the database is why the rule holds. A test
+asserts every trigger is enabled, because a disabled trigger is silent — the
+books would keep accepting writes and nothing would look wrong until a report
+did not balance.
+
+**Test teardown uses TRUNCATE.** The first version disabled the immutability
+triggers to clear fixtures, and a crash between disable and re-enable left one
+switched off in the test database — the exact hole the trigger exists to close.
+TRUNCATE does not fire row-level triggers, so teardown never touches them.
+
+**Opening balances are entered on each account's normal side.** A positive
+figure against a bank account is a debit and against a credit card a credit,
+matching the statement being copied from; a negative figure flips sides, for an
+overdrawn account. Income and expense accounts are refused outright — prior-year
+results belong in retained earnings, computed at report time (SPEC §12.2).
+
+**`Advances to Consultants` (1200) is in the default chart of accounts.** It is
+the account a `Cash Advances` import line should name if the advance is cash
+already paid and being recovered, rather than a discount on the work — see the
+open coding point above.
+
+**Reversal links forward, not backward.** The original entry gets
+`reversedByEntryId`; that single column is the one field the immutability
+trigger allows to change, so the audit trail reads in both directions without
+making entries editable.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

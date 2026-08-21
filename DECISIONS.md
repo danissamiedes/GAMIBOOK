@@ -238,6 +238,33 @@ turns it on, and the jobs are plain functions taking no scheduler state. Two app
 instances would otherwise run every job twice, and Phase 8's recurring invoices
 must not issue twice.
 
+### Sales orders, sales-by-customer, consultant bills (2026-08-21)
+
+Built to close the three gaps between the user's section description and what
+existed. Section access itself was already in place.
+
+**A sales order posts nothing, and the UI says so.** Confirming allocates a
+number from its own `SO` sequence; converting creates a **draft** invoice and
+links the two. A test asserts the P&L shows zero income after confirmation and
+the invoiced amount only after the invoice is issued. The list shows a
+"confirmed and not yet invoiced" total with a note that it is deliberately
+absent from the P&L — agreed work is not revenue.
+
+**One order becomes one invoice.** Partial invoicing is out of scope for the
+MVP; the spec says so and the code refuses a second conversion rather than
+silently creating two.
+
+**Consultant bills are the same document as vendor bills.** An `Expense` with
+`kind = BILL` against a `CONSULTANT` vendor, hitting the same A/P and settled by
+the same `BillPayment`. Only the section differs, and the filtering is in the
+query on both sides: the Vendors expenses list now explicitly excludes
+consultant-owned bills, so the sections genuinely cannot see each other's
+parties.
+
+**Sales-by-customer excludes drafts and voids**, because neither is a sale, and
+converts foreign-currency invoices at their own rate — the rate they sit in the
+ledger at, not today's.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

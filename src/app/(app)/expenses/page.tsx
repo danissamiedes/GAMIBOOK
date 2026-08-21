@@ -41,7 +41,9 @@ export default async function ExpensesPage({
       orderBy: { code: "asc" },
     }),
     prisma.expense.findMany({
-      where: scope.where,
+      // Regular vendors only: a consultant's bill belongs to the Consultants
+      // section, and this section must not see consultant information at all.
+      where: { ...scope.where, OR: [{ vendorId: null }, { vendor: { kind: "REGULAR" } }] },
       include: { vendor: { select: { name: true } } },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 100,

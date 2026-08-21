@@ -105,6 +105,15 @@ enum ExpenseKind {
   BILL
 }
 
+/// SPEC §7.1a. A sales order is not an accounting record: confirming one posts
+/// nothing, and revenue is recognised only when its invoice is issued.
+enum SalesOrderStatus {
+  DRAFT
+  CONFIRMED
+  INVOICED
+  CANCELLED
+}
+
 /// SPEC §7.1. Paid states are derived from balanceDue, never set by hand.
 enum InvoiceStatus {
   DRAFT
@@ -128,6 +137,7 @@ enum SequenceKind {
   INVOICE
   WORK_ORDER
   JOURNAL_ENTRY
+  SALES_ORDER
 }
 
 model Organization {
@@ -187,6 +197,7 @@ model Company {
   items          Item[]
   taxRates       TaxRate[]
   invoices       Invoice[]
+  salesOrders    SalesOrder[]
   payments       Payment[]
   timeEntries    TimeEntry[]
   vendors        Vendor[]
@@ -409,6 +420,7 @@ model Customer {
 
   company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   invoices     Invoice[]
+  salesOrders  SalesOrder[]
   payments     Payment[]
   journalLines JournalLine[]
 
@@ -487,8 +499,12 @@ model Invoice {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// Set when this invoice was created by converting a sales order (§7.1a).
+  salesOrderId String? @unique
+
   customer     Customer             @relation(fields: [customerId], references: [id])
+  salesOrder   SalesOrder?          @relation(fields: [salesOrderId], references: [id])
   lines        InvoiceLine[]
   applications PaymentApplication[]
 
@@ -777,4 +793,51 @@ model TimeEntry {
 
   @@index([companyId, consultantId, clockInAt])
   @@index([companyId, clockOutAt])
+}
+
+/// SPEC §7.1a. What a customer has agreed to buy, before there is an invoice.
+/// It posts nothing — the order stage recognises no revenue.
+model SalesOrder {
+  id           String           @id @default(cuid())
+  companyId    String
+  customerId   String
+  /// Allocated on confirmation, from its own sequence.
+  orderNumber  String?
+  orderDate    DateTime         @db.Date
+  expectedDate DateTime?        @db.Date
+  currency     String           @db.Char(3)
+  fxRate       Decimal          @default(1) @db.Decimal(18, 8)
+  status       SalesOrderStatus @default(DRAFT)
+  memo         String?
+  total        Decimal          @default(0) @db.Decimal(18, 2)
+
+  confirmedAt DateTime?
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company  Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer Customer         @relation(fields: [customerId], references: [id])
+  lines    SalesOrderLine[]
+  /// The invoice this order became, if it has been converted.
+  invoice  Invoice?
+
+  @@unique([companyId, orderNumber])
+  @@index([companyId, status])
+}
+
+model SalesOrderLine {
+  id              String  @id @default(cuid())
+  salesOrderId    String
+  lineNumber      Int
+  itemId          String?
+  description     String
+  quantity        Decimal @db.Decimal(18, 4)
+  rate            Decimal @db.Decimal(18, 6)
+  amount          Decimal @db.Decimal(18, 2)
+  incomeAccountId String
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([salesOrderId, lineNumber])
 }

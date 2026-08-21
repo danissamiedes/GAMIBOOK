@@ -54,7 +54,7 @@ export function accountingDate(date: Date): Date {
 export async function allocateNumber(
   tx: Prisma.TransactionClient,
   companyId: string,
-  kind: "JOURNAL_ENTRY" | "INVOICE" | "WORK_ORDER",
+  kind: "JOURNAL_ENTRY" | "INVOICE" | "WORK_ORDER" | "SALES_ORDER",
 ): Promise<{ value: number; formatted: string }> {
   const rows = await tx.$queryRaw<{ nextValue: number; prefix: string }[]>`
     UPDATE "NumberSequence"

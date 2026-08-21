@@ -114,10 +114,20 @@ not estimated from a list of categorised transactions.
 - Time report with CSV export, and an in-process job scheduler that Phase 8's
   recurring invoices will reuse
 
+**Sales orders, sales-by-customer and consultant bills:**
+
+- **Sales orders** (§7.1a) — record what a customer agreed to buy. Confirming
+  allocates `SO1001` onward and **posts nothing**; converting produces a draft
+  invoice, and issuing that is what finally recognises revenue
+- **Sales by customer** (§12.8) — invoiced, paid and outstanding per customer
+  for a period, in base currency, excluding drafts and voids. Lives in the
+  Sales section
+- **Consultant bills** — an amount owed to a consultant that is not a work
+  order (a reimbursement, an agreed cost). Same document as a vendor bill,
+  same A/P, same payment machinery; visible only in the Consultants section
+
 Phases 7–9 (PDFs and email, the Excel work-order import, bulk send, bank
-import, dashboard) are specified in `SPEC.md` §14 and not yet built. Sales
-orders (§7.1a), sales-by-customer (§12.8) and consultant bills are specified
-and not yet built.
+import, dashboard) are specified in `SPEC.md` §14 and not yet built.
 
 ## Local setup
 

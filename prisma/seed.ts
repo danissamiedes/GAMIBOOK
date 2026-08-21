@@ -20,6 +20,7 @@ import { approveWorkOrder, computeWorkOrderLine } from "../src/lib/payables/work
 import { recordBillPayment } from "../src/lib/payables/bill-payments";
 import { recordExpense } from "../src/lib/payables/expenses";
 import { parseLocalDateTime } from "../src/lib/time/zone";
+import { computeSalesOrderLine, confirmSalesOrder } from "../src/lib/invoices/sales-orders";
 
 const prisma = new PrismaClient();
 
@@ -51,6 +52,7 @@ async function sequences(companyId: string) {
     { kind: "WORK_ORDER" as const, prefix: "WO", nextValue: 1001 },
     { kind: "INVOICE" as const, prefix: "INV", nextValue: 1001 },
     { kind: "JOURNAL_ENTRY" as const, prefix: "JE", nextValue: 1 },
+    { kind: "SALES_ORDER" as const, prefix: "SO", nextValue: 1001 },
   ];
   for (const sequence of defaults) {
     await prisma.numberSequence.upsert({
@@ -490,6 +492,66 @@ async function main() {
     });
   }
 
+  // ---- Sales orders (SPEC §7.1a) ------------------------------------------
+  const salesOrderCount = await prisma.salesOrder.count({ where: { companyId: phpCompany.id } });
+  if (salesOrderCount === 0) {
+    const customer = await prisma.customer.findFirst({
+      where: { companyId: phpCompany.id, name: "Cebu Retail Group" },
+    });
+    if (customer) {
+      const rate = "65000.00";
+      const order = await prisma.salesOrder.create({
+        data: {
+          companyId: phpCompany.id,
+          customerId: customer.id,
+          orderDate: new Date(Date.UTC(2026, 7, 5)),
+          expectedDate: new Date(Date.UTC(2026, 8, 15)),
+          currency: "PHP",
+          memo: "Agreed at the August review",
+          total: computeSalesOrderLine({ quantity: "1", rate }),
+          lines: {
+            create: [
+              {
+                lineNumber: 1,
+                description: "Q4 advisory retainer",
+                quantity: "1",
+                rate,
+                amount: computeSalesOrderLine({ quantity: "1", rate }),
+                incomeAccountId: php("4000").id,
+              },
+            ],
+          },
+        },
+      });
+      // Confirmed but not invoiced: agreed work that must not appear in the P&L.
+      await confirmSalesOrder({ companyId: phpCompany.id, salesOrderId: order.id });
+    }
+  }
+
+  // ---- A consultant bill that is not a work order (SPEC §8.2) -------------
+  const consultantBills = await prisma.expense.count({
+    where: { companyId: phpCompany.id, kind: "BILL", vendor: { kind: "CONSULTANT" } },
+  });
+  if (consultantBills === 0) {
+    const abigail = await prisma.vendor.findFirst({
+      where: { companyId: phpCompany.id, kind: "CONSULTANT", name: "Abigail Bautista" },
+    });
+    if (abigail) {
+      await recordExpense({
+        companyId: phpCompany.id,
+        kind: "BILL",
+        vendorId: abigail.id,
+        date: new Date(Date.UTC(2026, 7, 18)),
+        dueDate: new Date(Date.UTC(2026, 8, 2)),
+        currency: "PHP",
+        amount: "4500.00",
+        expenseAccountId: php("6300").id,
+        description: "Travel reimbursement — Cebu site visit",
+        role: "OWNER",
+      });
+    }
+  }
+
   // ---- Phase 6: a month of time entries -----------------------------------
   const timeEntryCount = await prisma.timeEntry.count({ where: { companyId: phpCompany.id } });
   if (timeEntryCount === 0) {
@@ -591,7 +653,9 @@ Seed complete.
   FX), one overdue and one still a draft. Three consultants (one never emailed)
   and two vendors, with work orders including a cash-advance deduction line, a
   direct expense and an unpaid bill. A month of time entries in ${phpCompany.timeClockTimeZone},
-  including a shift crossing midnight and one still running. Trial balance ties at
+  including a shift crossing midnight and one still running. One confirmed
+  sales order (posting nothing) and one consultant reimbursement bill.
+  Trial balance ties at
   ${tb.totalDebit.toFixed(2)} ${phpCompany.baseCurrency} on each side.
 `);
 }

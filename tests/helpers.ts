@@ -17,8 +17,9 @@ export async function resetDatabase() {
       "BillPaymentApplication", "BillPayment", "Expense",
       "WorkOrderLine", "WorkOrder", "Vendor",
       "PaymentApplication", "Payment", "InvoiceLine", "Invoice",
+      "SalesOrderLine", "SalesOrder",
       "TaxRate", "Item", "Customer",
-      "JournalLine", "JournalEntry", "Account", "AuditLog",
+      "TimeEntry", "JournalLine", "JournalEntry", "Account", "AuditLog",
       "PasswordResetToken", "Invitation", "NumberSequence",
       "Membership", "User", "Company", "Organization"
     RESTART IDENTITY CASCADE
@@ -40,6 +41,7 @@ export async function makeCompany(name: string, baseCurrency = "PHP") {
       { companyId: company.id, kind: "JOURNAL_ENTRY", prefix: "JE", nextValue: 1 },
       { companyId: company.id, kind: "INVOICE", prefix: "INV", nextValue: 1001 },
       { companyId: company.id, kind: "WORK_ORDER", prefix: "WO", nextValue: 1001 },
+      { companyId: company.id, kind: "SALES_ORDER", prefix: "SO", nextValue: 1001 },
     ],
   });
   return company;

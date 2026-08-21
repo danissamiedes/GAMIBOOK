@@ -11,9 +11,15 @@ export function LiveClock({ timeZone, label }: { timeZone: string; label: string
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
-    setNow(new Date());
+    // The first value is set on the next frame rather than synchronously in
+    // the effect: setting state during the effect body triggers a cascading
+    // render, and the server has no clock to render anyway.
+    const frame = requestAnimationFrame(() => setNow(new Date()));
     const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearInterval(timer);
+    };
   }, []);
 
   const time = now
@@ -61,9 +67,12 @@ export function ElapsedSince({
       const safe = Math.max(0, minutes);
       setElapsed(`${Math.floor(safe / 60)}h ${String(safe % 60).padStart(2, "0")}m`);
     };
-    tick();
+    const frame = requestAnimationFrame(tick);
     const timer = setInterval(tick, 30_000);
-    return () => clearInterval(timer);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearInterval(timer);
+    };
   }, [startedAtIso]);
 
   return (

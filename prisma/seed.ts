@@ -427,39 +427,6 @@ async function main() {
         },
       });
 
-    // A retainer that generates itself (SPEC §7.2). Left as CREATE_DRAFT, the
-    // default, so the seeded company demonstrates the safe mode rather than
-    // the one that emails a customer unread.
-    const retainerCustomer = await prisma.customer.findFirstOrThrow({
-      where: { companyId: phpCompany.id, name: "Cebu Retail Group" },
-    });
-    await prisma.recurringInvoiceTemplate.create({
-      data: {
-        companyId: phpCompany.id,
-        customerId: retainerCustomer.id,
-        name: "Monthly bookkeeping retainer",
-        frequency: "MONTHLY",
-        dayOfMonth: 1,
-        monthOfYear: 1,
-        startDate: new Date(Date.UTC(2026, 8, 1)),
-        nextRunDate: new Date(Date.UTC(2026, 8, 1)),
-        currency: "PHP",
-        paymentTermsDays: 30,
-        memo: "Retainer for the month.",
-        lines: {
-          create: [
-            {
-              lineNumber: 1,
-              description: "Monthly bookkeeping retainer",
-              quantity: "1",
-              rate: "18000.00",
-              incomeAccountId: php("4000").id,
-            },
-          ],
-        },
-      },
-    });
-
     // Mirrors the user's real spreadsheet, including the deduction line.
     const paidWorkOrder = await workOrder(abigail.id, new Date(Date.UTC(2026, 7, 15)), [
       { description: "Consultation for period 072626-081026", quantity: "0.5", rate: "100000.00", code: "5000" },
@@ -713,6 +680,90 @@ async function main() {
       "fixtures/work-orders-september-2026.xlsx",
       Buffer.from(await book.xlsx.writeBuffer()),
     );
+
+    // A bank statement to reconcile against (SPEC §13). Deliberately messy in
+    // the ways real ones are: a payment the app already recorded, a payment it
+    // has not, a fee with no document at all, and a duplicate of an earlier
+    // line so the dedupe warning has something to catch.
+    const statement = new ExcelJS.Workbook();
+    const bank = statement.addWorksheet("Statement");
+    bank.addRow(["Date", "Description", "Debit", "Credit", "Reference"]);
+    for (const row of [
+      ["2026-08-05", "TRANSFER FROM CEBU RETAIL GROUP", "", "85000.00", "TRF88121"],
+      // Dated to match the payment the seed already recorded, so the sample
+      // demonstrates outcome 1 — linking to a payment already in the books,
+      // which is the case SPEC §8.4 says implementers skip.
+      ["2026-08-18", "SALARY TRANSFER ABIGAIL BAUTISTA", "50000.00", "", "TRF88140"],
+      ["2026-08-18", "MERALCO AUTO DEBIT", "9420.00", "", "DD44120"],
+      ["2026-08-28", "MONTHLY SERVICE CHARGE", "350.00", "", ""],
+      ["2026-08-29", "INTEREST CREDIT", "", "42.75", ""],
+      ["2026-08-18", "MERALCO AUTO DEBIT", "9420.00", "", "DD44120"],
+    ]) {
+      bank.addRow(row);
+    }
+    await writeFile(
+      "fixtures/bank-statement-august-2026.csv",
+      Buffer.from(await statement.csv.writeBuffer()),
+    );
+  }
+
+  // These sit outside the "already seeded?" guard above and check for
+  // themselves, so a database seeded before they existed still picks them up.
+  // A guard that skips everything when any customer exists means new seed
+  // content never reaches a developer's own database.
+  const retainerCustomer = await prisma.customer.findFirst({
+    where: { companyId: phpCompany.id, name: "Cebu Retail Group" },
+  });
+  if (retainerCustomer) {
+    const existingTemplate = await prisma.recurringInvoiceTemplate.findFirst({
+      where: { companyId: phpCompany.id, name: "Monthly bookkeeping retainer" },
+    });
+    if (!existingTemplate) {
+      // Left as CREATE_DRAFT, the default, so the seeded company demonstrates
+      // the safe mode rather than the one that emails a customer unread.
+      await prisma.recurringInvoiceTemplate.create({
+        data: {
+          companyId: phpCompany.id,
+          customerId: retainerCustomer.id,
+          name: "Monthly bookkeeping retainer",
+          frequency: "MONTHLY",
+          dayOfMonth: 1,
+          monthOfYear: 1,
+          startDate: new Date(Date.UTC(2026, 8, 1)),
+          nextRunDate: new Date(Date.UTC(2026, 8, 1)),
+          currency: "PHP",
+          paymentTermsDays: 30,
+          memo: "Retainer for the month.",
+          lines: {
+            create: [
+              {
+                lineNumber: 1,
+                description: "Monthly bookkeeping retainer",
+                quantity: "1",
+                rate: "18000.00",
+                incomeAccountId: php("4000").id,
+              },
+            ],
+          },
+        },
+      });
+    }
+  }
+
+  const existingBank = await prisma.bankAccount.findFirst({
+    where: { companyId: phpCompany.id, name: "BPI current account" },
+  });
+  if (!existingBank) {
+    // No saved mapping, so the first import exercises the column mapping
+    // screen rather than skipping past it (SPEC §8.4).
+    await prisma.bankAccount.create({
+      data: {
+        companyId: phpCompany.id,
+        name: "BPI current account",
+        accountId: php("1000").id,
+        currency: "PHP",
+      },
+    });
   }
 
   const tb = await trialBalance({
@@ -751,6 +802,7 @@ Seed complete.
   including a shift crossing midnight and one still running. One confirmed
   sales order (posting nothing) and one consultant reimbursement bill.
 
+  fixtures/bank-statement-august-2026.csv is a sample bank statement.
   fixtures/work-orders-september-2026.xlsx is a sample import in your own
   layout — five good rows and three deliberately broken ones. Try it at
   Work orders -> Import from spreadsheet.

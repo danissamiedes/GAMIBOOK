@@ -14,10 +14,9 @@ export const metadata = { title: "Dashboard — Ledger" };
  * The landing page (SPEC §12). Tiles are section-gated in the data layer, so
  * this file renders whatever it is handed and never decides who may see what.
  *
- * The unmatched-bank-lines tile the spec lists is not here: it counts rows
- * from the CSV bank import (§8.5), which is deferred. A tile reading "0
- * unmatched" would be a lie about reconciled books rather than an absent
- * feature, so it waits for the import.
+ * Every tile the spec lists is here, including the unmatched bank lines, which
+ * waited for the CSV import rather than showing a "0" that would have read as
+ * reconciled books instead of an absent feature.
  */
 export default async function DashboardPage() {
   const scope = await financialScope();
@@ -129,6 +128,27 @@ export default async function DashboardPage() {
                 past due
               </p>
             ) : null}
+          </Card>
+        ) : null}
+
+        {view.bank ? (
+          <Card>
+            <Tile label="Waiting to be matched" href="/banking/match" />
+            <p className="mt-1 text-2xl font-semibold tabular-nums">
+              {view.bank.unmatched}
+            </p>
+            {view.bank.unmatched === 0 ? (
+              <p className="mt-3 text-sm text-slate-500">
+                Every imported bank line is accounted for.
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
+                {view.bank.oldest
+                  ? `Oldest is ${view.bank.oldest.toISOString().slice(0, 10)}.`
+                  : null}{" "}
+                Reconciling is what keeps the ledger and the bank agreeing.
+              </p>
+            )}
           </Card>
         ) : null}
 

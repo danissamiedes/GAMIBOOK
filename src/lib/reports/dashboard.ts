@@ -54,6 +54,11 @@ export type ClockedInRow = {
   minutes: number;
 };
 
+export type BankTile = {
+  unmatched: number;
+  oldest: Date | null;
+};
+
 export type Dashboard = {
   asOf: Date;
   baseCurrency: string;
@@ -62,6 +67,7 @@ export type Dashboard = {
   receivables: ReceivablesTile | null;
   payables: PayablesTile | null;
   clockedIn: ClockedInRow[] | null;
+  bank: BankTile | null;
   /** True when no section this user holds produces a tile. */
   empty: boolean;
 };
@@ -174,40 +180,51 @@ export async function dashboard(options: {
     ...(scope.hasSection("VENDORS") ? (["REGULAR"] as const) : []),
   ];
   const seesConsultants = scope.hasSection("CONSULTANTS");
+  const seesBanking = scope.hasSection("BANKING");
 
   const months = trailingMonths(asOf, monthCount);
 
-  const [cashRows, trendRows, ar, apParts, openEntries] = await Promise.all([
-    seesFinancials
-      ? balancesByAccount({
-          companyId: scope.companyId,
-          to: asOf,
-          types: ["ASSET"],
-        })
-      : null,
-    seesFinancials
-      ? incomeExpenseByMonth(
-          scope.companyId,
-          months[0].start,
-          months[months.length - 1].end,
-        )
-      : null,
-    seesSales ? arAging({ companyId: scope.companyId, asOf }) : null,
-    payableKinds.length > 0
-      ? Promise.all(
-          payableKinds.map((kind) =>
-            apAging({ companyId: scope.companyId, asOf, kind }),
-          ),
-        )
-      : null,
-    seesConsultants
-      ? prisma.timeEntry.findMany({
-          where: { companyId: scope.companyId, clockOutAt: null },
-          include: { consultant: { select: { id: true, name: true } } },
-          orderBy: { clockInAt: "asc" },
-        })
-      : null,
-  ]);
+  const [cashRows, trendRows, ar, apParts, openEntries, oldestUnmatched] =
+    await Promise.all([
+      seesFinancials
+        ? balancesByAccount({
+            companyId: scope.companyId,
+            to: asOf,
+            types: ["ASSET"],
+          })
+        : null,
+      seesFinancials
+        ? incomeExpenseByMonth(
+            scope.companyId,
+            months[0].start,
+            months[months.length - 1].end,
+          )
+        : null,
+      seesSales ? arAging({ companyId: scope.companyId, asOf }) : null,
+      payableKinds.length > 0
+        ? Promise.all(
+            payableKinds.map((kind) =>
+              apAging({ companyId: scope.companyId, asOf, kind }),
+            ),
+          )
+        : null,
+      seesConsultants
+        ? prisma.timeEntry.findMany({
+            where: { companyId: scope.companyId, clockOutAt: null },
+            include: { consultant: { select: { id: true, name: true } } },
+            orderBy: { clockInAt: "asc" },
+          })
+        : null,
+      // The tile deferred in Phase 9 for want of the bank import (SPEC §12).
+      seesBanking
+        ? prisma.bankTransaction.findMany({
+            where: { companyId: scope.companyId, status: "UNMATCHED" },
+            orderBy: { date: "asc" },
+            take: 1,
+            select: { date: true },
+          })
+        : null,
+    ]);
 
   const cash: CashTile | null = cashRows
     ? (() => {
@@ -303,6 +320,15 @@ export async function dashboard(options: {
       }))
     : null;
 
+  const bank: BankTile | null = oldestUnmatched
+    ? {
+        unmatched: await prisma.bankTransaction.count({
+          where: { companyId: scope.companyId, status: "UNMATCHED" },
+        }),
+        oldest: oldestUnmatched[0]?.date ?? null,
+      }
+    : null;
+
   return {
     asOf,
     baseCurrency: options.baseCurrency,
@@ -311,6 +337,7 @@ export async function dashboard(options: {
     receivables,
     payables,
     clockedIn,
-    empty: !cash && !trend && !receivables && !payables && !clockedIn,
+    bank,
+    empty: !cash && !trend && !receivables && !payables && !clockedIn && !bank,
   };
 }

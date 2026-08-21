@@ -255,10 +255,17 @@ export async function stageStatement(options: {
   };
 }
 
-/** Write the staged lines. Duplicates are never written — that is the point. */
+/**
+ * Write the staged lines. Duplicates are never written — that is the point.
+ *
+ * The batch is passed in rather than created here: the upload already made one
+ * to hold the file while the columns were being mapped, and creating a second
+ * would show every import twice in the statement history.
+ */
 export async function commitStatement(options: {
   companyId: string;
   bankAccountId: string;
+  batchId?: string | null;
   fileName: string;
   rows: StagedRow[];
   userId?: string | null;
@@ -268,19 +275,30 @@ export async function commitStatement(options: {
     .digest("hex");
 
   return prisma.$transaction(async (tx) => {
-    const batch = await tx.importBatch.create({
-      data: {
-        companyId: options.companyId,
-        kind: "BANK",
-        status: "COMMITTED",
-        fileName: options.fileName,
-        fileHash,
-        rowCount: options.rows.length,
-        createdCount: options.rows.length,
-        uploadedByUserId: options.userId ?? null,
-        committedAt: new Date(),
-      },
-    });
+    const batch = options.batchId
+      ? await tx.importBatch.update({
+          where: { id: options.batchId },
+          data: {
+            status: "COMMITTED",
+            fileHash,
+            rowCount: options.rows.length,
+            createdCount: options.rows.length,
+            committedAt: new Date(),
+          },
+        })
+      : await tx.importBatch.create({
+          data: {
+            companyId: options.companyId,
+            kind: "BANK",
+            status: "COMMITTED",
+            fileName: options.fileName,
+            fileHash,
+            rowCount: options.rows.length,
+            createdCount: options.rows.length,
+            uploadedByUserId: options.userId ?? null,
+            committedAt: new Date(),
+          },
+        });
 
     const data: Prisma.BankTransactionCreateManyInput[] = options.rows.map(
       (row) => ({

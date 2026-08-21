@@ -90,6 +90,8 @@ test.describe("phone", () => {
       "/accounts",
       "/items",
       "/journal",
+      "/banking",
+      "/banking/match",
       "/timesheets",
       "/email-log",
       "/opening-balances",

@@ -74,6 +74,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               <>
                 <NavLink href="/consultants">Consultants</NavLink>
                 <NavLink href="/work-orders">Work orders</NavLink>
+                <NavLink href="/timesheets">Timesheets</NavLink>
               </>
             ) : null}
             {scope.hasSection("VENDORS") ? (

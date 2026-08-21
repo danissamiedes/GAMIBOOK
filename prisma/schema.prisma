@@ -73,6 +73,15 @@ enum Section {
   SETTINGS
 }
 
+/// SPEC §9. How a time entry came to exist, so an edited row can never be
+/// mistaken for what the consultant actually recorded.
+enum TimeEntrySource {
+  SELF
+  ADMIN_ENTERED
+  ADMIN_EDITED
+  AUTO_CLOSED
+}
+
 /// SPEC §6. Consultants and regular suppliers are one list with a
 /// classification, so "is this person already set up?" has a single answer.
 enum VendorKind {
@@ -160,6 +169,10 @@ model Company {
   logoFileKey  String?
   footerText   String?
 
+  /// An entry left open longer than this is auto-closed and flagged for
+  /// review rather than running forever (SPEC §9).
+  maxShiftHours Int @default(16)
+
   setupCompletedAt DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -175,6 +188,7 @@ model Company {
   taxRates       TaxRate[]
   invoices       Invoice[]
   payments       Payment[]
+  timeEntries    TimeEntry[]
   vendors        Vendor[]
   workOrders     WorkOrder[]
   expenses       Expense[]
@@ -581,6 +595,7 @@ model Vendor {
   expenses     Expense[]
   billPayments BillPayment[]
   journalLines JournalLine[]
+  timeEntries  TimeEntry[]
 
   @@unique([companyId, externalRef])
   @@index([companyId, kind, name])
@@ -727,4 +742,39 @@ model BillPaymentApplication {
 
   @@index([workOrderId])
   @@index([expenseId])
+}
+
+/// SPEC §9. Attendance, not billing: time entries never feed a work order.
+model TimeEntry {
+  id           String @id @default(cuid())
+  companyId    String
+  /// A Vendor with kind = CONSULTANT (SPEC §6).
+  consultantId String
+
+  /// UTC, always. Rendered in the company's timeClockTimeZone everywhere.
+  clockInAt       DateTime
+  clockOutAt      DateTime?
+  /// Stored on clock-out so reports do not recompute it row by row.
+  durationMinutes Int?
+  note            String?
+
+  source             TimeEntrySource @default(SELF)
+  editedByUserId     String?
+  editReason         String?
+  /// What the row said before an admin changed it.
+  originalClockInAt  DateTime?
+  originalClockOutAt DateTime?
+
+  /// The consultant can flag a row; only an admin can change a recorded time.
+  correctionRequest    String?
+  correctionResolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  consultant Vendor  @relation(fields: [consultantId], references: [id])
+
+  @@index([companyId, consultantId, clockInAt])
+  @@index([companyId, clockOutAt])
 }

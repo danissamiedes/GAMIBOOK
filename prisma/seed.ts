@@ -19,6 +19,7 @@ import { recordPayment } from "../src/lib/invoices/payments";
 import { approveWorkOrder, computeWorkOrderLine } from "../src/lib/payables/work-orders";
 import { recordBillPayment } from "../src/lib/payables/bill-payments";
 import { recordExpense } from "../src/lib/payables/expenses";
+import { parseLocalDateTime } from "../src/lib/time/zone";
 
 const prisma = new PrismaClient();
 
@@ -489,6 +490,74 @@ async function main() {
     });
   }
 
+  // ---- Phase 6: a month of time entries -----------------------------------
+  const timeEntryCount = await prisma.timeEntry.count({ where: { companyId: phpCompany.id } });
+  if (timeEntryCount === 0) {
+    const clockConsultants = await prisma.vendor.findMany({
+      where: { companyId: phpCompany.id, kind: "CONSULTANT", userId: { not: null } },
+      orderBy: { name: "asc" },
+    });
+
+    const zone = phpCompany.timeClockTimeZone;
+    const shift = (dayKey: string, from: string, to: string) => ({
+      clockInAt: parseLocalDateTime(`${dayKey}T${from}`, zone)!,
+      clockOutAt: parseLocalDateTime(`${dayKey}T${to}`, zone)!,
+    });
+
+    // Four working weeks, weekdays only.
+    const days: string[] = [];
+    for (let day = 1; day <= 28; day++) {
+      const dayKey = `2026-08-${String(day).padStart(2, "0")}`;
+      const weekday = new Date(`${dayKey}T00:00:00Z`).getUTCDay();
+      if (weekday !== 0 && weekday !== 6) days.push(dayKey);
+    }
+
+    for (const consultant of clockConsultants) {
+      for (const dayKey of days) {
+        const { clockInAt, clockOutAt } = shift(dayKey, "09:00", "17:30");
+        await prisma.timeEntry.create({
+          data: {
+            companyId: phpCompany.id,
+            consultantId: consultant.id,
+            clockInAt,
+            clockOutAt,
+            durationMinutes: Math.round((clockOutAt.getTime() - clockInAt.getTime()) / 60000),
+            note: "Client work",
+            source: "SELF",
+          },
+        });
+      }
+    }
+
+    // The case that breaks naive implementations: a shift starting 23:30 PHT
+    // and ending 01:15 the next morning belongs entirely to the day it began.
+    if (clockConsultants[0]) {
+      const clockInAt = parseLocalDateTime("2026-08-19T23:30", zone)!;
+      const clockOutAt = parseLocalDateTime("2026-08-20T01:15", zone)!;
+      await prisma.timeEntry.create({
+        data: {
+          companyId: phpCompany.id,
+          consultantId: clockConsultants[0].id,
+          clockInAt,
+          clockOutAt,
+          durationMinutes: 105,
+          note: "Overnight deployment window",
+          source: "SELF",
+        },
+      });
+
+      // And one still running, so the open-shift alert has something to show.
+      await prisma.timeEntry.create({
+        data: {
+          companyId: phpCompany.id,
+          consultantId: clockConsultants[0].id,
+          clockInAt: parseLocalDateTime("2026-08-21T08:45", zone)!,
+          source: "SELF",
+        },
+      });
+    }
+  }
+
   const tb = await trialBalance({
     companyId: phpCompany.id,
     asOf: new Date(Date.UTC(2026, 11, 31)),
@@ -521,7 +590,8 @@ Seed complete.
   invoices — one paid, one USD invoice part-paid at a different rate (realized
   FX), one overdue and one still a draft. Three consultants (one never emailed)
   and two vendors, with work orders including a cash-advance deduction line, a
-  direct expense and an unpaid bill. Trial balance ties at
+  direct expense and an unpaid bill. A month of time entries in ${phpCompany.timeClockTimeZone},
+  including a shift crossing midnight and one still running. Trial balance ties at
   ${tb.totalDebit.toFixed(2)} ${phpCompany.baseCurrency} on each side.
 `);
 }

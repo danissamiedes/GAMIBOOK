@@ -210,6 +210,34 @@ never been paid out. The seed now posts the advance first, so the deduction line
 clears it to zero — a fixture that models something impossible is worse than no
 fixture.
 
+### Phase 6 — time tracking (2026-08-21)
+
+**Nothing hardcodes +8.** Asia/Manila has no daylight saving, which is the
+simplification the spec points out, but every conversion goes through the IANA
+zone via `date-fns-tz`. A test asserts 09:00 in New York maps to different UTC
+instants in January and July, so the layer stays correct if a company ever runs
+its clock somewhere that observes DST.
+
+**The work day is where the shift started.** Grouping, daily totals and filters
+all key on the local calendar date of `clockInAt`. A shift from 23:30 to 01:15
+contributes all 105 minutes to the day it began and nothing to the next — its
+minutes are never split across two days. Tested directly, and the seed contains
+one so the grid shows it.
+
+**An admin edit cannot be saved without a reason**, and the original clock-in
+and clock-out are kept the first time a row is changed. A consultant can flag a
+row but never change a recorded time.
+
+**Auto-close stops the clock at the limit, not at "now".** A shift left running
+is closed exactly `maxShiftHours` after it started and flagged for review — a
+guess presented as a guess, rather than a plausible-looking finish time nobody
+verified.
+
+**The scheduler does not start itself on import.** `SCHEDULER_ENABLED=true`
+turns it on, and the jobs are plain functions taking no scheduler state. Two app
+instances would otherwise run every job twice, and Phase 8's recurring invoices
+must not issue twice.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

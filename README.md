@@ -9,7 +9,7 @@ not estimated from a list of categorised transactions.
 
 ## Status
 
-**Phases 1–5 are complete.** What works today:
+**Phases 1–6 are complete.** What works today:
 
 - Multi-company data model — Organization → Company → Membership, roles per
   company (`OWNER`, `BOOKKEEPER`, `CONSULTANT`)
@@ -96,9 +96,28 @@ not estimated from a list of categorised transactions.
 - CSV export on every report, plus a print stylesheet until the PDF renderer
   lands in Phase 7
 
-Phases 6–9 (time clock, PDFs and email, the Excel work-order import, bulk send,
-bank import, dashboard) are specified in `SPEC.md` §14 and not yet built. Sales
-orders (§7.1a) are specified and not yet built.
+**Phase 6 — time tracking:**
+
+- Consultant login lands on the time clock and can reach nothing else. Big
+  ticking clock, one button, today's total and this week's, their own last 30
+  days read-only, and a correction request they can attach to a row
+- Every time is rendered in the company's `timeClockTimeZone` with the zone
+  named, for every viewer, whatever their browser says
+- **The work day is the local calendar date the shift started on.** A shift
+  from 23:30 to 01:15 counts entirely on the day it began — tested, and visible
+  in the seeded data
+- Admin timesheet grid (consultant × day) with totals, entry add/edit keeping
+  the original values plus who changed them and why, open-shift alerts, and
+  correction requests surfaced for review
+- Auto-close for a shift left running past the company's `maxShiftHours`,
+  flagged rather than silently guessed
+- Time report with CSV export, and an in-process job scheduler that Phase 8's
+  recurring invoices will reuse
+
+Phases 7–9 (PDFs and email, the Excel work-order import, bulk send, bank
+import, dashboard) are specified in `SPEC.md` §14 and not yet built. Sales
+orders (§7.1a), sales-by-customer (§12.8) and consultant bills are specified
+and not yet built.
 
 ## Local setup
 

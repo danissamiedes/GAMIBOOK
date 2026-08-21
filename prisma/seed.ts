@@ -14,6 +14,8 @@ import { createDefaultChartOfAccounts } from "../src/lib/ledger/chart";
 import { postJournalEntry } from "../src/lib/ledger/post";
 import { postOpeningBalances } from "../src/lib/ledger/opening-balances";
 import { trialBalance } from "../src/lib/ledger/reports";
+import { issueInvoice } from "../src/lib/invoices/service";
+import { recordPayment } from "../src/lib/invoices/payments";
 
 const prisma = new PrismaClient();
 
@@ -201,6 +203,106 @@ async function main() {
     }
   }
 
+  // ---- Phase 3: customers and invoices ------------------------------------
+  const customerCount = await prisma.customer.count({ where: { companyId: phpCompany.id } });
+  if (customerCount === 0) {
+    const local = await prisma.customer.create({
+      data: {
+        companyId: phpCompany.id,
+        name: "Cebu Retail Group",
+        emails: ["ap@cebu-retail.test"],
+        defaultCurrency: "PHP",
+        paymentTermsDays: 30,
+      },
+    });
+    const overseas = await prisma.customer.create({
+      data: {
+        companyId: phpCompany.id,
+        name: "Northwind Systems (US)",
+        emails: ["billing@northwind.test"],
+        defaultCurrency: "USD",
+        paymentTermsDays: 15,
+      },
+    });
+    await prisma.customer.create({
+      data: {
+        companyId: phpCompany.id,
+        name: "Davao Logistics",
+        emails: ["accounts@davao-log.test"],
+        defaultCurrency: "PHP",
+        paymentTermsDays: 45,
+      },
+    });
+
+    const draft = async (
+      customerId: string,
+      currency: string,
+      fxRate: string,
+      issue: Date,
+      rate: string,
+      quantity = "1",
+    ) =>
+      prisma.invoice.create({
+        data: {
+          companyId: phpCompany.id,
+          customerId,
+          issueDate: issue,
+          dueDate: new Date(issue.getTime() + 30 * 86_400_000),
+          currency,
+          fxRate,
+          lines: {
+            create: [
+              {
+                lineNumber: 1,
+                description: "Consulting services",
+                quantity,
+                rate,
+                amount: (Number(quantity) * Number(rate)).toFixed(2),
+                incomeAccountId: php("4000").id,
+              },
+            ],
+          },
+        },
+      });
+
+    // Paid in full, in base currency.
+    const paidInvoice = await draft(local.id, "PHP", "1", new Date(Date.UTC(2026, 4, 5)), "85000.00");
+    await issueInvoice({ companyId: phpCompany.id, invoiceId: paidInvoice.id, role: "OWNER" });
+    await recordPayment({
+      companyId: phpCompany.id,
+      customerId: local.id,
+      date: new Date(Date.UTC(2026, 4, 28)),
+      amount: "85000.00",
+      currency: "PHP",
+      depositAccountId: php("1000").id,
+      applications: [{ invoiceId: paidInvoice.id, amountApplied: "85000.00" }],
+      role: "OWNER",
+    });
+
+    // The live FX path: a USD invoice in PHP books, part-paid at a different
+    // rate, so realized FX and a pro-rata A/R relief both appear in the seed.
+    const usdInvoice = await draft(overseas.id, "USD", "58.25", new Date(Date.UTC(2026, 5, 1)), "4000.00");
+    await issueInvoice({ companyId: phpCompany.id, invoiceId: usdInvoice.id, role: "OWNER" });
+    await recordPayment({
+      companyId: phpCompany.id,
+      customerId: overseas.id,
+      date: new Date(Date.UTC(2026, 5, 20)),
+      amount: "1500.00",
+      currency: "USD",
+      fxRate: "59.10",
+      depositAccountId: php("1000").id,
+      applications: [{ invoiceId: usdInvoice.id, amountApplied: "1500.00" }],
+      role: "OWNER",
+    });
+
+    // Open and overdue, so the aging report has buckets to fill.
+    const overdue = await draft(local.id, "PHP", "1", new Date(Date.UTC(2026, 2, 10)), "42000.00");
+    await issueInvoice({ companyId: phpCompany.id, invoiceId: overdue.id, role: "OWNER" });
+
+    // And one still in draft — no number, nothing posted.
+    await draft(local.id, "PHP", "1", new Date(Date.UTC(2026, 6, 1)), "12000.00");
+  }
+
   const tb = await trialBalance({
     companyId: phpCompany.id,
     asOf: new Date(Date.UTC(2026, 11, 31)),
@@ -226,8 +328,10 @@ Seed complete.
     abigail@example.com          CONSULTANT (time clock only)
     johnrex@example.com          CONSULTANT (time clock only)
 
-  ${phpCompany.name} has a chart of accounts, opening balances and 8 manual
-  entries spanning the 2025 and 2026 fiscal years. Trial balance ties at
+  ${phpCompany.name} has a chart of accounts, opening balances, 8 manual
+  entries across the 2025 and 2026 fiscal years, three customers and four
+  invoices — one paid, one USD invoice part-paid at a different rate (realized
+  FX), one overdue and one still a draft. Trial balance ties at
   ${tb.totalDebit.toFixed(2)} ${phpCompany.baseCurrency} on each side.
 `);
 }

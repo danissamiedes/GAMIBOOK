@@ -62,6 +62,24 @@ enum JournalSourceType {
   MIGRATION
 }
 
+/// SPEC §7.1. Paid states are derived from balanceDue, never set by hand.
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+/// SPEC §7.1.
+enum PaymentMethod {
+  BANK_TRANSFER
+  CHECK
+  CASH
+  WISE
+  OTHER
+}
+
 /// Gap-free per-company document sequences (SPEC §7.1, §8.1, §13).
 enum SequenceKind {
   INVOICE
@@ -118,6 +136,11 @@ model Company {
   auditLogs      AuditLog[]
   accounts       Account[]
   journalEntries JournalEntry[]
+  customers      Customer[]
+  items          Item[]
+  taxRates       TaxRate[]
+  invoices       Invoice[]
+  payments       Payment[]
 
   @@index([organizationId])
 }
@@ -287,7 +310,7 @@ model JournalLine {
   description    String?
 
   /// The party dimension (SPEC §4.2). Required on A/R and A/P lines so aging
-  /// is built from the ledger. Relations arrive with those tables in Phases 3-4.
+  /// is built from the ledger. Consultant and vendor relations arrive in Phase 4.
   customerId   String?
   consultantId String?
   vendorId     String?
@@ -297,12 +320,183 @@ model JournalLine {
   fxRate        Decimal? @db.Decimal(18, 8)
   foreignAmount Decimal? @db.Decimal(18, 2)
 
-  entry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
-  account Account      @relation(fields: [accountId], references: [id])
+  entry    JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account  Account      @relation(fields: [accountId], references: [id])
+  customer Customer?    @relation(fields: [customerId], references: [id])
 
   @@unique([journalEntryId, lineNumber])
   @@index([accountId])
   @@index([customerId])
   @@index([consultantId])
   @@index([vendorId])
+}
+
+/// SPEC §6.
+model Customer {
+  id               String   @id @default(cuid())
+  companyId        String
+  name             String
+  /// Invoices go to these addresses.
+  emails           String[]
+  billingAddress   String?
+  /// May differ from the company's base currency (SPEC §5).
+  defaultCurrency  String   @db.Char(3)
+  /// Net terms in days; the due date is derived from it and stays editable.
+  paymentTermsDays Int      @default(30)
+  notes            String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoices     Invoice[]
+  payments     Payment[]
+  journalLines JournalLine[]
+
+  @@index([companyId, name])
+}
+
+/// SPEC §6 — light. Pre-fills document lines; not inventory.
+model Item {
+  id               String   @id @default(cuid())
+  companyId        String
+  name             String
+  description      String?
+  defaultRate      Decimal? @db.Decimal(18, 6)
+  incomeAccountId  String?
+  expenseAccountId String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoiceLines InvoiceLine[]
+
+  @@unique([companyId, name])
+}
+
+/// SPEC §16.2: built, and left unused until the user configures a rate.
+model TaxRate {
+  id                 String   @id @default(cuid())
+  companyId          String
+  name               String
+  /// Percent, e.g. 12.000 for 12% VAT.
+  percent            Decimal  @db.Decimal(9, 3)
+  liabilityAccountId String
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines   InvoiceLine[]
+
+  @@unique([companyId, name])
+}
+
+/// SPEC §7.1.
+model Invoice {
+  id            String        @id @default(cuid())
+  companyId     String
+  customerId    String
+  /// NULL until issued; allocated in the same transaction as DRAFT -> ISSUED.
+  invoiceNumber String?
+  issueDate     DateTime      @db.Date
+  dueDate       DateTime      @db.Date
+  /// The customer's currency. Entered, displayed and emailed in it (SPEC §5).
+  currency      String        @db.Char(3)
+  /// Base currency per unit of `currency`. 1 when they are the same.
+  fxRate        Decimal       @default(1) @db.Decimal(18, 8)
+  status        InvoiceStatus @default(DRAFT)
+  memo          String?
+  terms         String?
+
+  /// Document-currency figures.
+  subtotal   Decimal @default(0) @db.Decimal(18, 2)
+  taxTotal   Decimal @default(0) @db.Decimal(18, 2)
+  total      Decimal @default(0) @db.Decimal(18, 2)
+  amountPaid Decimal @default(0) @db.Decimal(18, 2)
+  balanceDue Decimal @default(0) @db.Decimal(18, 2)
+
+  /// The authoritative converted total (SPEC §4.3 rounding rule), and how much
+  /// of it has been relieved from A/R so far. The final payment on a document
+  /// takes the residual, so its base balance lands exactly on zero.
+  baseTotal    Decimal @default(0) @db.Decimal(18, 2)
+  baseRelieved Decimal @default(0) @db.Decimal(18, 2)
+
+  lastEmailedAt DateTime?
+  issuedAt      DateTime?
+  voidedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer     Customer             @relation(fields: [customerId], references: [id])
+  lines        InvoiceLine[]
+  applications PaymentApplication[]
+
+  @@unique([companyId, invoiceNumber])
+  @@index([companyId, status])
+  @@index([companyId, customerId])
+}
+
+model InvoiceLine {
+  id              String  @id @default(cuid())
+  invoiceId       String
+  lineNumber      Int
+  itemId          String?
+  description     String
+  quantity        Decimal @db.Decimal(18, 4)
+  rate            Decimal @db.Decimal(18, 6)
+  amount          Decimal @db.Decimal(18, 2)
+  incomeAccountId String
+  taxRateId       String?
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  item    Item?    @relation(fields: [itemId], references: [id])
+  taxRate TaxRate? @relation(fields: [taxRateId], references: [id])
+
+  @@unique([invoiceId, lineNumber])
+}
+
+/// SPEC §7.1. One payment can settle several invoices, so applications are a
+/// child table from the start — bolting that on later means rewriting posting.
+model Payment {
+  id               String        @id @default(cuid())
+  companyId        String
+  customerId       String
+  date             DateTime      @db.Date
+  amount           Decimal       @db.Decimal(18, 2)
+  currency         String        @db.Char(3)
+  fxRate           Decimal       @default(1) @db.Decimal(18, 8)
+  depositAccountId String
+  method           PaymentMethod @default(BANK_TRANSFER)
+  reference        String?
+  notes            String?
+
+  /// Reversal deletes nothing (SPEC §7.1).
+  reversedAt      DateTime?
+  reversalEntryId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer     Customer             @relation(fields: [customerId], references: [id])
+  applications PaymentApplication[]
+
+  @@index([companyId, date])
+  @@index([companyId, customerId])
+}
+
+model PaymentApplication {
+  id            String  @id @default(cuid())
+  paymentId     String
+  invoiceId     String
+  /// In the payment's currency.
+  amountApplied Decimal @db.Decimal(18, 2)
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@unique([paymentId, invoiceId])
+  @@index([invoiceId])
 }

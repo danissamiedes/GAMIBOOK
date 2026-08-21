@@ -9,7 +9,7 @@ not estimated from a list of categorised transactions.
 
 ## Status
 
-**Phases 1–2 are complete.** What works today:
+**Phases 1–3 are complete.** What works today:
 
 - Multi-company data model — Organization → Company → Membership, roles per
   company (`OWNER`, `BOOKKEEPER`, `CONSULTANT`)
@@ -38,9 +38,30 @@ not estimated from a list of categorised transactions.
 - **Trial Balance** with date range, CSV export and a loud banner if it ever
   fails to balance
 
-Phases 3–9 (invoicing, work orders and the Excel import, reports, time clock,
-PDFs and email, bulk send, bank import, dashboard) are specified in `SPEC.md`
-§14 and not yet built.
+**Phase 3 — money in:**
+
+- Customers with their own currency and payment terms; light items/services
+- Invoices with the full status machine. Issuing — not emailing — allocates the
+  number and posts to the ledger, in one transaction
+- Payments with applications, so one payment can settle several invoices;
+  over-payment is kept as a credit on account, never discarded
+- Payment reversal: posts a reversing entry, deletes nothing, recomputes every
+  invoice it touched
+- Void posts a full reversal and keeps the number reserved; blocked while
+  payments are applied
+- **FX on the receivables side** (the live path for PHP books with USD clients):
+  A/R is relieved at the invoice's historic rate, the cash leg uses the
+  payment's rate, and the difference books to Realized FX Gain/Loss. Partial
+  payments relieve pro rata, with the final payment taking the residual so the
+  control account lands exactly on zero
+- Line-rounding residual posts to FX Rounding Difference rather than distorting
+  revenue
+- **A/R Aging** per customer with CSV export, which checks itself against the
+  A/R control account and says so if the two disagree
+
+Phases 4–9 (work orders and the Excel import, reports, time clock, PDFs and
+email, bulk send, bank import, dashboard) are specified in `SPEC.md` §14 and
+not yet built.
 
 ## Local setup
 

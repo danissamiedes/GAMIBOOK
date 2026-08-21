@@ -14,6 +14,8 @@ export async function resetDatabase() {
   // exactly the kind of hole these guards exist to close.
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
+      "PaymentApplication", "Payment", "InvoiceLine", "Invoice",
+      "TaxRate", "Item", "Customer",
       "JournalLine", "JournalEntry", "Account", "AuditLog",
       "PasswordResetToken", "Invitation", "NumberSequence",
       "Membership", "User", "Company", "Organization"
@@ -76,4 +78,55 @@ export async function makeUser(role: Role, companyId: string, email?: string) {
   });
   await prisma.membership.create({ data: { userId: user.id, companyId, role } });
   return user;
+}
+
+/** A customer, ready to invoice. */
+export async function makeCustomer(
+  companyId: string,
+  options: { name?: string; currency?: string; termsDays?: number } = {},
+) {
+  return prisma.customer.create({
+    data: {
+      companyId,
+      name: options.name ?? `Customer ${unique()}`,
+      emails: ["billing@example.test"],
+      defaultCurrency: options.currency ?? "PHP",
+      paymentTermsDays: options.termsDays ?? 30,
+    },
+  });
+}
+
+/** A draft invoice with the given lines, ready to issue. */
+export async function makeDraftInvoice(options: {
+  companyId: string;
+  customerId: string;
+  currency: string;
+  fxRate?: string;
+  issueDate?: Date;
+  lines: { description: string; quantity: string; rate: string; incomeAccountId: string; taxRateId?: string }[];
+}) {
+  const issueDate = options.issueDate ?? new Date(Date.UTC(2026, 2, 15));
+  const invoice = await prisma.invoice.create({
+    data: {
+      companyId: options.companyId,
+      customerId: options.customerId,
+      issueDate,
+      dueDate: new Date(issueDate.getTime() + 30 * 86_400_000),
+      currency: options.currency,
+      fxRate: options.fxRate ?? "1",
+      lines: {
+        create: options.lines.map((line, index) => ({
+          lineNumber: index + 1,
+          description: line.description,
+          quantity: line.quantity,
+          rate: line.rate,
+          amount: (Number(line.quantity) * Number(line.rate)).toFixed(2),
+          incomeAccountId: line.incomeAccountId,
+          taxRateId: line.taxRateId ?? null,
+        })),
+      },
+    },
+    include: { lines: true },
+  });
+  return invoice;
 }

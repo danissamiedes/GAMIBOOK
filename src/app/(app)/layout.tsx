@@ -60,6 +60,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           />
           <nav className="flex flex-1 flex-wrap items-center gap-1">
             <NavLink href="/dashboard">Dashboard</NavLink>
+            <NavLink href="/customers">Customers</NavLink>
+            <NavLink href="/invoices">Invoices</NavLink>
+            <NavLink href="/payments">Payments</NavLink>
+            <NavLink href="/reports/ar-aging">A/R Aging</NavLink>
             <NavLink href="/accounts">Accounts</NavLink>
             <NavLink href="/journal">Journal</NavLink>
             <NavLink href="/reports/trial-balance">Trial Balance</NavLink>

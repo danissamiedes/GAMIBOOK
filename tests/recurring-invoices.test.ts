@@ -217,7 +217,7 @@ describe("recurring invoices (SPEC §7.2)", () => {
     expect(receivable.toFixed(2)).toBe("25000.00");
   });
 
-  it("running the job twice invoices once — the requirement stated by name", async () => {
+  it("§15.13 — the job runs twice and invoices once, the requirement stated by name", async () => {
     await makeTemplate();
     const now = new Date("2026-06-01T00:00:00Z"); // 08:00 in Manila
     const first = await runRecurringInvoices(now);

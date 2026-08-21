@@ -113,7 +113,7 @@ describe("bank import (SPEC §8.4)", () => {
     });
   });
 
-  it("reads a signed statement and dedupes on re-import", async () => {
+  it("§15.14 — a statement imports, maps columns, and dedupes on re-import", async () => {
     const file = await csv([
       ["Date", "Description", "Amount", "Reference"],
       ["2026-06-02", "Cebu Retail transfer", "40000.00", "TRF881"],

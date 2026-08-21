@@ -397,6 +397,66 @@ lives across `.env` and the database (a connected mailbox is per company), so
 given an address sends through `sendEmail` — the same path the app uses, not a
 parallel one that could pass while the app fails.
 
+## Phase 9 — dashboard and polish (2026-08-21)
+
+**Dashboard tiles are section-gated in the data layer, and absent rather than
+zero.** A tile a user may not see returns `null`, and the page renders what it
+is handed. A zero is a claim about the business: telling a vendors-only
+bookkeeper that receivables are nil would be a false one, and telling them
+nothing is the honest answer. The payables tile names which side it covers when
+only one kind is visible, so a partial figure is not read as the whole.
+
+**Every dashboard figure comes from the library its own report uses.** Reusing
+`arAging`, `apAging` and `balancesByAccount` means a tile that disagrees with
+its report is one bug in one place, not two implementations drifting apart. The
+monthly trend is the exception — one grouped SQL scan instead of six
+`balancesByAccount` calls, because it runs on every page load — and a test
+cross-checks it against the P&L for the same months.
+
+**No unmatched-bank-lines tile.** The spec lists one, but it counts rows from
+the CSV bank import (§8.5), which is deferred. "0 unmatched" would read as
+reconciled books rather than as a missing feature, so the tile waits for the
+import.
+
+**The full data export is owner-only, stricter than the Settings section around
+it.** The archive crosses every section boundary in one file. Section access is
+a wall, not a speed bump, so a vendors-only bookkeeper must not be able to pull
+a customer record out of a zip. The refusal names that reason rather than
+telling the reader to request a grant that would not help — `no-access` now
+takes an explicit reason for cases where naming a section misdirects.
+
+**`journal-lines.csv` is declared authoritative inside the export.** Every other
+file in the archive is a document view over the ledger, and the README says so,
+so a reader who trusts nothing else can add up the journal.
+
+**Touch targets grow only under `pointer: coarse`.** 44px is right for a thumb
+and wrong for a bookkeeper doing data entry all day. One media query on the
+shared primitives rather than a phone-specific variant of each control.
+
+**Playwright earns its place by testing what Vitest cannot.** The spec asks for
+it (§13) and it had not been added. It covers exactly the questions a browser
+answers: does the keystroke land where the typist expects, does the page fit a
+phone. Everything provable without a browser stays in Vitest.
+
+### Bugs this phase surfaced
+
+Worth recording because of how they were found, not what they were:
+
+- **The Tab-adds-a-row shortcut never worked.** Both editors appended the row
+  after the browser had moved focus, so the caret landed on the delete button.
+  It had been in the code, and in the spec, since Phase 3 — and no test could
+  have caught it without a real browser.
+- **Five pages threw on every render.** `const fail = (msg) => redirect(...)`
+  next to a server action is captured by that action, and a captured function
+  cannot be serialised. Each page still answered 200 and the error only reached
+  the server log, which is exactly why it survived five screens. Found because
+  the Playwright output surfaced the log.
+- **"Ábigail & Co" exported as `bigail-co`.** The slug stripped the accented
+  letter instead of folding it, because `[^a-z0-9]` does not match `á`. Caught
+  by giving the test fixture a name with an accent in it.
+- **Ten screens scrolled sideways on a phone**, all from bare tables with no
+  scroll container, plus a Card that would not shrink below its widest child.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

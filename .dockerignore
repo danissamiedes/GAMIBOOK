@@ -1,0 +1,16 @@
+# COPY . . in the build stage would otherwise ship the host's node_modules over
+# the ones npm ci just installed for the image's platform, and drag the local
+# database volume, build cache and secrets in with it.
+node_modules
+.next
+.git
+.env
+.env.*
+!.env.example
+storage
+coverage
+test-results
+playwright-report
+blob-report
+Dockerfile
+docker-compose.yml

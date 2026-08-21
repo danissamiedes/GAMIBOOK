@@ -9,7 +9,7 @@ not estimated from a list of categorised transactions.
 
 ## Status
 
-**Phases 1–7 are complete, plus the Excel work-order import.** What works today:
+**Phases 1–9 are complete.** What works today:
 
 - Multi-company data model — Organization → Company → Membership, roles per
   company (`OWNER`, `BOOKKEEPER`, `CONSULTANT`)
@@ -187,8 +187,30 @@ rows and three deliberately broken ones — to try it against.
 - Attachments over 20 MB for one consultant fail that message with a clear
   reason rather than being rejected by Gmail
 
-Remaining: recurring invoices and the CSV bank import (§8.5), and Phase 9
-(dashboard, data export, polish).
+**Phase 9 — dashboard and polish:**
+
+- **Dashboard** — cash on hand, six months of income against expenses, what is
+  owed to you and what you owe with their overdue portions, and who is on the
+  clock right now. Every tile is section-gated in the data layer: a tile you
+  may not see is absent, never a zero
+- **Full data export** — a zip of twenty CSVs covering everything the company
+  holds, with a README naming which file is authoritative. Owner only, since
+  the archive crosses every section boundary at once
+- **Mobile pass** — no screen scrolls the page sideways, and every control is
+  44px on a touch device while staying dense for a mouse
+- **Line editor keyboard** — Tab from the last field adds a row *and lands in
+  it*, Enter moves down instead of submitting the document, Ctrl/⌘ + Backspace
+  removes a row
+- **Empty states** that distinguish "nothing yet" from "nothing matches this
+  filter", and say what to do about either
+- Playwright end-to-end tests for the flows only a browser can check
+
+The dashboard has no unmatched-bank-lines tile: it counts rows from the CSV
+bank import, which is deferred, and "0 unmatched" would read as reconciled
+books rather than as a missing feature.
+
+Remaining from the spec: recurring invoices (§7.2) and the CSV bank import
+(§8.5).
 
 ### Connecting Gmail
 
@@ -253,6 +275,8 @@ npm install && npx prisma migrate deploy && npm run seed && npm test && npm run 
 | `npm run db:migrate` | Create and apply a migration in development |
 | `npm run db:deploy` | Apply existing migrations (used on boot in Docker) |
 | `npm run db:reset` | Drop, re-migrate and re-seed |
+| `npm run test:e2e` | Playwright suite — starts its own dev server |
+| `npm run email:check` | What Gmail sending is missing; with an address, sends a test |
 
 Tests run against `TEST_DATABASE_URL`, never the development database, and
 migrate it automatically before the first test file.
@@ -276,8 +300,10 @@ Two volumes hold state:
   Generated PDFs are regenerable; receipts and import files are not.
 
 A Vercel deployment is possible but needs S3-compatible storage
-(`STORAGE_DRIVER=s3`) and, from Phase 7, an external PDF service — Vercel's
-filesystem is ephemeral and headless Chrome does not fit its default runtime.
+(`STORAGE_DRIVER=s3`), because Vercel's filesystem is ephemeral and receipts
+and uploaded import files are not regenerable. PDFs are no longer a problem
+there: the renderer is React-PDF, which is plain JavaScript, rather than the
+headless Chrome an earlier draft of this file warned about.
 
 ## Backup and restore
 
@@ -301,6 +327,11 @@ docker run --rm -v ledger_storage-data:/data -v "$PWD":/backup alpine \
 
 Verify a restore before you need one: restore into a scratch database and check
 that the Trial Balance matches.
+
+`pg_dump` and the **full data export** in Settings → Company answer different
+questions and you want both. The dump restores this app exactly and is
+unreadable without it; the export is twenty CSVs any spreadsheet or accountant
+can open, and is what you would hand someone if this app disappeared.
 
 ## Configuration
 

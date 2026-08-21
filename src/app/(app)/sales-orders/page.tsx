@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { formatAccountingDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
-import { Button, Card, EmptyState, PageHeader } from "@/components/ui";
+import { Button, Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Sales orders — Ledger" };
 
@@ -59,7 +59,7 @@ export default async function SalesOrdersPage() {
           </Card>
 
           <Card>
-            <table className="w-full text-sm">
+            <DataTable>
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                   <th className="py-2">Number</th>
@@ -104,7 +104,7 @@ export default async function SalesOrdersPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           </Card>
         </>
       )}

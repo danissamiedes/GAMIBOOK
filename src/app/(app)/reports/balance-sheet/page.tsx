@@ -6,7 +6,7 @@ import { asOfPresets } from "@/lib/reports/periods";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import type { Money } from "@/lib/money";
-import { Alert, Card, PageHeader } from "@/components/ui";
+import { Alert, Card, DataTable, PageHeader } from "@/components/ui";
 import { DateField, ReportControls } from "@/components/report-controls";
 
 export const metadata = { title: "Balance Sheet — Ledger" };
@@ -100,7 +100,7 @@ export default async function BalanceSheetPage({
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <h2 className="mb-2 text-sm font-semibold">Assets</h2>
-          <table className="w-full text-sm">
+          <DataTable>
             <tbody>
               <Group label="Current assets" rows={report.assets.current.rows} total={report.assets.current.total} currency={company.baseCurrency} hrefFor={drill} />
               <Group label="Fixed assets" rows={report.assets.fixed.rows} total={report.assets.fixed.total} currency={company.baseCurrency} hrefFor={drill} />
@@ -109,12 +109,12 @@ export default async function BalanceSheetPage({
                 <td className="pt-2 text-right tabular-nums">{amount(report.assets.total)}</td>
               </tr>
             </tbody>
-          </table>
+          </DataTable>
         </Card>
 
         <Card>
           <h2 className="mb-2 text-sm font-semibold">Liabilities and equity</h2>
-          <table className="w-full text-sm">
+          <DataTable>
             <tbody>
               <Group
                 label="Current liabilities"
@@ -189,7 +189,7 @@ export default async function BalanceSheetPage({
                 <td className="pt-2 text-right tabular-nums">{amount(report.liabilitiesAndEquity)}</td>
               </tr>
             </tbody>
-          </table>
+          </DataTable>
         </Card>
       </div>
 

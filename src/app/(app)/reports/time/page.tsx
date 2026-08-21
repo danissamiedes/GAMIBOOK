@@ -7,7 +7,7 @@ import {
   weekBounds,
   zoneAbbreviation,
 } from "@/lib/time/zone";
-import { Button, Card, EmptyState, Field, Input, PageHeader } from "@/components/ui";
+import { Button, Card, DataTable, EmptyState, Field, Input, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Time report — Ledger" };
 
@@ -66,7 +66,7 @@ export default async function TimeReportPage({
         <EmptyState title="No time recorded in this period" />
       ) : (
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Consultant</th>
@@ -90,7 +90,7 @@ export default async function TimeReportPage({
                 <td className="py-2 text-right tabular-nums">{formatDuration(sheet.totalMinutes)}</td>
               </tr>
             </tfoot>
-          </table>
+          </DataTable>
         </Card>
       )}
     </>

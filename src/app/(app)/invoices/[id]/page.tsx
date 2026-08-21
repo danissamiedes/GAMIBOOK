@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { failTo } from "@/lib/fail";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -11,7 +12,7 @@ import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
 import { prepareInvoiceEmail, sendEmail, stampEmailed } from "@/lib/email/send";
 import { dryRun } from "@/lib/email/gmail";
-import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
+import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export default async function InvoicePage({
   params,
@@ -51,8 +52,6 @@ export default async function InvoicePage({
     }),
   ]);
 
-  const fail = (message: string) => redirect(`/invoices/${id}?error=${encodeURIComponent(message)}`);
-
   async function issue() {
     "use server";
     const inner = await sectionScope("SALES");
@@ -72,7 +71,7 @@ export default async function InvoicePage({
         summary: `Issued as ${result.invoice.invoiceNumber}`,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/invoices/${id}`, thrown.message);
       else throw thrown;
     }
     redirect(`/invoices/${id}`);
@@ -84,7 +83,7 @@ export default async function InvoicePage({
     try {
       await deleteDraftInvoice(inner.companyId, id);
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/invoices/${id}`, thrown.message);
       else throw thrown;
     }
     redirect("/invoices");
@@ -110,7 +109,7 @@ export default async function InvoicePage({
         entityId: id,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/invoices/${id}`, thrown.message);
       else throw thrown;
     }
     redirect(`/invoices/${id}`);
@@ -123,7 +122,7 @@ export default async function InvoicePage({
     const date = parseAccountingDate(String(formData.get("date") || "")) ?? today();
     const depositAccountId = String(formData.get("depositAccountId") || "");
     const fxRate = parseMoney(String(formData.get("fxRate") || "1")) ?? 1;
-    if (!amount) fail("Enter the amount received");
+    if (!amount) failTo(`/invoices/${id}`, "Enter the amount received");
 
     try {
       const result = await recordPayment({
@@ -149,7 +148,7 @@ export default async function InvoicePage({
         summary: `${amount!.toFixed(2)} against invoice ${id}`,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/invoices/${id}`, thrown.message);
       else throw thrown;
     }
     redirect(`/invoices/${id}`);
@@ -174,7 +173,7 @@ export default async function InvoicePage({
         entityId: String(formData.get("paymentId")),
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/invoices/${id}`, thrown.message);
       else throw thrown;
     }
     redirect(`/invoices/${id}`);
@@ -185,7 +184,7 @@ export default async function InvoicePage({
     const inner = await sectionScope("SALES");
     const prepared = await prepareInvoiceEmail({ companyId: inner.companyId, invoiceId: id });
     if (prepared.to.length === 0) {
-      fail("This customer has no email address on file");
+      failTo(`/invoices/${id}`, "This customer has no email address on file");
     }
     const result = await sendEmail({
       companyId: inner.companyId,
@@ -205,7 +204,7 @@ export default async function InvoicePage({
         summary: prepared.to.join(", "),
       });
     } else {
-      fail(result.error ?? "The email failed. See the email log.");
+      failTo(`/invoices/${id}`, result.error ?? "The email failed. See the email log.");
     }
     redirect(`/invoices/${id}`);
   }
@@ -235,7 +234,7 @@ export default async function InvoicePage({
 
       <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Description</th>
@@ -300,7 +299,7 @@ export default async function InvoicePage({
                 </td>
               </tr>
             </tfoot>
-          </table>
+          </DataTable>
 
           {foreign ? (
             <p className="mt-4 text-xs text-slate-500">
@@ -314,7 +313,7 @@ export default async function InvoicePage({
           {invoice.applications.length > 0 ? (
             <>
               <h2 className="mt-6 mb-2 text-sm font-semibold">Payments</h2>
-              <table className="w-full text-sm">
+              <DataTable>
                 <tbody>
                   {invoice.applications.map((application) => (
                     <tr
@@ -344,7 +343,7 @@ export default async function InvoicePage({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </DataTable>
             </>
           ) : null}
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { failTo } from "@/lib/fail";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -12,7 +13,7 @@ import {
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
-import { Alert, Button, Card, Field, Input, PageHeader } from "@/components/ui";
+import { Alert, Button, Card, DataTable, Field, Input, PageHeader } from "@/components/ui";
 
 export default async function SalesOrderPage({
   params,
@@ -35,9 +36,6 @@ export default async function SalesOrderPage({
   });
   if (!order) notFound();
 
-  const fail = (message: string) =>
-    redirect(`/sales-orders/${id}?error=${encodeURIComponent(message)}`);
-
   async function confirm() {
     "use server";
     const inner = await sectionScope("SALES");
@@ -52,7 +50,7 @@ export default async function SalesOrderPage({
         summary: `Confirmed as ${confirmed.orderNumber}`,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/sales-orders/${id}`, thrown.message);
       else throw thrown;
     }
     redirect(`/sales-orders/${id}`);
@@ -77,7 +75,7 @@ export default async function SalesOrderPage({
         summary: `Converted to draft invoice ${created.id}`,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/sales-orders/${id}`, thrown.message);
       else throw thrown;
     }
     redirect(`/invoices/${created!.id}`);
@@ -89,7 +87,7 @@ export default async function SalesOrderPage({
     try {
       await cancelSalesOrder({ companyId: inner.companyId, salesOrderId: id });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/sales-orders/${id}`, thrown.message);
       else throw thrown;
     }
     redirect(`/sales-orders/${id}`);
@@ -101,7 +99,7 @@ export default async function SalesOrderPage({
     try {
       await deleteDraftSalesOrder(inner.companyId, id);
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/sales-orders/${id}`, thrown.message);
       else throw thrown;
     }
     redirect("/sales-orders");
@@ -121,7 +119,7 @@ export default async function SalesOrderPage({
 
       <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Description</th>
@@ -152,7 +150,7 @@ export default async function SalesOrderPage({
                 </td>
               </tr>
             </tfoot>
-          </table>
+          </DataTable>
 
           {order.invoice ? (
             <p className="mt-4 text-sm">

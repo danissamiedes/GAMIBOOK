@@ -8,7 +8,7 @@ import { PostingError } from "@/lib/errors";
 import { formatAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money, sum } from "@/lib/money";
-import { Alert, Button, Card, Field, Input, PageHeader } from "@/components/ui";
+import { Alert, Button, Card, DataTable, Field, Input, PageHeader } from "@/components/ui";
 
 export default async function JournalEntryPage({
   params,
@@ -93,7 +93,7 @@ export default async function JournalEntryPage({
       ) : null}
 
       <Card className="mt-4">
-        <table className="w-full text-sm">
+        <DataTable>
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
               <th className="py-2">Account</th>
@@ -134,7 +134,7 @@ export default async function JournalEntryPage({
               </td>
             </tr>
           </tfoot>
-        </table>
+        </DataTable>
       </Card>
 
       {!entry.reversedBy ? (

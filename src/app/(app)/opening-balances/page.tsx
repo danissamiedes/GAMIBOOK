@@ -8,7 +8,7 @@ import { isBalanceSheet, SYSTEM_ACCOUNTS, TYPE_ORDER, normalBalance } from "@/li
 import { parseMoney } from "@/lib/money";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { PostingError } from "@/lib/errors";
-import { Alert, Button, Card, Field, Input, PageHeader } from "@/components/ui";
+import { Alert, Button, Card, DataTable, Field, Input, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Opening balances — Ledger" };
 
@@ -124,7 +124,7 @@ export default async function OpeningBalancesPage({
                     (positive = {normalBalance(type).toLowerCase()})
                   </span>
                 </h2>
-                <table className="w-full text-sm">
+                <DataTable>
                   <tbody>
                     {rows.map((account) => (
                       <tr key={account.id}>
@@ -143,7 +143,7 @@ export default async function OpeningBalancesPage({
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </DataTable>
               </section>
             );
           })}

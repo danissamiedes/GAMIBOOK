@@ -4,7 +4,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { formatAccountingDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money, sum } from "@/lib/money";
-import { Card, EmptyState, PageHeader } from "@/components/ui";
+import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Customer payments — Ledger" };
 
@@ -30,7 +30,7 @@ export default async function PaymentsPage() {
         </EmptyState>
       ) : (
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Date</th>
@@ -85,7 +85,7 @@ export default async function PaymentsPage() {
                 );
               })}
             </tbody>
-          </table>
+          </DataTable>
         </Card>
       )}
     </>

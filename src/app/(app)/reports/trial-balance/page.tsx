@@ -3,7 +3,16 @@ import { sectionScope } from "@/lib/session-scope";
 import { trialBalance } from "@/lib/ledger/reports";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
-import { Alert, Button, Card, EmptyState, Field, Input, PageHeader } from "@/components/ui";
+import {
+  Alert,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+} from "@/components/ui";
 
 export const metadata = { title: "Trial Balance — Ledger" };
 
@@ -83,7 +92,7 @@ export default async function TrialBalancePage({
         <EmptyState title="Nothing posted in this period" />
       ) : (
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Code</th>
@@ -130,7 +139,7 @@ export default async function TrialBalancePage({
                 </td>
               </tr>
             </tfoot>
-          </table>
+          </DataTable>
         </Card>
       )}
     </>

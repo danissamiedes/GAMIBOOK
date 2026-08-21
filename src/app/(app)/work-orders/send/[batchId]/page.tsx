@@ -5,7 +5,7 @@ import { batchWithItems, processBatch, retryFailed } from "@/lib/email/bulk-send
 import { dryRun } from "@/lib/email/gmail";
 import { PostingError } from "@/lib/errors";
 import { formatMoney } from "@/lib/currency";
-import { Alert, Button, Card, PageHeader } from "@/components/ui";
+import { Alert, Button, Card, DataTable, PageHeader } from "@/components/ui";
 
 /**
  * The result of a bulk send (SPEC §10.1): every message with its outcome, the
@@ -101,7 +101,7 @@ export default async function BulkSendResultPage({
       </div>
 
       <Card className="mt-6">
-        <table className="w-full text-sm">
+        <DataTable>
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
               <th className="py-2">Consultant</th>
@@ -167,7 +167,7 @@ export default async function BulkSendResultPage({
               </tr>
             ))}
           </tbody>
-        </table>
+        </DataTable>
       </Card>
     </>
   );

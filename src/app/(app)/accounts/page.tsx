@@ -5,7 +5,17 @@ import { writeAudit } from "@/lib/audit";
 import { createDefaultChartOfAccounts, deactivateAccount } from "@/lib/ledger/chart";
 import { SUBTYPES_BY_TYPE, TYPE_ORDER, normalBalance } from "@/lib/ledger/accounts";
 import type { AccountSubtype, AccountType } from "@prisma/client";
-import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
+import {
+  Alert,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+} from "@/components/ui";
 
 export const metadata = { title: "Chart of accounts — Ledger" };
 
@@ -153,7 +163,7 @@ export default async function AccountsPage({
                     ({normalBalance(type).toLowerCase()}-normal)
                   </span>
                 </h2>
-                <table className="w-full text-sm">
+                <DataTable>
                   <tbody>
                     {rows.map((account) => (
                       <tr
@@ -192,7 +202,7 @@ export default async function AccountsPage({
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </DataTable>
               </section>
             );
           })}

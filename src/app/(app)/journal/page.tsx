@@ -4,7 +4,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { formatAccountingDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money, sum } from "@/lib/money";
-import { Button, Card, EmptyState, PageHeader } from "@/components/ui";
+import { Button, Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Journal — Ledger" };
 
@@ -35,7 +35,7 @@ export default async function JournalPage() {
         </EmptyState>
       ) : (
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">No.</th>
@@ -72,7 +72,7 @@ export default async function JournalPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </Card>
       )}
     </>

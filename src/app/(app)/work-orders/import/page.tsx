@@ -7,7 +7,7 @@ import { WORK_ORDER_IMPORT_COLUMNS } from "@/lib/imports/columns";
 import { MAX_IMPORT_BYTES, ImportParseError } from "@/lib/imports/parse";
 import { PostingError } from "@/lib/errors";
 import { formatAccountingDate } from "@/lib/dates";
-import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
+import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export const metadata = { title: "Import work orders — Ledger" };
 
@@ -100,7 +100,7 @@ export default async function ImportWorkOrdersPage({
 
         <Card>
           <h2 className="mb-3 text-sm font-semibold">The columns it reads</h2>
-          <table className="w-full text-sm">
+          <DataTable>
             <tbody>
               {WORK_ORDER_IMPORT_COLUMNS.map((column) => (
                 <tr key={column.key} className="border-b border-slate-100 dark:border-slate-800/60">
@@ -112,7 +112,7 @@ export default async function ImportWorkOrdersPage({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
           {/* A file download from a route handler, not a page: Link would
               prefetch and soft-navigate a binary response. */}
           <a href="/work-orders/import/template" className="mt-4 inline-block" download>
@@ -127,7 +127,7 @@ export default async function ImportWorkOrdersPage({
         <>
           <h2 className="mt-8 mb-3 text-sm font-semibold">Recent imports</h2>
           <Card>
-            <table className="w-full text-sm">
+            <DataTable>
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                   <th className="py-2">File</th>
@@ -152,7 +152,7 @@ export default async function ImportWorkOrdersPage({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           </Card>
         </>
       ) : null}

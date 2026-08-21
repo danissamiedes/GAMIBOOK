@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { companyScope } from "@/lib/session-scope";
 import { formatDateTimeInZone } from "@/lib/time/zone";
-import { Alert, Card, EmptyState, PageHeader } from "@/components/ui";
+import { Alert, Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Email log — Ledger" };
 
@@ -54,7 +54,7 @@ export default async function EmailLogPage({
         <EmptyState title="Nothing sent yet" />
       ) : (
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">When</th>
@@ -111,7 +111,7 @@ export default async function EmailLogPage({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </Card>
       )}
     </>

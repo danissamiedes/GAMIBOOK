@@ -8,7 +8,7 @@ import { WORK_ORDER_IMPORT_COLUMNS, type ColumnKey } from "@/lib/imports/columns
 import { PostingError } from "@/lib/errors";
 import { formatAccountingDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
-import { Alert, Button, Card, EmptyState, PageHeader, Select } from "@/components/ui";
+import { Alert, Button, Card, DataTable, EmptyState, PageHeader, Select } from "@/components/ui";
 
 /**
  * The validation report (SPEC §8.3). Every row is shown with what it was
@@ -228,7 +228,7 @@ export default async function ImportReviewPage({
           {createdWorkOrders.length === 0 ? (
             <EmptyState title="Nothing — this batch was undone" />
           ) : (
-            <table className="w-full text-sm">
+            <DataTable>
               <tbody>
                 {createdWorkOrders.map((workOrder) => (
                   <tr key={workOrder.id} className="border-b border-slate-100 dark:border-slate-800/60">
@@ -246,7 +246,7 @@ export default async function ImportReviewPage({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           )}
         </Card>
       ) : (
@@ -255,7 +255,7 @@ export default async function ImportReviewPage({
           {validation.workOrders.length === 0 ? (
             <EmptyState title="No complete work orders in this sheet" />
           ) : (
-            <table className="w-full text-sm">
+            <DataTable>
               <tbody>
                 {validation.workOrders.map((planned) => (
                   <tr key={planned.groupKey} className="border-b border-slate-100 dark:border-slate-800/60">
@@ -271,7 +271,7 @@ export default async function ImportReviewPage({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           )}
         </Card>
       )}

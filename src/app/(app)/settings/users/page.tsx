@@ -13,7 +13,7 @@ import { resolveActiveCompanyId } from "@/lib/active-company";
 import { prisma } from "@/lib/db";
 import { generateToken, hashToken, inviteExpiry } from "@/lib/tokens";
 import { writeAudit } from "@/lib/audit";
-import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
+import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export const metadata = { title: "Users — Ledger" };
 
@@ -202,7 +202,7 @@ export default async function UsersPage({
       <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card>
           <h2 className="mb-3 text-sm font-semibold">Members</h2>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Name</th>
@@ -257,7 +257,7 @@ export default async function UsersPage({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
 
           {invitations.length > 0 ? (
             <>

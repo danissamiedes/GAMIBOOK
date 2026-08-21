@@ -4,7 +4,16 @@ import { sectionScope } from "@/lib/session-scope";
 import { arAging, agingBucketLabels, bucketValues } from "@/lib/invoices/aging";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
-import { Alert, Button, Card, EmptyState, Field, Input, PageHeader } from "@/components/ui";
+import {
+  Alert,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+} from "@/components/ui";
 
 export const metadata = { title: "A/R Aging — Ledger" };
 
@@ -57,7 +66,7 @@ export default async function ArAgingPage({
         <EmptyState title="Nothing outstanding" />
       ) : (
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Customer</th>
@@ -110,7 +119,7 @@ export default async function ArAgingPage({
                 </td>
               </tr>
             </tfoot>
-          </table>
+          </DataTable>
         </Card>
       )}
     </>

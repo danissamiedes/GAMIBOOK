@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { failTo } from "@/lib/fail";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
@@ -8,7 +9,17 @@ import { money, parseMoney } from "@/lib/money";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
-import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
+import {
+  Alert,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+} from "@/components/ui";
 
 export const metadata = { title: "Expenses and bills — Ledger" };
 
@@ -50,15 +61,12 @@ export default async function ExpensesPage({
     }),
   ]);
 
-  const fail = (message: string) =>
-    redirect(`/expenses?tab=${tab}&error=${encodeURIComponent(message)}`);
-
   async function create(formData: FormData) {
     "use server";
     const inner = await sectionScope("VENDORS");
     const kind = String(formData.get("kind")) === "BILL" ? "BILL" : "DIRECT";
     const amount = parseMoney(String(formData.get("amount") || ""));
-    if (!amount) fail("Enter the amount");
+    if (!amount) failTo(`/expenses?tab=${tab}`, "Enter the amount");
 
     try {
       const result = await recordExpense({
@@ -86,7 +94,7 @@ export default async function ExpensesPage({
         summary: `${amount!.toFixed(2)} — ${String(formData.get("description") || "")}`,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/expenses?tab=${tab}`, thrown.message);
       else throw thrown;
     }
     redirect(`/expenses?tab=${kind === "BILL" ? "bill" : "direct"}`);
@@ -120,7 +128,7 @@ export default async function ExpensesPage({
         entityId: bill.id,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/expenses?tab=${tab}`, thrown.message);
       else throw thrown;
     }
     redirect("/expenses?tab=bill");
@@ -152,7 +160,7 @@ export default async function ExpensesPage({
           {rows.length === 0 ? (
             <EmptyState title={tab === "bill" ? "No bills recorded" : "No direct expenses recorded"} />
           ) : (
-            <table className="w-full text-sm">
+            <DataTable>
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                   <th className="py-2">Date</th>
@@ -203,7 +211,7 @@ export default async function ExpensesPage({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           )}
         </Card>
 

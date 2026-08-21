@@ -5,7 +5,7 @@ import { balancesByAccount } from "@/lib/reports/balances";
 import { fiscalYearStart, formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { TYPE_ORDER } from "@/lib/ledger/accounts";
-import { Card, PageHeader } from "@/components/ui";
+import { Card, DataTable, PageHeader } from "@/components/ui";
 import { DateField, ReportControls } from "@/components/report-controls";
 import { periodPresets } from "@/lib/reports/periods";
 
@@ -47,7 +47,7 @@ export default async function GeneralLedgerPage({
               <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 {type.toLowerCase()}
               </h2>
-              <table className="w-full text-sm">
+              <DataTable>
                 <tbody>
                   {typeRows.map((row) => (
                     <tr key={row.accountId} className="border-b border-slate-100 dark:border-slate-800/60">
@@ -74,7 +74,7 @@ export default async function GeneralLedgerPage({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </DataTable>
             </section>
           );
         })}

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { failTo } from "@/lib/fail";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -9,7 +10,17 @@ import { money, parseMoney } from "@/lib/money";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
-import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
+import {
+  Alert,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+} from "@/components/ui";
 
 export const metadata = { title: "Consultant bills — Ledger" };
 
@@ -52,20 +63,17 @@ export default async function ConsultantBillsPage({
     }),
   ]);
 
-  const fail = (message: string) =>
-    redirect(`/consultant-bills?error=${encodeURIComponent(message)}`);
-
   async function create(formData: FormData) {
     "use server";
     const inner = await sectionScope("CONSULTANTS");
     const amount = parseMoney(String(formData.get("amount") || ""));
-    if (!amount) fail("Enter the amount");
+    if (!amount) failTo("/consultant-bills", "Enter the amount");
 
     const vendorId = String(formData.get("vendorId") || "");
     const consultant = await prisma.vendor.findFirst({
       where: { id: vendorId, ...inner.where, kind: "CONSULTANT" },
     });
-    if (!consultant) fail("Pick a consultant");
+    if (!consultant) failTo("/consultant-bills", "Pick a consultant");
 
     try {
       const result = await recordExpense({
@@ -92,7 +100,7 @@ export default async function ConsultantBillsPage({
         summary: `${amount!.toFixed(2)} to ${consultant!.name}`,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo("/consultant-bills", thrown.message);
       else throw thrown;
     }
     redirect("/consultant-bills?saved=1");
@@ -121,7 +129,7 @@ export default async function ConsultantBillsPage({
         role: inner.role,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo("/consultant-bills", thrown.message);
       else throw thrown;
     }
     redirect("/consultant-bills?saved=1");
@@ -150,7 +158,7 @@ export default async function ConsultantBillsPage({
           {bills.length === 0 ? (
             <EmptyState title="No consultant bills recorded" />
           ) : (
-            <table className="w-full text-sm">
+            <DataTable>
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                   <th className="py-2">Date</th>
@@ -203,7 +211,7 @@ export default async function ConsultantBillsPage({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           )}
         </Card>
 

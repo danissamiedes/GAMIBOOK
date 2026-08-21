@@ -4,7 +4,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { formatAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money } from "@/lib/money";
-import { Button, Card, EmptyState, PageHeader } from "@/components/ui";
+import { Button, Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Invoices — Ledger" };
 
@@ -61,7 +61,7 @@ export default async function InvoicesPage({
         <EmptyState title="No invoices here yet" />
       ) : (
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Number</th>
@@ -111,7 +111,7 @@ export default async function InvoicesPage({
                 );
               })}
             </tbody>
-          </table>
+          </DataTable>
         </Card>
       )}
     </>

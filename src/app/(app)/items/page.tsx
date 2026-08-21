@@ -1,7 +1,17 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
-import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
+import {
+  Alert,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+} from "@/components/ui";
 
 export const metadata = { title: "Items — Ledger" };
 
@@ -61,7 +71,7 @@ export default async function ItemsPage({
           {items.length === 0 ? (
             <EmptyState title="No items yet">Optional — lines can always be typed by hand.</EmptyState>
           ) : (
-            <table className="w-full text-sm">
+            <DataTable>
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                   <th className="py-2">Name</th>
@@ -80,7 +90,7 @@ export default async function ItemsPage({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           )}
         </Card>
 

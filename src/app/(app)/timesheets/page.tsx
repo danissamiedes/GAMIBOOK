@@ -14,7 +14,17 @@ import {
   workDayKey,
   zoneAbbreviation,
 } from "@/lib/time/zone";
-import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
+import {
+  Alert,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+} from "@/components/ui";
 
 export const metadata = { title: "Timesheets — Ledger" };
 
@@ -157,7 +167,7 @@ export default async function TimesheetsPage({
         {sheet.rows.length === 0 ? (
           <EmptyState title="No time recorded in this period" />
         ) : (
-          <table className="w-full min-w-[720px] text-sm">
+          <DataTable className="min-w-[720px]">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Consultant</th>
@@ -213,14 +223,14 @@ export default async function TimesheetsPage({
                 <td className="py-2 text-right tabular-nums">{formatDuration(sheet.totalMinutes)}</td>
               </tr>
             </tfoot>
-          </table>
+          </DataTable>
         )}
       </Card>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card>
           <h2 className="mb-3 text-sm font-semibold">Entries</h2>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Day</th>
@@ -254,7 +264,7 @@ export default async function TimesheetsPage({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
           {entries.some((entry) => entry.correctionRequest && !entry.correctionResolvedAt) ? (
             <div className="mt-4 space-y-2">
               {entries

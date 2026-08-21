@@ -5,7 +5,7 @@ import { salesByCustomer } from "@/lib/reports/sales-by-customer";
 import { periodPresets } from "@/lib/reports/periods";
 import { fiscalYearStart, formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
-import { Card, EmptyState, PageHeader } from "@/components/ui";
+import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 import { DateField, ReportControls } from "@/components/report-controls";
 
 export const metadata = { title: "Sales by customer — Ledger" };
@@ -49,7 +49,7 @@ export default async function SalesByCustomerPage({
         <EmptyState title="Nothing invoiced in this period" />
       ) : (
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Customer</th>
@@ -100,7 +100,7 @@ export default async function SalesByCustomerPage({
                 </td>
               </tr>
             </tfoot>
-          </table>
+          </DataTable>
           <p className="mt-3 text-xs text-slate-500">
             Draft and void invoices are excluded — neither is a sale. Foreign-currency invoices are
             converted at their own rate, the one they sit in the ledger at.

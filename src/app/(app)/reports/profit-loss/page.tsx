@@ -6,7 +6,7 @@ import { periodPresets } from "@/lib/reports/periods";
 import { fiscalYearStart, formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money, type Money } from "@/lib/money";
-import { Card, EmptyState, PageHeader } from "@/components/ui";
+import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 import { DateField, ReportControls } from "@/components/report-controls";
 
 export const metadata = { title: "Profit & Loss — Ledger" };
@@ -115,7 +115,7 @@ export default async function ProfitLossPage({
         <EmptyState title="Nothing posted in this period" />
       ) : (
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Account</th>
@@ -196,7 +196,7 @@ export default async function ProfitLossPage({
                 percent={percentOfIncome(current.netIncome)}
               />
             </tbody>
-          </table>
+          </DataTable>
         </Card>
       )}
     </>

@@ -6,7 +6,7 @@ import { accountDetail, sourceDocumentHref, sourceLabel } from "@/lib/reports/ge
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { normalBalance } from "@/lib/ledger/accounts";
-import { Card, EmptyState, PageHeader } from "@/components/ui";
+import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 import { DateField, ReportControls } from "@/components/report-controls";
 
 /**
@@ -69,7 +69,7 @@ export default async function AccountDetailPage({
         <EmptyState title="No postings to this account in the period" />
       ) : (
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Date</th>
@@ -133,7 +133,7 @@ export default async function AccountDetailPage({
                 <td className="py-2 text-right tabular-nums">{amount(detail.closing)}</td>
               </tr>
             </tfoot>
-          </table>
+          </DataTable>
         </Card>
       )}
     </>

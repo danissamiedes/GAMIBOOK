@@ -8,7 +8,7 @@ import { redirect } from "next/navigation";
 import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { PostingError } from "@/lib/errors";
 import { writeAudit } from "@/lib/audit";
-import { Alert, Button, Card, EmptyState, PageHeader } from "@/components/ui";
+import { Alert, Button, Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Work orders — Ledger" };
 
@@ -125,7 +125,7 @@ export default async function WorkOrdersPage({
       ) : (
         <Card>
           <form action={approveSelected}>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2 w-8"></th>
@@ -182,7 +182,7 @@ export default async function WorkOrdersPage({
                 );
               })}
             </tbody>
-          </table>
+          </DataTable>
 
           {workOrders.some((workOrder) => workOrder.status === "DRAFT") ? (
             <div className="mt-4 flex items-center gap-3">

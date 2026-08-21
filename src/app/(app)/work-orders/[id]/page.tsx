@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { failTo } from "@/lib/fail";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -15,7 +16,7 @@ import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
 import { prepareWorkOrderEmail, sendEmail, stampEmailed } from "@/lib/email/send";
 import { dryRun } from "@/lib/email/gmail";
-import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
+import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export default async function WorkOrderPage({
   params,
@@ -53,9 +54,6 @@ export default async function WorkOrderPage({
   ]);
   const accountsById = new Map(accounts.map((account) => [account.id, account]));
 
-  const fail = (message: string) =>
-    redirect(`/work-orders/${id}?error=${encodeURIComponent(message)}`);
-
   async function approve(formData: FormData) {
     "use server";
     const inner = await sectionScope("CONSULTANTS");
@@ -77,7 +75,7 @@ export default async function WorkOrderPage({
         summary: `Approved as ${result.workOrder.workOrderNumber}`,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/work-orders/${id}`, thrown.message);
       else throw thrown;
     }
     redirect(`/work-orders/${id}`);
@@ -89,7 +87,7 @@ export default async function WorkOrderPage({
     try {
       await deleteDraftWorkOrder(inner.companyId, id);
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/work-orders/${id}`, thrown.message);
       else throw thrown;
     }
     redirect("/work-orders");
@@ -107,7 +105,7 @@ export default async function WorkOrderPage({
         role: inner.role,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/work-orders/${id}`, thrown.message);
       else throw thrown;
     }
     redirect(`/work-orders/${id}`);
@@ -117,7 +115,7 @@ export default async function WorkOrderPage({
     "use server";
     const inner = await sectionScope("CONSULTANTS");
     const amount = parseMoney(String(formData.get("amount") || ""));
-    if (!amount) fail("Enter the amount paid");
+    if (!amount) failTo(`/work-orders/${id}`, "Enter the amount paid");
     try {
       await recordBillPayment({
         companyId: inner.companyId,
@@ -134,7 +132,7 @@ export default async function WorkOrderPage({
         role: inner.role,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/work-orders/${id}`, thrown.message);
       else throw thrown;
     }
     redirect(`/work-orders/${id}`);
@@ -152,7 +150,7 @@ export default async function WorkOrderPage({
         role: inner.role,
       });
     } catch (thrown) {
-      if (thrown instanceof PostingError) fail(thrown.message);
+      if (thrown instanceof PostingError) failTo(`/work-orders/${id}`, thrown.message);
       else throw thrown;
     }
     redirect(`/work-orders/${id}`);
@@ -166,7 +164,7 @@ export default async function WorkOrderPage({
       workOrderId: id,
     });
     if (prepared.to.length === 0) {
-      fail(prepared.excludedReason ?? "This consultant has no email address on file");
+      failTo(`/work-orders/${id}`, prepared.excludedReason ?? "This consultant has no email address on file");
     }
     const result = await sendEmail({
       companyId: inner.companyId,
@@ -184,7 +182,7 @@ export default async function WorkOrderPage({
         summary: prepared.to.join(", "),
       });
     } else {
-      fail(result.error ?? "The email failed. See the email log.");
+      failTo(`/work-orders/${id}`, result.error ?? "The email failed. See the email log.");
     }
     redirect(`/work-orders/${id}`);
   }
@@ -212,7 +210,7 @@ export default async function WorkOrderPage({
 
       <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card>
-          <table className="w-full text-sm">
+          <DataTable>
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="py-2">Description</th>
@@ -271,7 +269,7 @@ export default async function WorkOrderPage({
                 </td>
               </tr>
             </tfoot>
-          </table>
+          </DataTable>
 
           {foreign ? (
             <p className="mt-4 text-xs text-slate-500">
@@ -285,7 +283,7 @@ export default async function WorkOrderPage({
           {workOrder.applications.length > 0 ? (
             <>
               <h2 className="mt-6 mb-2 text-sm font-semibold">Payments</h2>
-              <table className="w-full text-sm">
+              <DataTable>
                 <tbody>
                   {workOrder.applications.map((application) => (
                     <tr key={application.id} className="border-b border-slate-100 dark:border-slate-800/60">
@@ -311,7 +309,7 @@ export default async function WorkOrderPage({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </DataTable>
             </>
           ) : null}
 

@@ -4,7 +4,17 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { SUPPORTED_CURRENCIES, formatMoney, isSupportedCurrency } from "@/lib/currency";
 import { money, sum } from "@/lib/money";
-import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
+import {
+  Alert,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+} from "@/components/ui";
 
 export const metadata = { title: "Vendors — Ledger" };
 
@@ -80,7 +90,7 @@ export default async function VendorsPage({
           {vendors.length === 0 ? (
             <EmptyState title="No vendors yet">Add the first one on the right.</EmptyState>
           ) : (
-            <table className="w-full text-sm">
+            <DataTable>
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                   <th className="py-2">Name</th>
@@ -112,7 +122,7 @@ export default async function VendorsPage({
                   );
                 })}
               </tbody>
-            </table>
+            </DataTable>
           )}
         </Card>
 

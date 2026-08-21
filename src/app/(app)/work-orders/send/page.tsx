@@ -7,7 +7,17 @@ import { dryRun } from "@/lib/email/gmail";
 import { PostingError } from "@/lib/errors";
 import { formatAccountingDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
-import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
+import {
+  Alert,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+} from "@/components/ui";
 
 export const metadata = { title: "Send work orders — Ledger" };
 
@@ -214,7 +224,7 @@ export default async function BulkSendPage({
         <form action={send}>
           <input type="hidden" name="group" value={groupByConsultant ? "1" : "0"} />
           <Card>
-            <table className="w-full text-sm">
+            <DataTable>
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                   <th className="py-2 w-8" />
@@ -288,7 +298,7 @@ export default async function BulkSendPage({
                   );
                 })}
               </tbody>
-            </table>
+            </DataTable>
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <Button type="submit" formAction={send}>

@@ -209,8 +209,22 @@ The dashboard has no unmatched-bank-lines tile: it counts rows from the CSV
 bank import, which is deferred, and "0 unmatched" would read as reconciled
 books rather than as a missing feature.
 
-Remaining from the spec: recurring invoices (§7.2) and the CSV bank import
-(§8.5).
+**Recurring invoices (§7.2):**
+
+- A template plus a schedule — weekly, fortnightly, monthly, quarterly, annual
+  — with an end date, an occurrence limit and a pause switch
+- **Drafts by default.** Issuing and sending automatically is opt in per
+  template, because an invoice that posts revenue and reaches a customer
+  unread is a different kind of mistake from a wrong draft
+- The daily job runs at 06:00 in each company's **own operating zone**, and is
+  idempotent on `(template, scheduled date)` — a double run cannot invoice
+  twice, enforced by a unique constraint rather than a check-then-write
+- A template that has not run for months catches up one invoice per period,
+  because each period genuinely happened
+- "Coming in the next 30 days", with anything already past flagged as overdue —
+  which is how you notice the scheduler is not running
+
+Remaining from the spec: the CSV bank import (§8.5).
 
 ### Connecting Gmail
 
@@ -351,6 +365,7 @@ Every variable is documented in `.env.example`. The ones that matter:
 | `AUTH_URL` | Public URL, required in production |
 | `STORAGE_DRIVER` | `local` (default) or `s3` |
 | `EMAIL_DRY_RUN` | `true` short-circuits sending and only writes the log |
+| `SCHEDULER_ENABLED` | `true` runs the in-process jobs. **Recurring invoices do not generate without it** — set it on exactly one instance |
 
 App login and the Gmail *sending* connection (Phase 7) are separate concerns:
 `AUTH_GOOGLE_*` is sign-in, and does not let the app send mail as anyone.

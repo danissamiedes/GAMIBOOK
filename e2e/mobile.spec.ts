@@ -78,6 +78,7 @@ test.describe("phone", () => {
     for (const path of [
       "/dashboard",
       "/invoices",
+      "/invoices/recurring",
       "/work-orders",
       "/consultant-bills",
       "/customers",

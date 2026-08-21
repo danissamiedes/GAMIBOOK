@@ -67,6 +67,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                 <NavLink href="/customers">Customers</NavLink>
                 <NavLink href="/sales-orders">Sales orders</NavLink>
                 <NavLink href="/invoices">Invoices</NavLink>
+                <NavLink href="/invoices/recurring">Recurring</NavLink>
                 <NavLink href="/payments">Payments</NavLink>
                 <NavLink href="/reports/sales-by-customer">Sales by customer</NavLink>
                 <NavLink href="/reports/ar-aging">A/R Aging</NavLink>

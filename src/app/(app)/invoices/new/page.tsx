@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { recalculateTotals } from "@/lib/invoices/service";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
@@ -92,6 +93,10 @@ export default async function NewInvoicePage({
         lines: { create: lines },
       },
     });
+
+    // Give the draft its totals now, or every draft reads 0.00 on the list
+    // until somebody issues it.
+    await prisma.$transaction((tx) => recalculateTotals(invoice.id, tx));
 
     await writeAudit({
       companyId: inner.companyId,

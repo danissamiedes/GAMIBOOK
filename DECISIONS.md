@@ -503,6 +503,45 @@ The assertion that matters is the tie-out to the control account *at the same
 past date*, which is what an accountant does at year end. Six tests cover it,
 and all six fail against the previous implementation.
 
+## Recurring invoices — 2026-08-21
+
+**Drafts by default, sending opt-in per template.** The spec asks for this and
+it is right: a wrong draft is a nuisance, while an invoice that posts revenue
+*and* reaches the customer with nobody having read it is a different kind of
+mistake. The screen says as much where the choice is made.
+
+**Idempotency is a unique constraint, not a check.** `(templateId,
+scheduledDate)` is claimed as the first act of the transaction that creates the
+invoice, so two overlapping runs cannot both pass a "has this run?" test and
+both write. A test runs three generations concurrently and asserts one invoice;
+the check-then-write version of this passes sequentially and fails there.
+
+**Catch-up generates one invoice per missed period, not one lump.** A template
+that has not run since June owes June, July and August separately, because each
+of those periods happened. Capped, so a misconfigured start date cannot
+generate hundreds.
+
+**The schedule is anchored differently by cadence.** Monthly and longer are
+anchored to a day of the month and clamped into short months — "the 31st" is
+28 February and then *31 March*, not 28 every month thereafter. Weekly and
+fortnightly are anchored to the start date, so a fortnightly schedule keeps its
+own two-week rhythm rather than sliding toward month boundaries.
+
+**"Run now" catches up; it does not pull the future forward.** Found by
+clicking it twice in a browser: the first run advances `nextRunDate`, so the
+second was generating *next month* on the 21st. It now refuses anything not yet
+due and says when the next one falls.
+
+**The job is hourly, not daily.** "06:00" means 06:00 in each company's own
+operating zone, and those do not share an hour. The job wakes hourly, decides
+per company whether it is past six there, and relies on idempotency to make the
+repetition free.
+
+**Drafts now carry their totals.** Generated drafts read `0.00` on the invoice
+list until issued, because totals were only computed on issue — a month of
+retainer drafts would have been a column of zeroes. Fixed for the manual
+draft path too, which had the same wart.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

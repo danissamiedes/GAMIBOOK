@@ -1,8 +1,9 @@
 import { autoCloseStaleEntries } from "@/lib/time/clock";
+import { runRecurringInvoices } from "@/lib/invoices/recurring";
 
 /**
- * In-process scheduler (SPEC §7.2, §9). Introduced here for the stale-shift
- * auto-close and reused for recurring invoices in Phase 8.
+ * In-process scheduler (SPEC §7.2, §9): the stale-shift auto-close and the
+ * recurring invoice run.
  *
  * The jobs themselves are plain functions that take no scheduler state, so
  * moving this to a queue later means replacing this file and nothing else.
@@ -22,6 +23,14 @@ export const JOBS: Job[] = [
     name: "auto-close-stale-shifts",
     everyMinutes: 15,
     run: () => autoCloseStaleEntries(),
+  },
+  {
+    // Hourly rather than daily, because "06:00" is 06:00 in each company's own
+    // operating zone and those do not share an hour. The job itself decides
+    // whether a company is due, and generating twice is a no-op (SPEC §7.2).
+    name: "recurring-invoices",
+    everyMinutes: 60,
+    run: () => runRecurringInvoices(),
   },
 ];
 

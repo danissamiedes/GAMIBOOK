@@ -427,6 +427,39 @@ async function main() {
         },
       });
 
+    // A retainer that generates itself (SPEC §7.2). Left as CREATE_DRAFT, the
+    // default, so the seeded company demonstrates the safe mode rather than
+    // the one that emails a customer unread.
+    const retainerCustomer = await prisma.customer.findFirstOrThrow({
+      where: { companyId: phpCompany.id, name: "Cebu Retail Group" },
+    });
+    await prisma.recurringInvoiceTemplate.create({
+      data: {
+        companyId: phpCompany.id,
+        customerId: retainerCustomer.id,
+        name: "Monthly bookkeeping retainer",
+        frequency: "MONTHLY",
+        dayOfMonth: 1,
+        monthOfYear: 1,
+        startDate: new Date(Date.UTC(2026, 8, 1)),
+        nextRunDate: new Date(Date.UTC(2026, 8, 1)),
+        currency: "PHP",
+        paymentTermsDays: 30,
+        memo: "Retainer for the month.",
+        lines: {
+          create: [
+            {
+              lineNumber: 1,
+              description: "Monthly bookkeeping retainer",
+              quantity: "1",
+              rate: "18000.00",
+              incomeAccountId: php("4000").id,
+            },
+          ],
+        },
+      },
+    });
+
     // Mirrors the user's real spreadsheet, including the deduction line.
     const paidWorkOrder = await workOrder(abigail.id, new Date(Date.UTC(2026, 7, 15)), [
       { description: "Consultation for period 072626-081026", quantity: "0.5", rate: "100000.00", code: "5000" },

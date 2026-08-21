@@ -169,6 +169,22 @@ enum SalesOrderStatus {
   CANCELLED
 }
 
+/// SPEC §7.2.
+enum RecurringFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+/// SPEC §7.2: auto-sending an invoice nobody has read is a real risk, so the
+/// default is a draft and sending is opt-in per template.
+enum RecurringMode {
+  CREATE_DRAFT
+  AUTO_SEND
+}
+
 /// SPEC §7.1. Paid states are derived from balanceDue, never set by hand.
 enum InvoiceStatus {
   DRAFT
@@ -242,28 +258,29 @@ model Company {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  memberships     Membership[]
-  invitations     Invitation[]
-  sequences       NumberSequence[]
-  auditLogs       AuditLog[]
-  accounts        Account[]
-  journalEntries  JournalEntry[]
-  customers       Customer[]
-  items           Item[]
-  taxRates        TaxRate[]
-  invoices        Invoice[]
-  salesOrders     SalesOrder[]
-  payments        Payment[]
-  timeEntries     TimeEntry[]
-  vendors         Vendor[]
-  emailConnection EmailConnection?
-  emailTemplates  EmailTemplate[]
-  emailLogs       EmailLog[]
-  emailBatches    EmailBatch[]
-  importBatches   ImportBatch[]
-  workOrders      WorkOrder[]
-  expenses        Expense[]
-  billPayments    BillPayment[]
+  memberships               Membership[]
+  invitations               Invitation[]
+  sequences                 NumberSequence[]
+  auditLogs                 AuditLog[]
+  accounts                  Account[]
+  journalEntries            JournalEntry[]
+  customers                 Customer[]
+  items                     Item[]
+  taxRates                  TaxRate[]
+  invoices                  Invoice[]
+  salesOrders               SalesOrder[]
+  payments                  Payment[]
+  timeEntries               TimeEntry[]
+  vendors                   Vendor[]
+  emailConnection           EmailConnection?
+  emailTemplates            EmailTemplate[]
+  emailLogs                 EmailLog[]
+  emailBatches              EmailBatch[]
+  importBatches             ImportBatch[]
+  workOrders                WorkOrder[]
+  expenses                  Expense[]
+  billPayments              BillPayment[]
+  recurringInvoiceTemplates RecurringInvoiceTemplate[]
 
   @@index([organizationId])
 }
@@ -478,11 +495,12 @@ model Customer {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company      Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   invoices     Invoice[]
   salesOrders  SalesOrder[]
   payments     Payment[]
   journalLines JournalLine[]
+  recurring    RecurringInvoiceTemplate[]
 
   @@index([companyId, name])
 }
@@ -500,8 +518,9 @@ model Item {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  invoiceLines InvoiceLine[]
+  company        Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoiceLines   InvoiceLine[]
+  recurringLines RecurringInvoiceLine[]
 
   @@unique([companyId, name])
 }
@@ -517,8 +536,9 @@ model TaxRate {
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
 
-  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  lines   InvoiceLine[]
+  company        Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines          InvoiceLine[]
+  recurringLines RecurringInvoiceLine[]
 
   @@unique([companyId, name])
 }
@@ -567,6 +587,8 @@ model Invoice {
   salesOrder   SalesOrder?          @relation(fields: [salesOrderId], references: [id])
   lines        InvoiceLine[]
   applications PaymentApplication[]
+  /// Set when this invoice was generated from a recurring template (§7.2).
+  recurringRun RecurringInvoiceRun?
 
   @@unique([companyId, invoiceNumber])
   @@index([companyId, status])
@@ -1062,4 +1084,87 @@ model EmailBatchItem {
   batch EmailBatch @relation(fields: [emailBatchId], references: [id], onDelete: Cascade)
 
   @@index([emailBatchId, status])
+}
+
+/// SPEC §7.2. A template plus a schedule; generating an invoice from it is
+/// what the daily job does.
+model RecurringInvoiceTemplate {
+  id         String @id @default(cuid())
+  companyId  String
+  customerId String
+  /// Names the template in lists — "Monthly retainer", not an invoice number.
+  name       String
+
+  frequency   RecurringFrequency
+  /// 1-31 for MONTHLY/QUARTERLY/ANNUALLY. Clamped to the month's last day, so
+  /// "the 31st" still falls on 28 February.
+  dayOfMonth  Int?
+  /// 1 = Monday .. 7 = Sunday, for WEEKLY/BIWEEKLY.
+  dayOfWeek   Int?
+  /// For ANNUALLY: which month, 1-12.
+  monthOfYear Int?
+
+  startDate       DateTime  @db.Date
+  endDate         DateTime? @db.Date
+  occurrenceLimit Int?
+  /// The next date an invoice is due to be generated for. Advanced by the job.
+  nextRunDate     DateTime  @db.Date
+  lastRunDate     DateTime? @db.Date
+  occurrenceCount Int       @default(0)
+
+  mode     RecurringMode @default(CREATE_DRAFT)
+  isPaused Boolean       @default(false)
+
+  /// The invoice this template writes: same fields, minus dates and numbers.
+  currency         String  @db.Char(3)
+  fxRate           Decimal @default(1) @db.Decimal(18, 8)
+  paymentTermsDays Int     @default(30)
+  memo             String?
+  terms            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer Customer               @relation(fields: [customerId], references: [id])
+  lines    RecurringInvoiceLine[]
+  runs     RecurringInvoiceRun[]
+
+  @@index([companyId, isPaused, nextRunDate])
+}
+
+model RecurringInvoiceLine {
+  id              String  @id @default(cuid())
+  templateId      String
+  lineNumber      Int
+  itemId          String?
+  description     String
+  quantity        Decimal @db.Decimal(18, 4)
+  rate            Decimal @db.Decimal(18, 6)
+  incomeAccountId String
+  taxRateId       String?
+
+  template RecurringInvoiceTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  item     Item?                    @relation(fields: [itemId], references: [id])
+  taxRate  TaxRate?                 @relation(fields: [taxRateId], references: [id])
+
+  @@unique([templateId, lineNumber])
+}
+
+/// One row per (template, scheduled date). The unique constraint is the
+/// idempotency the spec asks for by name: a second run for the same date hits
+/// it and generates nothing, however many times the job fires.
+model RecurringInvoiceRun {
+  id            String   @id @default(cuid())
+  templateId    String
+  scheduledDate DateTime @db.Date
+  invoiceId     String?  @unique
+  /// Set when the run produced nothing, with the reason.
+  skippedReason String?
+  createdAt     DateTime @default(now())
+
+  template RecurringInvoiceTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  invoice  Invoice?                 @relation(fields: [invoiceId], references: [id])
+
+  @@unique([templateId, scheduledDate])
 }

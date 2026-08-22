@@ -1301,3 +1301,19 @@ The removal migration deletes any receipt row that had no stored copy before
 putting `fileKey` back to NOT NULL. Nothing was lost: the sync was never
 configured, so no such row existed outside development.
 
+## Two schedulers, deliberately
+
+`vercel.json` declares an hourly cron and `.github/workflows/scheduled-jobs.yml`
+runs one at :17. Both hit `/api/cron`, both authenticate — the endpoint takes
+Vercel's `Authorization: Bearer` and the workflow's `x-cron-key` alike — so the
+jobs run twice an hour.
+
+That is kept, not fixed. The jobs are idempotent, so the cost is a little
+duplicated work; what it buys is that either platform can fail without shifts
+going unclosed, recurring invoices going ungenerated, or the free Supabase
+project being left to pause. The two also fail differently: the GitHub run goes
+red and visible, the Vercel one is quiet.
+
+Worth knowing if the deployment ever drops to Vercel's Hobby plan: cron there is
+limited to once a day, and the GitHub workflow becomes the only hourly one.
+

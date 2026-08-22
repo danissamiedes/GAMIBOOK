@@ -5,6 +5,13 @@
 # to clock out of. This runs hourly instead, and doubles as a keep-alive: a free
 # Supabase project pauses after about a week with no connections.
 #
+# This runs ALONGSIDE Vercel's own cron in vercel.json, on purpose. Both hit
+# /api/cron hourly and both authenticate; the jobs are idempotent, so running
+# twice costs a little work and changes nothing. The redundancy is the point:
+# either platform can have an outage without the shifts going unclosed or the
+# database being left to pause. Do not remove one as a duplicate without
+# deciding to give that up.
+#
 # Two repository secrets are needed — Settings → Secrets and variables → Actions:
 #   LEDGER_URL    https://your-project.vercel.app   (no trailing slash)
 #   CRON_SECRET   the same value set in Vercel's environment variables

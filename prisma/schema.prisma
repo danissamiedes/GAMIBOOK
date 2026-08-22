@@ -701,6 +701,8 @@ model Vendor {
   kind             VendorKind
   name             String
   email            String?
+  /// Where remittances and correspondence go.
+  address          String?
   /// May differ from the company's base currency (SPEC §5).
   defaultCurrency  String     @db.Char(3)
   defaultAccountId String?

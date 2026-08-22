@@ -1114,3 +1114,34 @@ consumed and never reissued. A missing entry number is the thread an auditor
 pulls, and that is the point. Deleting takes a second screen naming what will
 go, because a single click next to Reverse is not enough for something nothing
 brings back.
+
+## Customers, vendors and consultants are editable
+
+The three party screens could add and list, and customers could be deactivated;
+nothing could be changed. A typo in a name, a moved office, a renegotiated Net
+30 all meant adding a second record and living with two.
+
+Editing master data is safe in a way editing a posting is not, and the reason is
+worth writing down: a customer's currency, terms and default account are the
+defaults the *next* document picks up. An invoice already issued carries its own
+currency, rate and due date, copied at the time; changing the customer does not
+reach back into it. So this needs no reversal machinery and no period check —
+it is not accounting data.
+
+One form does both add and edit on each screen, switched by `?edit=<id>`. The
+form carries a React `key` of the row id, so moving from one row to another
+remounts it rather than leaving the previous row's values in the fields.
+
+`updateCustomer` and `updateVendor` live in `src/lib/parties.ts` rather than in
+the pages, because the three screens share the rules and the audit shape. The
+audit row records a before/after diff of the fields that actually moved: a row
+saying only "updated" answers nothing anyone would ask it.
+
+**Absent fields must not blank stored values.** The regular-vendor form has no
+field for `ccEmails`, `externalRef`, `defaultRate` or `sendEmails` — those
+belong to consultants. An empty `formData.get()` for a field the form never
+rendered reads the same as a cleared one, so `updateVendor` writes them only
+when the kind is CONSULTANT. There is a test for exactly this.
+
+Vendors gained an `address`, which only customers had. A remittance address had
+been living in the notes field or nowhere.

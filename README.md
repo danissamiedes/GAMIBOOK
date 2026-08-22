@@ -510,6 +510,34 @@ uses only core Postgres, and refuses to run if the database already has a user.
 
 Then sign in at your Vercel URL, and you land on the setup wizard.
 
+### Function region
+
+**Put the functions in the same region as the database.** This is the single
+setting with the biggest effect on how the app feels, and getting it wrong
+breaks postings outright rather than just slowing them.
+
+Vercel defaults new projects to a US region. A posting runs inside one database
+transaction and makes a couple of dozen queries, each a separate round trip — so
+a US function talking to a Singapore database spends five seconds on the network
+for work the database does in milliseconds. Prisma's interactive transactions
+are capped (20 seconds here, raised from its 5-second default), and past that
+the transaction is killed and nothing is saved:
+
+```
+P2028  Transaction already closed ... timeout was 5000 ms, however 5153 ms passed
+```
+
+Reads are unaffected, so the app looks healthy until you try to record something.
+
+Set it in **Settings → Functions → Function Region** to match your Supabase
+project's region — `Singapore (sin1)` for a Supabase project in
+`ap-southeast-1`. Your Supabase region is in the connection host
+(`aws-1-ap-southeast-1.pooler.supabase.com`) and on the project's General
+settings page. Redeploy afterwards.
+
+Same posting, same code: about five seconds across regions, under one in the
+same region.
+
 ### Scheduled jobs
 
 The in-process scheduler cannot work where there is no process between

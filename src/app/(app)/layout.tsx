@@ -12,6 +12,13 @@ import { Button, NavLink } from "@/components/ui";
  * middleware keeps consultant-only users out (SPEC §2), this layout re-checks
  * the role for the *active company*, and the data layer checks again per query.
  */
+/**
+ * Postings run inside a database transaction whose own ceiling is 20 seconds
+ * (see db.ts). The function has to outlive that, or a slow posting is killed
+ * mid-write by the platform instead of rolling back cleanly on its own timeout.
+ */
+export const maxDuration = 60;
+
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const userId = await currentUserId();
   if (!userId) redirect("/login");

@@ -100,13 +100,23 @@ moment it returns a response, so the jobs never fire and nothing says so.
 deploy. Set it afterwards and redeploy. Environment variable changes never apply
 to an already-built deployment.
 
-## 4. Deploy
+## 4. Match the function region to the database
+
+**Settings → Functions → Function Region**, set to your Supabase project's
+region — `Singapore (sin1)` for `ap-southeast-1`. Vercel defaults to a US
+region, and a posting makes a couple of dozen round trips inside one database
+transaction: across regions that is five seconds of network, past Prisma's
+transaction ceiling, and the posting is killed with `P2028` having saved
+nothing. Reads look fine throughout, so the app seems healthy until you record
+something.
+
+## 5. Deploy
 
 Vercel builds on push, and does **not** retroactively build what was already in
 the repository when you connected it. If the Deployments list is empty, that is
 usually why: push any commit.
 
-## 5. Create the first owner
+## 6. Create the first owner
 
 There is no signup page — you get in by invitation, so someone has to exist
 first. Never run `npm run seed` against real books; that is the development
@@ -122,7 +132,7 @@ pooler on 6543 will not hold.
 Then sign in, and you land on the setup wizard where the permanent base-currency
 choice is made.
 
-## 6. The two GitHub workflows
+## 7. The two GitHub workflows
 
 Settings → Secrets and variables → Actions.
 

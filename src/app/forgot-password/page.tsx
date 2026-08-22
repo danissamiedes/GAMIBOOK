@@ -17,7 +17,7 @@ export const metadata = { title: "Reset your password — Ledger" };
 export default async function ForgotPasswordPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sent?: string; link?: string }>;
+  searchParams: Promise<{ sent?: string; link?: string; throttled?: string }>;
 }) {
   const params = await searchParams;
 
@@ -27,8 +27,11 @@ export default async function ForgotPasswordPage({
 
     const headerList = await headers();
     const ip = headerList.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    // Counted per IP, not per address, so saying so reveals nothing about who
+    // has an account here. Reporting it as "sent" would leave someone waiting
+    // for a link that was never made.
     const limit = await rateLimit(`reset:${ip}`, 5, 15 * 60);
-    if (!limit.ok) redirect("/forgot-password?sent=1");
+    if (!limit.ok) redirect("/forgot-password?throttled=1");
 
     const user = await prisma.user.findUnique({ where: { email } });
     // Always report the same thing: never confirm whether an address exists.
@@ -54,7 +57,11 @@ export default async function ForgotPasswordPage({
         Reset your password
       </h1>
       <Card>
-        {params.sent ? (
+        {params.throttled ? (
+          <Alert tone="error">
+            Too many reset requests from this connection. Wait a few minutes and try again.
+          </Alert>
+        ) : params.sent ? (
           <div className="space-y-3">
             <Alert tone="success">
               If that address belongs to an account, a reset link has been created.

@@ -29,3 +29,18 @@ export class PostingError extends Error {
     this.name = "PostingError";
   }
 }
+
+/**
+ * Too many attempts in the window (SPEC §13). Distinct from a wrong password so
+ * the sign-in screen can say which it was: told "wrong email or password", a
+ * throttled person keeps trying, and every attempt extends the lockout.
+ */
+export class RateLimitError extends Error {
+  readonly retryAfterSeconds: number;
+
+  constructor(retryAfterSeconds: number, message = "Too many attempts") {
+    super(message);
+    this.name = "RateLimitError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}

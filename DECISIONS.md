@@ -789,6 +789,39 @@ The general lesson, which the OAuth work in Phase 8 already taught once: the
 origin a browser used is knowable from the request, and every attempt to infer
 it from `NODE_ENV` or a bare `Host` has been wrong somewhere.
 
+## "Wrong email or password" was hiding two other things — 2026-08-21
+
+Sign-in on the deployed app reported a wrong password for an email the user knew
+was right. The login page caught every failure and redirected to `?error=1`,
+which rendered one fixed sentence. Three quite different situations arrived
+there: authorize() returning null (a genuine mismatch), the rate limiter
+throwing after ten attempts in fifteen minutes, and anything else throwing —
+including the database being unreachable.
+
+Both of the hidden ones are actively harmful as "wrong password". Told their
+password is wrong, a throttled person tries again, and each attempt extends the
+lockout they are already in. An outage looks like a typo, so nobody reports it
+and it is diagnosed as user error.
+
+Distinguishing them leaks nothing. The login limiter is keyed and counted
+*before* the user lookup, so hitting it says nothing about whether the address
+exists; an outage is not about the account at all. Which password was wrong
+still goes unsaid.
+
+`RateLimitError` carries the retry window, `loginErrorCode()` walks Auth.js's
+wrapping to classify what happened, and the three messages live in one map.
+Auth.js nests the original error at `cause.err` — read out of
+`@auth/core/errors.js` rather than guessed, since its own classes cannot be
+imported into the test environment.
+
+The password-reset screen had the same shape of problem: a throttled request
+redirected to `?sent=1`, indistinguishable from a real one, leaving someone
+waiting for a link that was never created. That limiter is per IP rather than
+per address, so saying so reveals nothing either.
+
+All three paths were checked against a running production build: a wrong
+password, an eleventh attempt, and a server pointed at a port with nothing on it.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

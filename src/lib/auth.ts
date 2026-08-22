@@ -5,6 +5,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
+import { RateLimitError } from "@/lib/errors";
 
 declare module "next-auth" {
   interface Session {
@@ -38,8 +39,10 @@ const providers: NextAuthConfig["providers"] = [
       const email = parsed.data.email.toLowerCase().trim();
 
       // Rate-limit login attempts (SPEC §13): 10 per email per 15 minutes.
+      // Counted before the user lookup, so being throttled says nothing about
+      // whether the address exists — which is what makes it safe to report.
       const limit = await rateLimit(`login:${email}`, 10, 15 * 60);
-      if (!limit.ok) throw new Error("Too many attempts. Try again shortly.");
+      if (!limit.ok) throw new RateLimitError(limit.retryAfterSeconds);
 
       const user = await prisma.user.findUnique({ where: { email } });
       if (!user?.passwordHash || !user.isActive) return null;

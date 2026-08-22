@@ -495,6 +495,12 @@ DATABASE_URL="<the session pooler string, port 5432>" npm run bootstrap
 The session pooler, not the transaction pooler: bootstrap runs in a transaction,
 which port 6543 will not hold.
 
+**Without a terminal**, `scripts/sql/bootstrap-owner.sql` does the same job from
+the Supabase SQL editor. Edit the four marked values and run the whole file. It
+sets no password — it prints a one-time reset link instead, so the password is
+chosen in the browser and hashed by the app rather than pasted into a query. It
+uses only core Postgres, and refuses to run if the database already has a user.
+
 Then sign in at your Vercel URL, and you land on the setup wizard.
 
 ### Scheduled jobs

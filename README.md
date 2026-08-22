@@ -580,6 +580,20 @@ unmetered. Scheduled workflows are also best-effort — GitHub delays them under
 load, occasionally by a good many minutes — which is fine for these jobs and
 would not be for anything time-critical.
 
+### Checking a deployment
+
+A Sensitive environment variable cannot be read back, so the only thing that
+knows what a deployment is connected to is the deployment:
+
+```bash
+curl -H "x-cron-key: $CRON_SECRET" https://your-project.vercel.app/api/health
+```
+
+Database host, port and pooling mode, whether `pgbouncer` and `connection_limit`
+are set, the function's region, and the round-trip time of a trivial query — no
+credentials in the response. It warns about the configurations known to break
+this app rather than leaving you to compare strings by eye.
+
 ### Backups
 
 Supabase's free plan takes no automated backup you can download, so without

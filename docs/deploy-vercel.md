@@ -177,6 +177,26 @@ later that nothing has been running.
   `docs/gmail-setup.md`. Until then `EMAIL_DRY_RUN=true` records what would have
   been sent rather than failing.
 
+## Checking what a deployment is actually running
+
+A Sensitive environment variable cannot be read back — not in the dashboard, not
+through the CLI. The only thing that knows what the running deployment is
+connected to is the deployment, so ask it:
+
+```bash
+curl -H "x-cron-key: $CRON_SECRET" https://your-project.vercel.app/api/health
+```
+
+It reports the database host, port and pooling mode, whether `pgbouncer` and
+`connection_limit` are set, the function's region, and how long a trivial query
+took — with no credentials in the response. It also names the misconfigurations
+that actually cost downtime here: the session pooler on the app connection, a
+missing `pgbouncer=true`, an unset `connection_limit`, and a round trip slow
+enough to mean the function and database are in different regions.
+
+A round trip over about 150 ms means different regions, and postings will be at
+risk of the transaction timeout.
+
 ## When it breaks
 
 Vercel dashboard → the deployment → **Build Logs** for a failed build, or

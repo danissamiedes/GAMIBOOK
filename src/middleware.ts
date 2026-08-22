@@ -22,6 +22,9 @@ const PUBLIC_PREFIXES = [
   // Scheduled jobs arrive with no session, by definition. The route checks
   // CRON_SECRET itself; letting it through here is not letting it through.
   "/api/cron",
+  // Same reasoning: a health check has to answer precisely when signing in
+  // does not. It checks CRON_SECRET itself.
+  "/api/health",
   "/_next",
   "/favicon.ico",
 ];

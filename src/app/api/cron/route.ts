@@ -1,5 +1,5 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { JOBS } from "@/lib/scheduler";
+import { opsAuthorised } from "@/lib/ops-auth";
 
 /**
  * Scheduled jobs for a host with no long-lived process (SPEC §7.2, §9).
@@ -16,32 +16,6 @@ import { JOBS } from "@/lib/scheduler";
  */
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-/**
- * Compare through a fixed-length digest so the check is constant-time whatever
- * the lengths are, and a wrong guess cannot be narrowed down by timing it.
- */
-function secretMatches(offered: string, expected: string): boolean {
-  const a = createHash("sha256").update(offered).digest();
-  const b = createHash("sha256").update(expected).digest();
-  return timingSafeEqual(a, b);
-}
-
-function authorised(request: Request): boolean {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return false;
-
-  // Vercel Cron sends the Authorization header itself when CRON_SECRET is set.
-  // x-cron-key is for external pingers that only offer a custom header. The
-  // secret is deliberately not accepted in the query string: URLs end up in
-  // access logs, browser history and referrers.
-  const offered =
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
-    request.headers.get("x-cron-key") ??
-    "";
-
-  return Boolean(offered) && secretMatches(offered, expected);
-}
 
 async function runJobs(only: string | null) {
   const due = only ? JOBS.filter((job) => job.name === only) : JOBS;
@@ -76,7 +50,7 @@ async function runJobs(only: string | null) {
 }
 
 async function handle(request: Request) {
-  if (!authorised(request)) {
+  if (!opsAuthorised(request)) {
     return Response.json({ error: "Not authorised" }, { status: 401 });
   }
   const only = new URL(request.url).searchParams.get("job");

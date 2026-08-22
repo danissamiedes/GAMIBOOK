@@ -293,3 +293,20 @@ describe("readReceipt", () => {
     delete process.env.ANTHROPIC_API_KEY;
   });
 });
+
+describe("readerConfigured", () => {
+  it("is off without a key and on with one", async () => {
+    vi.resetModules();
+    const previous = process.env.ANTHROPIC_API_KEY;
+
+    delete process.env.ANTHROPIC_API_KEY;
+    const off = await import("@/lib/receipts/extract");
+    expect(off.readerConfigured()).toBe(false);
+
+    process.env.ANTHROPIC_API_KEY = "test-key-not-used";
+    expect(off.readerConfigured()).toBe(true);
+
+    if (previous) process.env.ANTHROPIC_API_KEY = previous;
+    else delete process.env.ANTHROPIC_API_KEY;
+  });
+});

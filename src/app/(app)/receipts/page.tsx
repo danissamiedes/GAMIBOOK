@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
+import { readerConfigured } from "@/lib/receipts/extract";
 import {
   approveReceipt,
   dismissReceipt,
@@ -72,7 +73,12 @@ export default async function ReceiptsPage({
   ]);
 
   const open = params.open ? (receipts.find((r) => r.id === params.open) ?? null) : null;
-  const pendingCount = receipts.filter((receipt) => receipt.status === "PENDING").length;
+  const reads = readerConfigured();
+  // Only worth mentioning when reading is on and a photo slipped through
+  // unread; with reading off, every photo is "unread" and saying so is noise.
+  const pendingCount = reads
+    ? receipts.filter((receipt) => receipt.status === "PENDING").length
+    : 0;
 
   async function upload(formData: FormData) {
     "use server";
@@ -253,15 +259,26 @@ export default async function ReceiptsPage({
                           {receipt.readDescription ?? receipt.filename}
                         </div>
                         <div className="text-xs text-slate-500">
-                          {receipt.readDate ? formatAccountingDate(receipt.readDate) : "date not read"}
-                          {" · "}
-                          {receipt.readAmount
-                            ? formatMoney(
-                                money(receipt.readAmount).toFixed(2),
-                                receipt.readCurrency ?? company.baseCurrency,
-                              )
-                            : "amount not read"}
-                          {receipt.readVendorName ? ` · ${receipt.readVendorName}` : ""}
+                          {reads || receipt.readAt ? (
+                            <>
+                              {receipt.readDate
+                                ? formatAccountingDate(receipt.readDate)
+                                : "date not read"}
+                              {" · "}
+                              {receipt.readAmount
+                                ? formatMoney(
+                                    money(receipt.readAmount).toFixed(2),
+                                    receipt.readCurrency ?? company.baseCurrency,
+                                  )
+                                : "amount not read"}
+                              {receipt.readVendorName ? ` · ${receipt.readVendorName}` : ""}
+                            </>
+                          ) : (
+                            <>
+                              added {formatAccountingDate(receipt.createdAt)}
+                              {receipt.uploadedBy?.name ? ` by ${receipt.uploadedBy.name}` : ""}
+                            </>
+                          )}
                         </div>
                         {receipt.readError ? (
                           <div className="mt-1 text-xs text-amber-700 dark:text-amber-400">
@@ -284,7 +301,7 @@ export default async function ReceiptsPage({
                           </form>
                         ) : (
                           <>
-                            {receipt.status === "PENDING" ? (
+                            {reads && receipt.status === "PENDING" ? (
                               <form action={read}>
                                 <input type="hidden" name="receiptId" value={receipt.id} />
                                 <Button variant="ghost" type="submit">
@@ -441,8 +458,20 @@ export default async function ReceiptsPage({
             <Button type="submit">Upload</Button>
           </form>
           <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-            Each photo is read for its date, total and description. What it reads
-            is a suggestion — the figures you approve are the ones recorded.
+            {reads ? (
+              <>
+                Each photo is read for its date, total and description. What it
+                reads is a suggestion — the figures you approve are the ones
+                recorded.
+              </>
+            ) : (
+              <>
+                Reading photos automatically is off. Photos are stored and
+                listed here; type the date, amount and description in yourself.
+                Set ANTHROPIC_API_KEY in the deployment to turn reading on — it
+                applies to new uploads, and nothing else changes.
+              </>
+            )}
           </p>
         </Card>
       </div>

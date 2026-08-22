@@ -62,6 +62,17 @@ const SYSTEM = [
   "differ, take the amount paid.",
 ].join("\n");
 
+/**
+ * Whether automatic reading is switched on for this deployment.
+ *
+ * The screen asks before it offers a Read button: a button whose only possible
+ * outcome is an error is worse than no button, and a queue that keeps saying
+ * "not read yet" reads as broken rather than as off.
+ */
+export function readerConfigured(): boolean {
+  return Boolean(process.env.ANTHROPIC_API_KEY);
+}
+
 /** How the image is handed to the reader. */
 export type ReceiptImage = { bytes: Buffer; mimeType: string };
 

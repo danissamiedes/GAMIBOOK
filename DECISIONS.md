@@ -1264,3 +1264,16 @@ guessable public link is a slow leak of precisely that.
 
 Effort is set to `low` on the extraction call. Reading one receipt is not hard
 reasoning, and this is a per-photo cost paid every day.
+
+## The receipt inbox says when reading is off
+
+With no `ANTHROPIC_API_KEY` the inbox still worked, but it read as broken
+rather than as switched off: every row said "date not read · amount not read",
+a banner counted the unread photos, and each row offered a **Read** button
+whose only possible outcome was an error naming a setting.
+
+A button that can only fail is worse than no button. With reading off the rows
+show when the photo arrived and who added it, the unread banner is suppressed,
+Read is not rendered, and the upload panel says plainly that automatic reading
+is off and which variable turns it on. `readerConfigured()` is the one place
+that asks.

@@ -418,7 +418,7 @@ export default async function InvoicePage({
           </Card>
 
           {isOpen ? (
-            <Card>
+            <Card tone="muted">
               <h2 className="mb-3 text-sm font-semibold">Record a payment</h2>
               <form action={pay} className="space-y-3">
                 <input type="hidden" name="customerId" value={invoice.customerId} />

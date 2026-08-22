@@ -131,7 +131,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh">
-      <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      {/* A light grey band so the chrome reads as chrome: the page below it
+          is white, and the boundary is the ground changing rather than a rule
+          doing all the work. */}
+      <header className="border-b border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-900">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
           <Link
             href="/dashboard"

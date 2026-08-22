@@ -272,7 +272,7 @@ export default async function BankingPage({
         </div>
 
         <div className="min-w-0 space-y-6">
-          <Card>
+          <Card tone="muted">
             <h2 className="mb-3 text-sm font-semibold">Import a statement</h2>
             {accounts.length === 0 ? (
               <p className="text-sm text-slate-500">
@@ -301,7 +301,7 @@ export default async function BankingPage({
             )}
           </Card>
 
-          <Card>
+          <Card tone="muted">
             <h2 className="mb-3 text-sm font-semibold">Add a bank account</h2>
             <form action={createAccount} className="space-y-3">
               <Field

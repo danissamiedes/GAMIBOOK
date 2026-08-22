@@ -82,18 +82,31 @@ export function Field({
 
 export function Card({
   children,
+  tone = "default",
   className = "",
 }: {
   children: ReactNode;
+  /**
+   * "muted" is for the panel beside the content rather than the content
+   * itself — the form you type a new record into, sitting next to the list of
+   * records. A light grey ground separates the two jobs without a heading or a
+   * rule, so the eye lands on the register first and the form reads as a tool
+   * off to the side.
+   */
+  tone?: "default" | "muted";
   className?: string;
 }) {
+  const ground =
+    tone === "muted"
+      ? "border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-800/40"
+      : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900";
   return (
     <div
       // min-w-0 because a card is a container, never a source of width. As a
       // grid or flex item it otherwise defaults to min-width:auto and refuses
       // to shrink below its widest child — so a scrollable table inside it
       // pushed the whole page sideways on a phone instead of scrolling.
-      className={`min-w-0 rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 ${className}`}
+      className={`min-w-0 rounded-lg border p-5 ${ground} ${className}`}
     >
       {children}
     </div>

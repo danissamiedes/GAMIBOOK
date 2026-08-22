@@ -220,7 +220,7 @@ export default async function ConsultantBillsPage({
           )}
         </Card>
 
-        <Card>
+        <Card tone="muted">
           <h2 className="mb-3 text-sm font-semibold">Record a consultant bill</h2>
           <form action={create} className="space-y-4">
             <Field label="Date">

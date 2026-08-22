@@ -209,7 +209,7 @@ export default async function AccountsPage({
           })}
         </Card>
 
-        <Card>
+        <Card tone="muted">
           <h2 className="mb-3 text-sm font-semibold">Add an account</h2>
           <form action={addAccount} className="space-y-4">
             <Field label="Code" hint="Sorts the reports. Keep the numbering scheme consistent.">

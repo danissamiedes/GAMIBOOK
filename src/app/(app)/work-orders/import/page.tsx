@@ -73,7 +73,7 @@ export default async function ImportWorkOrdersPage({
       {params.error ? <Alert tone="error">{decodeURIComponent(params.error)}</Alert> : null}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-        <Card>
+        <Card tone="muted">
           <h2 className="mb-3 text-sm font-semibold">Upload</h2>
           <form action={upload} className="space-y-4">
             <Field label="File" hint={`.xlsx or .csv, up to ${maxImportLabel()} and 5,000 rows.`}>

@@ -280,7 +280,7 @@ export default async function TimesheetsPage({
           ) : null}
         </Card>
 
-        <Card>
+        <Card tone="muted">
           <h2 className="mb-3 text-sm font-semibold">Add or correct an entry</h2>
           <form action={saveEntry} className="space-y-3">
             <Field label="Entry id" hint="Leave blank to add a new entry.">

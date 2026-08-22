@@ -440,7 +440,7 @@ export default async function RecurringInvoicesPage({
           </Card>
         </div>
 
-        <Card>
+        <Card tone="muted">
           <h2 className="mb-3 text-sm font-semibold">New template</h2>
           {customers.length === 0 ? (
             <Alert tone="info">

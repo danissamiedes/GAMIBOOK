@@ -292,7 +292,7 @@ export default async function UsersPage({
           ) : null}
         </Card>
 
-        <Card>
+        <Card tone="muted">
           <h2 className="mb-3 text-sm font-semibold">Invite someone</h2>
           <form action={invite} className="space-y-4">
             <Field label="Email">

@@ -95,7 +95,7 @@ export default async function ItemsPage({
           )}
         </Card>
 
-        <Card>
+        <Card tone="muted">
           <h2 className="mb-3 text-sm font-semibold">Add an item</h2>
           <form action={create} className="space-y-4">
             <Field label="Name">

@@ -364,7 +364,7 @@ export default async function BillPaymentsPage({
           )}
         </Card>
 
-        <Card>
+        <Card tone="muted">
           <h2 className="mb-3 text-sm font-semibold">Record a payment</h2>
 
           {/* Choosing the payee reloads with their open documents: one bank

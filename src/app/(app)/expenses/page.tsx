@@ -220,7 +220,7 @@ export default async function ExpensesPage({
           )}
         </Card>
 
-        <Card>
+        <Card tone="muted">
           <h2 className="mb-3 text-sm font-semibold">
             {tab === "bill" ? "Record a bill" : "Record a direct expense"}
           </h2>

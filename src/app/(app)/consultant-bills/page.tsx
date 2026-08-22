@@ -220,7 +220,7 @@ export default async function ConsultantBillsPage({
                   <th className="py-2">Description</th>
                   <th className="py-2">Due</th>
                   <th className="py-2 text-right">Amount</th>
-                  <th className="py-2 text-right">Balance</th>
+                  <th className="py-2 pr-4 text-right">Balance</th>
                   <th />
                   <th />
                 </tr>
@@ -234,10 +234,10 @@ export default async function ConsultantBillsPage({
                     <td className="py-2 text-slate-500">
                       {bill.dueDate ? formatAccountingDate(bill.dueDate) : "—"}
                     </td>
-                    <td className="py-2 text-right tabular-nums">
+                    <td className="py-2 pr-4 text-right tabular-nums">
                       {formatMoney(bill.amount.toFixed(2), bill.currency)}
                     </td>
-                    <td className="py-2 text-right tabular-nums">
+                    <td className="py-2 pr-4 text-right tabular-nums">
                       {formatMoney(bill.balanceDue.toFixed(2), bill.currency)}
                     </td>
                     <td className="py-2 text-right">
@@ -296,12 +296,17 @@ export default async function ConsultantBillsPage({
             className="space-y-4"
           >
             {editing ? <input type="hidden" name="expenseId" value={editing.id} /> : null}
+            {/* The same order as the expenses form, so moving between the
+                two screens does not mean re-learning where things are. */}
             <Field label="Date">
               <Input
                 type="date"
                 name="date"
                 defaultValue={formatAccountingDate(editing?.date ?? today())}
               />
+            </Field>
+            <Field label="Reference">
+              <Input name="reference" defaultValue={editing?.reference ?? ""} />
             </Field>
             <Field label="Consultant">
               <Select name="vendorId" defaultValue={editing?.vendorId ?? consultants[0]?.id} required>
@@ -323,29 +328,6 @@ export default async function ConsultantBillsPage({
                 defaultValue={editing ? editing.amount.toFixed(2) : ""}
               />
             </Field>
-            <Field label="Currency">
-              <Select
-                name="currency"
-                defaultValue={
-                  editing?.currency ?? consultants[0]?.defaultCurrency ?? company.baseCurrency
-                }
-              >
-                {[...new Set([company.baseCurrency, ...consultants.map((c) => c.defaultCurrency)])].map(
-                  (currency) => (
-                    <option key={currency} value={currency}>
-                      {currency}
-                    </option>
-                  ),
-                )}
-              </Select>
-            </Field>
-            <Field label={`Exchange rate (${company.baseCurrency} per unit)`}>
-              <Input
-                name="fxRate"
-                inputMode="decimal"
-                defaultValue={editing ? editing.fxRate.toString() : "1"}
-              />
-            </Field>
             <Field label="Expense account">
               <Select
                 name="expenseAccountId"
@@ -359,6 +341,8 @@ export default async function ConsultantBillsPage({
                 ))}
               </Select>
             </Field>
+            {/* A bill is owed rather than paid, so this sits where a direct
+                expense keeps "Paid from". */}
             <Field label="Due date">
               <Input
                 type="date"
@@ -366,11 +350,33 @@ export default async function ConsultantBillsPage({
                 defaultValue={editing?.dueDate ? formatAccountingDate(editing.dueDate) : ""}
               />
             </Field>
-            <Field label="Reference">
-              <Input name="reference" defaultValue={editing?.reference ?? ""} />
-            </Field>
-            <div className="flex items-center gap-2">
-              <Button type="submit">{editing ? "Save changes" : "Record bill"}</Button>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Currency">
+                <Select
+                  name="currency"
+                  defaultValue={
+                    editing?.currency ?? consultants[0]?.defaultCurrency ?? company.baseCurrency
+                  }
+                >
+                  {[...new Set([company.baseCurrency, ...consultants.map((c) => c.defaultCurrency)])].map(
+                    (currency) => (
+                      <option key={currency} value={currency}>
+                        {currency}
+                      </option>
+                    ),
+                  )}
+                </Select>
+              </Field>
+              <Field label={`Exchange rate (${company.baseCurrency} per unit)`}>
+                <Input
+                  name="fxRate"
+                  inputMode="decimal"
+                  defaultValue={editing ? editing.fxRate.toString() : "1"}
+                />
+              </Field>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button type="submit">Save</Button>
               {editing ? (
                 <Link
                   href="/consultant-bills"

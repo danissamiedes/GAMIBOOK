@@ -88,7 +88,7 @@ as a Preview and Production stays permanently empty.
 | `S3_REGION` | the project's region |
 | `S3_ACCESS_KEY_ID` | Supabase S3 access key |
 | `S3_SECRET_ACCESS_KEY` | its secret |
-| `S3_FORCE_PATH_STYLE` | `true` |
+| `S3_FORCE_PATH_STYLE` | `true` (the default whenever `S3_ENDPOINT` is set) |
 | `EMAIL_DRY_RUN` | `true` until Gmail is connected |
 
 Vercel pre-fills these from `.env.example`, where every value is a placeholder

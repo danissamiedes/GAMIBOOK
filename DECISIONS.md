@@ -1195,3 +1195,31 @@ was gated on `amountPaid` being zero. A direct expense is paid the instant it
 is recorded, so that hid the link on every direct expense there was. The gate
 is now the same condition the service enforces — whether a live payment is
 applied — which is what it should have been read from in the first place.
+
+## Path-style addressing defaults on with a custom endpoint
+
+Storage was configured correctly and still failed, with this on the screen:
+
+    write EPROTO ...:SSL routines:ssl3_read_bytes:ssl/tls alert handshake
+    failure:.../rec_layer_s3.c:918:SSL alert number 40
+
+`S3_FORCE_PATH_STYLE` was read as `process.env.S3_FORCE_PATH_STYLE === "true"`,
+so anything but that exact string meant subdomain addressing: the request goes
+to `ledger-files.abcd.supabase.co` instead of `abcd.supabase.co/ledger-files`.
+Supabase's certificate covers `*.supabase.co`, a wildcard matches exactly one
+label, so the host has no certificate for that name and aborts the handshake.
+Alert 40 is the server saying so, and it mentions neither buckets nor
+subdomains nor the setting responsible.
+
+Two changes. The value is now read loosely — `TRUE`, `1`, `yes` and `on` all
+mean yes, because someone who typed one of those meant yes and treating it as
+no sends them back to the handshake error. And with no value set it defaults to
+**on whenever `S3_ENDPOINT` is set**, off otherwise: every S3-compatible
+service that is not AWS needs path style, and AWS is the only one with no
+custom endpoint. A setting whose wrong value produces a line of OpenSSL
+internals should not be one you have to know to set.
+
+`StorageUnavailableError` also translates now. A handshake failure gets a
+sentence naming the likely cause and the setting; a signature or access-denied
+error says the endpoint answered so it is the key pair. The driver's own words
+are kept on the end for whoever needs them.

@@ -3,7 +3,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { ConfigurationError, StorageUnavailableError } from "@/lib/errors";
-import { LocalDiskAdapter, resetStorage, storage, storageKeys, withStorage } from "@/lib/storage";
+import {
+  LocalDiskAdapter,
+  pathStyle,
+  resetStorage,
+  storage,
+  storageKeys,
+  withStorage,
+} from "@/lib/storage";
 
 describe("local disk storage adapter", () => {
   let root: string;
@@ -123,5 +130,57 @@ describe("withStorage", () => {
     }).catch((error: unknown) => error);
 
     expect(thrown).toBe(original);
+  });
+});
+
+describe("pathStyle", () => {
+  const ENDPOINT = "https://abcd.supabase.co/storage/v1/s3";
+
+  it("defaults on when a custom endpoint is set", () => {
+    expect(pathStyle(undefined, ENDPOINT)).toBe(true);
+    expect(pathStyle("", ENDPOINT)).toBe(true);
+  });
+
+  it("defaults off against real AWS, which has no custom endpoint", () => {
+    expect(pathStyle(undefined, undefined)).toBe(false);
+  });
+
+  it("reads an explicit yes loosely, however it was typed", () => {
+    for (const value of ["true", "TRUE", " True ", "1", "yes", "on"]) {
+      expect(pathStyle(value, undefined)).toBe(true);
+    }
+  });
+
+  it("honours an explicit no even with a custom endpoint", () => {
+    for (const value of ["false", "FALSE", "0", "no", "off"]) {
+      expect(pathStyle(value, ENDPOINT)).toBe(false);
+    }
+  });
+});
+
+describe("StorageUnavailableError", () => {
+  it("translates a TLS handshake failure into the setting that causes it", () => {
+    const error = new StorageUnavailableError(
+      "upload",
+      new Error(
+        "write EPROTO 0022B8:error:0A000410:SSL routines:ssl3_read_bytes:ssl/tls alert handshake failure",
+      ),
+    );
+    expect(error.message).toContain("S3_FORCE_PATH_STYLE=true");
+    expect(error.message).toContain("subdomain of the endpoint");
+    // The driver's own words survive, for anyone who needs them.
+    expect(error.message).toContain("alert handshake failure");
+  });
+
+  it("points at the credentials when the endpoint answered", () => {
+    const error = new StorageUnavailableError("upload", new Error("SignatureDoesNotMatch"));
+    expect(error.message).toContain("key pair");
+    expect(error.message).not.toContain("S3_FORCE_PATH_STYLE=true");
+  });
+
+  it("says nothing extra when it has nothing to add", () => {
+    const error = new StorageUnavailableError("upload", new Error("socket hang up"));
+    expect(error.message).toContain("socket hang up");
+    expect(error.message).not.toContain("subdomain");
   });
 });

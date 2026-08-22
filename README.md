@@ -493,7 +493,7 @@ openssl rand -base64 32   # CRON_SECRET
 | `S3_ENDPOINT` | `https://<project-ref>.storage.supabase.co/storage/v1/s3` |
 | `S3_REGION` | the project's region, e.g. `ap-southeast-1` |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | the Supabase S3 access key pair |
-| `S3_FORCE_PATH_STYLE` | `true` |
+| `S3_FORCE_PATH_STYLE` | `true` (the default whenever `S3_ENDPOINT` is set) |
 | `EMAIL_DRY_RUN` | `true` until Gmail is connected |
 | `SCHEDULER_ENABLED` | leave unset — see **Scheduled jobs** below |
 

@@ -29,12 +29,13 @@ export function storage(): StorageAdapter {
   if (driver === "s3") {
     const bucket = process.env.S3_BUCKET;
     if (!bucket) throw new ConfigurationError("STORAGE_DRIVER=s3 requires S3_BUCKET to be set.");
+    const endpoint = process.env.S3_ENDPOINT;
     cached = new S3Adapter(bucket, {
       region: process.env.S3_REGION,
-      endpoint: process.env.S3_ENDPOINT,
+      endpoint,
       accessKeyId: process.env.S3_ACCESS_KEY_ID,
       secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
-      forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
+      forcePathStyle: pathStyle(process.env.S3_FORCE_PATH_STYLE, endpoint),
     });
     return cached;
   }
@@ -72,6 +73,31 @@ export async function withStorage<T>(operation: string, run: () => Promise<T>): 
     if (thrown instanceof ConfigurationError) throw thrown;
     throw new StorageUnavailableError(operation, thrown);
   }
+}
+
+
+/**
+ * Whether to address the bucket by path (`host/bucket/key`) rather than by
+ * subdomain (`bucket.host/key`).
+ *
+ * Default it on whenever a custom endpoint is set, because every S3-compatible
+ * service that is not AWS needs it — and the failure when it is missing is
+ * genuinely undiagnosable. Subdomain addressing asks for
+ * `ledger-files.abcd.supabase.co`, Supabase's certificate covers
+ * `*.supabase.co`, and a wildcard matches exactly one label, so the server
+ * cannot answer for that name and aborts the TLS handshake. What reaches the
+ * screen is `SSL alert number 40` from inside OpenSSL, which says nothing about
+ * buckets, subdomains or the setting that caused it.
+ *
+ * An explicit value always wins, and is read loosely: someone who typed `TRUE`
+ * or `1` meant yes, and silently treating that as no is how they end up back at
+ * the handshake error.
+ */
+export function pathStyle(value: string | undefined, endpoint: string | undefined): boolean {
+  const explicit = (value ?? "").trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(explicit)) return true;
+  if (["false", "0", "no", "off"].includes(explicit)) return false;
+  return Boolean(endpoint);
 }
 
 /** Test seam only. */

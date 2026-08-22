@@ -75,10 +75,36 @@ export class StorageUnavailableError extends ConfigurationError {
     const detail = cause instanceof Error ? cause.message : String(cause);
     super(
       `File storage rejected the ${operation}. Check S3_BUCKET, S3_ENDPOINT, S3_REGION ` +
-        `and the access key pair in the deployment's settings, then redeploy. ` +
-        `The storage service said: ${detail}`,
+        `and the access key pair in the deployment's settings, then redeploy.` +
+        explain(detail) +
+        ` The storage service said: ${detail}`,
     );
     this.name = "StorageUnavailableError";
     this.cause = cause;
   }
+}
+
+/**
+ * A sentence of translation for the failures whose own wording explains
+ * nothing. A TLS handshake aborted by the storage host almost always means the
+ * request went to `bucket.host` instead of `host/bucket`, and the host has no
+ * certificate for that name — but what the driver reports is a line of OpenSSL
+ * internals with no mention of a bucket.
+ */
+function explain(detail: string): string {
+  const tls = /handshake|EPROTO|ALTNAME|alert number 40|SSL routines/i.test(detail);
+  if (tls) {
+    return (
+      " This looks like the bucket being addressed as a subdomain of the endpoint," +
+      " which most S3-compatible hosts have no certificate for. Set" +
+      " S3_FORCE_PATH_STYLE=true, and check S3_ENDPOINT is the host on its own."
+    );
+  }
+  if (/AccessDenied|InvalidAccessKeyId|SignatureDoesNotMatch/i.test(detail)) {
+    return " The endpoint answered, so this is the key pair or the bucket's permissions.";
+  }
+  if (/NoSuchBucket/i.test(detail)) {
+    return " The endpoint answered but has no bucket by that name.";
+  }
+  return "";
 }

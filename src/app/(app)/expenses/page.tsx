@@ -233,8 +233,8 @@ export default async function ExpensesPage({
                   <th className="py-2">Date</th>
                   <th className="py-2">Description</th>
                   <th className="py-2">Vendor</th>
-                  <th className="py-2 text-right">Amount</th>
-                  {tab === "bill" ? <th className="py-2 text-right">Balance</th> : null}
+                  <th className="py-2 pr-4 text-right">Amount</th>
+                  {tab === "bill" ? <th className="py-2 pr-4 text-right">Balance</th> : null}
                   <th className="py-2">Receipt</th>
                   <th />
                   {tab === "bill" ? <th /> : null}
@@ -246,11 +246,11 @@ export default async function ExpensesPage({
                     <td className="py-2">{formatAccountingDate(expense.date)}</td>
                     <td className="py-2">{expense.description}</td>
                     <td className="py-2 text-slate-500">{expense.vendor?.name ?? "—"}</td>
-                    <td className="py-2 text-right tabular-nums">
+                    <td className="py-2 pr-4 text-right tabular-nums">
                       {formatMoney(expense.amount.toFixed(2), expense.currency)}
                     </td>
                     {tab === "bill" ? (
-                      <td className="py-2 text-right tabular-nums">
+                      <td className="py-2 pr-4 text-right tabular-nums">
                         {formatMoney(expense.balanceDue.toFixed(2), expense.currency)}
                       </td>
                     ) : null}
@@ -338,6 +338,10 @@ export default async function ExpensesPage({
           >
             <input type="hidden" name="kind" value={tab === "bill" ? "BILL" : "DIRECT"} />
             {editing ? <input type="hidden" name="expenseId" value={editing.id} /> : null}
+            {/* Same order as the receipt entry form: what and when, who,
+                what it was, what it cost, where it lands, then the currency
+                pair. Currency and its rate share a row because both are
+                narrow and always read together. */}
             <Field label="Date">
               <Input
                 type="date"
@@ -345,8 +349,8 @@ export default async function ExpensesPage({
                 defaultValue={formatAccountingDate(editing?.date ?? today())}
               />
             </Field>
-            <Field label="Description">
-              <Input name="description" required defaultValue={editing?.description ?? ""} />
+            <Field label="Reference">
+              <Input name="reference" defaultValue={editing?.reference ?? ""} />
             </Field>
             <Field label="Vendor" hint={tab === "bill" ? "Required — this is who you owe." : undefined}>
               <Select name="vendorId" defaultValue={editing?.vendorId ?? ""} required={tab === "bill"}>
@@ -358,30 +362,15 @@ export default async function ExpensesPage({
                 ))}
               </Select>
             </Field>
+            <Field label="Description">
+              <Input name="description" required defaultValue={editing?.description ?? ""} />
+            </Field>
             <Field label="Amount">
               <Input
                 name="amount"
                 inputMode="decimal"
                 required
                 defaultValue={editing ? editing.amount.toFixed(2) : ""}
-              />
-            </Field>
-            <Field label="Currency">
-              <Select name="currency" defaultValue={editing?.currency ?? company.baseCurrency}>
-                {[...new Set([company.baseCurrency, ...vendors.map((v) => v.defaultCurrency)])].map(
-                  (currency) => (
-                    <option key={currency} value={currency}>
-                      {currency}
-                    </option>
-                  ),
-                )}
-              </Select>
-            </Field>
-            <Field label={`Exchange rate (${company.baseCurrency} per unit)`}>
-              <Input
-                name="fxRate"
-                inputMode="decimal"
-                defaultValue={editing ? editing.fxRate.toString() : "1"}
               />
             </Field>
             <Field label="Expense account">
@@ -420,13 +409,28 @@ export default async function ExpensesPage({
                 </Select>
               </Field>
             )}
-            <Field label="Reference">
-              <Input name="reference" defaultValue={editing?.reference ?? ""} />
-            </Field>
-            <div className="flex items-center gap-2">
-              <Button type="submit">
-                {editing ? "Save changes" : tab === "bill" ? "Record bill" : "Record expense"}
-              </Button>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Currency">
+                <Select name="currency" defaultValue={editing?.currency ?? company.baseCurrency}>
+                  {[...new Set([company.baseCurrency, ...vendors.map((v) => v.defaultCurrency)])].map(
+                    (currency) => (
+                      <option key={currency} value={currency}>
+                        {currency}
+                      </option>
+                    ),
+                  )}
+                </Select>
+              </Field>
+              <Field label={`Exchange rate (${company.baseCurrency} per unit)`}>
+                <Input
+                  name="fxRate"
+                  inputMode="decimal"
+                  defaultValue={editing ? editing.fxRate.toString() : "1"}
+                />
+              </Field>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button type="submit">Save</Button>
               {editing ? (
                 <Link
                   href={`/expenses?tab=${tab}`}

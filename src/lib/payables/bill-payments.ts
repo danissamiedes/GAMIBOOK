@@ -1,6 +1,7 @@
 import type { PaymentMethod, Prisma, Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { PostingError } from "@/lib/errors";
+import { formatAccountingDate } from "@/lib/dates";
 import { money, sum, toCents } from "@/lib/money";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { systemAccount } from "@/lib/ledger/chart";
@@ -544,9 +545,9 @@ export function whyNotDeletable(input: DeletableInput): string | null {
     return "A bank line is matched to this payment. Unmatch it first, or reverse the payment instead.";
   }
   if (input.booksClosedThrough && entry.date <= input.booksClosedThrough) {
-    return `The books are closed through ${input.booksClosedThrough
-      .toISOString()
-      .slice(0, 10)}. A payment dated on or before that can only be reversed, never deleted.`;
+    return `The books are closed through ${formatAccountingDate(
+      input.booksClosedThrough,
+    )}. A payment dated on or before that can only be reversed, never deleted.`;
   }
 
   return null;

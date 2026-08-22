@@ -8,6 +8,7 @@ import { resolveActiveCompanyId, setActiveCompany } from "@/lib/active-company";
 import { CompanySwitcher } from "@/components/company-switcher";
 import { Button } from "@/components/ui";
 import { NavMenu, type NavGroup } from "@/components/nav-menu";
+import { ClosedPeriodNotice } from "@/components/closed-period-notice";
 
 /**
  * The accounting shell. Everything under it is OWNER/BOOKKEEPER territory:
@@ -134,6 +135,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         scope.hasSection("SETTINGS") && { href: "/settings/company", label: "Company" },
         { href: "/email-log", label: "Email log" },
         scope.role === "OWNER" && { href: "/settings/users", label: "Users" },
+        // Owners only, like Users: the page refuses anyone else, and a link
+        // that leads to a refusal is worse than no link.
+        scope.role === "OWNER" && { href: "/close-period", label: "Close Period" },
       ]),
     },
   ]).filter((group) => group.items.length > 0 || group.href);
@@ -168,7 +172,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           </form>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-8">
+        {/* Above the page, not inside one form: every posting form in the app
+            is covered, including ones added later (SPEC §4.2 rule 4). */}
+        <ClosedPeriodNotice companyId={activeCompanyId} role={scope.role} />
+        {children}
+      </main>
     </div>
   );
 }

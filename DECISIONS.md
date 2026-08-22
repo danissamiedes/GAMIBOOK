@@ -1317,3 +1317,38 @@ red and visible, the Vercel one is quiet.
 Worth knowing if the deployment ever drops to Vercel's Hobby plan: cron there is
 limited to once a day, and the GitHub workflow becomes the only hourly one.
 
+
+## Close Period: one lock, not a vendor-only one
+
+The ask was a month-end close "for the Vendor section". It is built as a
+company-wide close, under **Other → Close Period**, owner-only.
+
+A close that froze bills and direct expenses but left invoices and customer
+payments editable would give a closed month a P&L that can still move — which
+is the one thing closing a month exists to prevent. So the page sets the
+`booksClosedThrough` date SPEC §4.2 rule 4 already describes, and the lock stays
+where it was: a single `assertPeriodOpen` inside `postJournalEntry`. Every
+document in the app posts through that one function (rule 5), so the close
+covers the seven document types, the reversals behind every edit, the same-day
+payment delete, and the bank matcher, without any of them being told about it.
+
+Two constraints the column itself does not carry:
+
+- **Month ends only.** `booksClosedThrough` is a plain DATE and would take the
+  14th happily. Closing mid-month means a reported month can still change.
+- **Only months that have ended.** Closing the month you are standing in
+  rejects the rest of today's work with a message about closed books, and the
+  way out — reopen, post, close again — is not obvious from the message.
+
+The owner exemption in rule 4 is kept: a non-owner is refused, an owner is
+warned and let through. It means a genuine correction to a filed month does not
+need the period unlocked and locked again, and the correction is audited either
+way. The warning is one component mounted in the app layout rather than pasted
+into all fifteen posting forms — it watches the posting-date inputs on the page
+(`date`, `issueDate`, `orderDate`, deliberately not the report filters or
+`dueDate`) and appears when one of them holds a date inside the closed period.
+A form added later is covered without anyone remembering to add it.
+
+Moving the date backwards is audited as `period.reopened` rather than
+`period.closed`, and the page shows the trail: reopening a month someone else
+closed should not read as a close in the history.

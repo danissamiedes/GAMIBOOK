@@ -1,6 +1,7 @@
 import type { JournalSourceType, Prisma, Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { PostingError } from "@/lib/errors";
+import { formatAccountingDate } from "@/lib/dates";
 import { money, sum, toCents } from "@/lib/money";
 import { SYSTEM_ACCOUNTS } from "./accounts";
 
@@ -87,9 +88,9 @@ async function assertPeriodOpen(
     // SPEC §4.2 rule 4: only an OWNER may post into a closed period.
     if (role !== "OWNER") {
       throw new PostingError(
-        `The books are closed through ${company.booksClosedThrough
-          .toISOString()
-          .slice(0, 10)}. Only an owner can post on or before that date.`,
+        `The books are closed through ${formatAccountingDate(
+          company.booksClosedThrough,
+        )}. Only an owner can post on or before that date.`,
       );
     }
   }

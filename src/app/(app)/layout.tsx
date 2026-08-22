@@ -118,7 +118,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     {
       label: "Files",
       items: only([
-        scope.hasSection("VENDORS") && { href: "/receipts", label: "Receipt inbox" },
+        // Owners only. Hiding the link is not the control — the page enforces
+        // it too — but a link that leads to a refusal is worse than no link.
+        scope.role === "OWNER" &&
+          scope.hasSection("VENDORS") && { href: "/receipts", label: "Receipt inbox" },
       ]),
     },
     {

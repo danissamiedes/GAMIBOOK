@@ -15,6 +15,8 @@ import { receiptBytes } from "@/lib/receipts/service";
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const scope = await sectionScope("VENDORS");
+  // Same wall as the queue itself: the photo is the thing being protected.
+  scope.requireRole("OWNER");
 
   const receipt = await prisma.receiptUpload.findFirst({
     where: { id, ...scope.where },

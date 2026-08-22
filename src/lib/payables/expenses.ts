@@ -219,6 +219,8 @@ export async function updateExpense(input: {
   dueDate?: Date | null;
   description: string;
   reference?: string | null;
+  /** A link to the file wherever else it lives. */
+  receiptUrl?: string | null;
   isBillable?: boolean;
   customerId?: string | null;
   userId?: string | null;
@@ -305,6 +307,7 @@ export async function updateExpense(input: {
         amount,
         description: input.description,
         reference: input.reference ?? null,
+        receiptUrl: input.receiptUrl ?? null,
         isBillable: input.isBillable ?? false,
         customerId: input.customerId ?? null,
         dueDate: kind === "BILL" ? (input.dueDate ? accountingDate(input.dueDate) : null) : null,

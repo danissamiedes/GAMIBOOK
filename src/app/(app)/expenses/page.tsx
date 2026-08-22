@@ -100,6 +100,7 @@ export default async function ExpensesPage({
         dueDate: parseAccountingDate(String(formData.get("dueDate") || "")),
         description: String(formData.get("description") || "").trim(),
         reference: String(formData.get("reference") || "").trim() || null,
+        receiptUrl: safeExternalUrl(String(formData.get("fileUrl") || "")),
         userId: inner.userId,
         role: inner.role,
       });
@@ -140,6 +141,7 @@ export default async function ExpensesPage({
         dueDate: parseAccountingDate(String(formData.get("dueDate") || "")),
         description: String(formData.get("description") || "").trim(),
         reference: String(formData.get("reference") || "").trim() || null,
+        receiptUrl: safeExternalUrl(String(formData.get("fileUrl") || "")),
         userId: inner.userId,
         role: inner.role,
       });
@@ -216,6 +218,9 @@ export default async function ExpensesPage({
         <a href="/expenses?tab=bill">
           <Button variant={tab === "bill" ? "primary" : "secondary"}>Bills</Button>
         </a>
+        <a href={`/expenses/export?tab=${tab}`} className="ml-auto">
+          <Button variant="secondary">Export to Excel</Button>
+        </a>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
@@ -231,11 +236,14 @@ export default async function ExpensesPage({
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                   <th className="py-2">Date</th>
-                  <th className="py-2">Description</th>
+                  <th className="py-2">Reference</th>
                   <th className="py-2">Vendor</th>
+                  <th className="py-2">Description</th>
                   <th className="py-2 pr-4 text-right">Amount</th>
+                  {/* Kept on bills only: without it the list cannot say what is
+                      still owed, which is the reason to look at it. */}
                   {tab === "bill" ? <th className="py-2 pr-4 text-right">Balance</th> : null}
-                  <th className="py-2">Receipt</th>
+                  <th className="py-2">File link</th>
                   <th />
                   {tab === "bill" ? <th /> : null}
                 </tr>
@@ -244,8 +252,9 @@ export default async function ExpensesPage({
                 {rows.map((expense) => (
                   <tr key={expense.id} className="border-b border-slate-100 dark:border-slate-800/60">
                     <td className="py-2">{formatAccountingDate(expense.date)}</td>
-                    <td className="py-2">{expense.description}</td>
+                    <td className="py-2 text-slate-500">{expense.reference ?? "—"}</td>
                     <td className="py-2 text-slate-500">{expense.vendor?.name ?? "—"}</td>
+                    <td className="py-2">{expense.description}</td>
                     <td className="py-2 pr-4 text-right tabular-nums">
                       {formatMoney(expense.amount.toFixed(2), expense.currency)}
                     </td>
@@ -429,6 +438,18 @@ export default async function ExpensesPage({
                 />
               </Field>
             </div>
+            <Field
+              label="File link"
+              hint="Optional. A Google Drive link, say — it becomes a click-through on the list."
+            >
+              <Input
+                name="fileUrl"
+                type="url"
+                inputMode="url"
+                placeholder="https://drive.google.com/…"
+                defaultValue={editing?.receiptUrl ?? ""}
+              />
+            </Field>
             <div className="flex items-center justify-end gap-2">
               <Button type="submit">Save</Button>
               {editing ? (

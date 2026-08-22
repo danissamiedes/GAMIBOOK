@@ -44,6 +44,9 @@ export default async function ReceiptsPage({
   searchParams: Promise<{ error?: string; saved?: string; show?: string; open?: string }>;
 }) {
   const scope = await sectionScope("VENDORS");
+  // The nav hides this from a bookkeeper; this is what actually stops them.
+  // A typed URL has to hit the same wall a missing link implies.
+  scope.requireRole("OWNER");
   const params = await searchParams;
   const showDismissed = params.show === "dismissed";
 

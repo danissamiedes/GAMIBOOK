@@ -8,6 +8,7 @@ import { recordExpense, updateExpense } from "@/lib/payables/expenses";
 import Link from "next/link";
 import { recordBillPayment } from "@/lib/payables/bill-payments";
 import { money, parseMoney } from "@/lib/money";
+import { linkLabel, safeExternalUrl } from "@/lib/links";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
@@ -254,14 +255,14 @@ export default async function ExpensesPage({
                       </td>
                     ) : null}
                     <td className="py-2 text-xs">
-                      {expense.receiptUrl ? (
+                      {safeExternalUrl(expense.receiptUrl) ? (
                         <a
                           className="underline"
-                          href={expense.receiptUrl}
+                          href={safeExternalUrl(expense.receiptUrl)!}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noreferrer noopener"
                         >
-                          Drive
+                          {linkLabel(safeExternalUrl(expense.receiptUrl)!)}
                         </a>
                       ) : expense.receipt ? (
                         <Link

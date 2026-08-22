@@ -33,7 +33,7 @@ export async function recordExpense(input: {
   description: string;
   reference?: string | null;
   receiptFileKey?: string | null;
-  /// A link to the receipt where it lives outside the app.
+  /** A link to the file wherever else it lives. */
   receiptUrl?: string | null;
   isBillable?: boolean;
   customerId?: string | null;

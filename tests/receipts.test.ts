@@ -62,7 +62,7 @@ describe("receipt inbox", () => {
 
     expect(receipt.status).toBe("PENDING");
     expect(receipt.fileKey).toContain(fixture.company.id);
-    expect(await storage().exists(receipt.fileKey!)).toBe(true);
+    expect(await storage().exists(receipt.fileKey)).toBe(true);
     expect(await prisma.journalEntry.count()).toBe(0);
     expect(await prisma.expense.count()).toBe(0);
   });
@@ -218,7 +218,7 @@ describe("receipt inbox", () => {
     });
     expect(dismissed.status).toBe("DISMISSED");
     expect(dismissed.dismissedReason).toBe("Personal, not the company's");
-    expect(await storage().exists(receipt.fileKey!)).toBe(true);
+    expect(await storage().exists(receipt.fileKey)).toBe(true);
 
     const restored = await restoreReceipt(fixture.company.id, receipt.id);
     expect(restored.status).toBe("PENDING");
@@ -308,5 +308,65 @@ describe("readerConfigured", () => {
 
     if (previous) process.env.ANTHROPIC_API_KEY = previous;
     else delete process.env.ANTHROPIC_API_KEY;
+  });
+});
+
+describe("a typed-in file link", () => {
+  it("is kept on the expense, and only if it is a real web link", async () => {
+    await resetDatabase();
+    resetStorage();
+    process.env.STORAGE_DRIVER = "local";
+    process.env.STORAGE_LOCAL_PATH = "./storage-test";
+    const fixture = await makeCompanyWithChart("Link Co");
+    const owner = await makeUser("OWNER", fixture.company.id);
+
+    const good = await uploadReceipt({
+      companyId: fixture.company.id,
+      userId: owner.id,
+      filename: "a.png",
+      mimeType: "image/png",
+      bytes: PIXEL,
+    });
+    const { expense } = await approveReceipt({
+      companyId: fixture.company.id,
+      receiptId: good.id,
+      kind: "DIRECT",
+      date: new Date(Date.UTC(2026, 7, 15)),
+      amount: "100.00",
+      currency: "PHP",
+      description: "With a link",
+      expenseAccountId: fixture.code("6300").id,
+      paymentAccountId: fixture.code("1000").id,
+      fileUrl: "https://drive.google.com/file/d/abc123/view",
+      userId: owner.id,
+      role: "OWNER",
+    });
+    expect(expense.receiptUrl).toBe("https://drive.google.com/file/d/abc123/view");
+    // The photo is kept too — a link is not a substitute for the evidence.
+    expect(expense.receiptFileKey).toBe(good.fileKey);
+
+    const bad = await uploadReceipt({
+      companyId: fixture.company.id,
+      userId: owner.id,
+      filename: "b.png",
+      mimeType: "image/png",
+      bytes: PIXEL,
+    });
+    const { expense: second } = await approveReceipt({
+      companyId: fixture.company.id,
+      receiptId: bad.id,
+      kind: "DIRECT",
+      date: new Date(Date.UTC(2026, 7, 15)),
+      amount: "100.00",
+      currency: "PHP",
+      description: "With a nasty link",
+      expenseAccountId: fixture.code("6300").id,
+      paymentAccountId: fixture.code("1000").id,
+      // A scheme that would run as script the moment somebody clicked it.
+      fileUrl: "javascript:alert(document.cookie)",
+      userId: owner.id,
+      role: "OWNER",
+    });
+    expect(second.receiptUrl).toBeNull();
   });
 });

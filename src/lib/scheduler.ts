@@ -1,7 +1,6 @@
 import { autoCloseStaleEntries } from "@/lib/time/clock";
 import { runRecurringInvoices } from "@/lib/invoices/recurring";
 import { pruneRateLimits } from "@/lib/rate-limit";
-import { syncAllDriveFolders } from "@/lib/drive/sync";
 
 /**
  * In-process scheduler (SPEC §7.2, §9): the stale-shift auto-close and the
@@ -33,15 +32,6 @@ export const JOBS: Job[] = [
     name: "recurring-invoices",
     everyMinutes: 60,
     run: () => runRecurringInvoices(),
-  },
-  {
-    // Every knock re-scans the whole watched folder rather than asking for
-    // "what is new": the (companyId, sourceFileId) unique index makes that
-    // idempotent, and a "since last sync" filter quietly misses a file that
-    // lands while a scan is running.
-    name: "drive-folder-sync",
-    everyMinutes: 15,
-    run: () => syncAllDriveFolders(),
   },
   {
     // Housekeeping. Nothing depends on it — an expired window is ignored

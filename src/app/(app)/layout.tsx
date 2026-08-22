@@ -119,7 +119,6 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       label: "Files",
       items: only([
         scope.hasSection("VENDORS") && { href: "/receipts", label: "Receipt inbox" },
-        scope.hasSection("SETTINGS") && { href: "/settings/drive", label: "Google Drive" },
       ]),
     },
     {

@@ -7,8 +7,8 @@ import { isSupportedCurrency } from "@/lib/currency";
 import { storage, storageKeys, withStorage } from "@/lib/storage";
 import { writeAudit } from "@/lib/audit";
 import { recordExpense } from "@/lib/payables/expenses";
+import { safeExternalUrl } from "@/lib/links";
 import { readReceipt } from "./extract";
-import { downloadFile } from "@/lib/drive/client";
 
 /**
  * The receipt inbox (SPEC §8.2 extension).
@@ -110,24 +110,13 @@ export async function extractReceipt(companyId: string, receiptId: string) {
 }
 
 /**
- * The image itself, from wherever it lives.
+ * The image itself.
  *
- * A receipt that came from a watched Drive folder was never copied in, so it
- * is fetched from Drive when something actually needs the pixels — reading it,
- * or showing it to someone who cannot open Drive. The bytes are not kept.
+ * A thin wrapper so the read path and the view route fetch it the same way,
+ * and so a storage failure is labelled once rather than at each call site.
  */
-export async function receiptBytes(receipt: {
-  fileKey: string | null;
-  sourceFileId: string | null;
-  source: "UPLOAD" | "GOOGLE_DRIVE";
-}): Promise<Buffer> {
-  if (receipt.fileKey) {
-    return withStorage("download", () => storage().get(receipt.fileKey!));
-  }
-  if (receipt.source === "GOOGLE_DRIVE" && receipt.sourceFileId) {
-    return downloadFile(receipt.sourceFileId);
-  }
-  throw new PostingError("This receipt has no image behind it");
+export async function receiptBytes(receipt: { fileKey: string }): Promise<Buffer> {
+  return withStorage("download", () => storage().get(receipt.fileKey));
 }
 
 /**
@@ -151,6 +140,8 @@ export async function approveReceipt(input: {
   vendorId?: string | null;
   dueDate?: Date | null;
   reference?: string | null;
+  /** Where the file can be seen, if it lives somewhere else too. */
+  fileUrl?: string | null;
   userId: string;
   role?: Role | null;
 }) {
@@ -176,10 +167,11 @@ export async function approveReceipt(input: {
     description: input.description,
     reference: input.reference,
     // The photo becomes the expense's receipt, so the document and its
-    // evidence stay together without a second copy. A Drive receipt was never
-    // copied in, so what travels is the link rather than a storage key.
+    // evidence stay together without a second copy. A typed-in link is kept
+    // alongside it rather than instead of it — they answer different
+    // questions, and one is not a substitute for the other.
     receiptFileKey: receipt.fileKey,
-    receiptUrl: receipt.sourceUrl,
+    receiptUrl: safeExternalUrl(input.fileUrl),
     userId: input.userId,
     role: input.role,
   });

@@ -18,13 +18,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   const receipt = await prisma.receiptUpload.findFirst({
     where: { id, ...scope.where },
-    select: {
-      fileKey: true,
-      mimeType: true,
-      filename: true,
-      source: true,
-      sourceFileId: true,
-    },
+    select: { fileKey: true, mimeType: true, filename: true },
   });
   if (!receipt) notFound();
 

@@ -178,6 +178,14 @@ describe("StorageUnavailableError", () => {
     expect(error.message).not.toContain("S3_FORCE_PATH_STYLE=true");
   });
 
+  it("names the bucket, in either service's wording", () => {
+    for (const said of ["NoSuchBucket", "Bucket not found"]) {
+      const error = new StorageUnavailableError("upload", new Error(said));
+      expect(error.message).toContain("no bucket by that name");
+      expect(error.message).toContain("S3_BUCKET matches");
+    }
+  });
+
   it("says nothing extra when it has nothing to add", () => {
     const error = new StorageUnavailableError("upload", new Error("socket hang up"));
     expect(error.message).toContain("socket hang up");

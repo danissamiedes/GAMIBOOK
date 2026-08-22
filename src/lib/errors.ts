@@ -103,8 +103,14 @@ function explain(detail: string): string {
   if (/AccessDenied|InvalidAccessKeyId|SignatureDoesNotMatch/i.test(detail)) {
     return " The endpoint answered, so this is the key pair or the bucket's permissions.";
   }
-  if (/NoSuchBucket/i.test(detail)) {
-    return " The endpoint answered but has no bucket by that name.";
+  // "NoSuchBucket" is the S3 wording; Supabase's gateway says "Bucket not
+  // found". Matching only the first left this case with no hint at all.
+  if (/NoSuchBucket|Bucket not found/i.test(detail)) {
+    return (
+      " The endpoint answered, so the connection is fine — it has no bucket by" +
+      " that name. Check S3_BUCKET matches the bucket exactly, letter for letter," +
+      " and that the bucket exists in this project."
+    );
   }
   return "";
 }

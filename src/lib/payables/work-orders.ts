@@ -10,6 +10,7 @@ import {
   postJournalEntry,
   reverseJournalEntry,
 } from "@/lib/ledger/post";
+import { amendPosting } from "@/lib/ledger/amend";
 import { isBaseCurrency, toBase } from "@/lib/ledger/fx";
 
 /**
@@ -57,6 +58,94 @@ export async function recalculateWorkOrder(workOrderId: string, tx: Prisma.Trans
   });
 }
 
+/**
+ * The journal lines a work order posts: DR each line's account (CR when the
+ * line is a negative deduction), CR A/P for the converted total, residual to
+ * FX Rounding Difference (SPEC §4.3).
+ *
+ * Shared by approval and by editing an approved work order, so a corrected
+ * document and the one it replaces are built by the same arithmetic.
+ */
+async function workOrderPostingLines(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  workOrderId: string,
+  label: string,
+) {
+  const company = await tx.company.findUniqueOrThrow({
+    where: { id: companyId },
+    select: { baseCurrency: true },
+  });
+
+  await recalculateWorkOrder(workOrderId, tx);
+  const fresh = await tx.workOrder.findUniqueOrThrow({
+    where: { id: workOrderId },
+    include: { lines: { orderBy: { lineNumber: "asc" } } },
+  });
+
+  const total = money(fresh.total);
+  if (total.lessThanOrEqualTo(0)) {
+    // Deductions exceeding the work are not a payable — that is money the
+    // consultant owes back, which is a receivable (SPEC §8.3).
+    throw new PostingError(
+      "A work order must net to more than zero. Deductions exceeding the work are not a payable.",
+    );
+  }
+
+  const foreign = !isBaseCurrency(fresh.currency, company.baseCurrency);
+  const fxRate = foreign ? money(fresh.fxRate) : money(1);
+  if (foreign && fxRate.lessThanOrEqualTo(0)) {
+    throw new PostingError("A foreign-currency work order needs an exchange rate");
+  }
+
+  // Convert the total as the authoritative figure and the lines individually,
+  // then post whatever is left over to FX Rounding Difference (SPEC §4.3).
+  const baseTotal = toBase(total, fxRate);
+  const baseLines = fresh.lines.map((line) => ({
+    line,
+    baseAmount: toBase(money(line.amount), fxRate),
+  }));
+  const summed = sum(baseLines.map((entry) => entry.baseAmount));
+  const residual = baseTotal.minus(summed);
+
+  const payable = await systemAccount(companyId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, tx);
+
+  const lines: Parameters<typeof postJournalEntry>[0]["lines"] = baseLines.map((entry) => ({
+    accountId: entry.line.accountId,
+    // A negative line credits its own account rather than debiting a
+    // negative amount — that is what keeps the entry legal and readable.
+    debit: entry.baseAmount.isNegative() ? undefined : entry.baseAmount,
+    credit: entry.baseAmount.isNegative() ? entry.baseAmount.abs() : undefined,
+    description: entry.line.description,
+    vendorId: fresh.vendorId,
+    ...(foreign
+      ? { currency: fresh.currency, fxRate, foreignAmount: money(entry.line.amount) }
+      : {}),
+  }));
+
+  lines.push({
+    accountId: payable.id,
+    credit: baseTotal,
+    description: `Work order ${label}`,
+    vendorId: fresh.vendorId,
+    ...(foreign ? { currency: fresh.currency, fxRate, foreignAmount: total } : {}),
+  });
+
+  if (!residual.isZero()) {
+    const rounding = await systemAccount(companyId, SYSTEM_ACCOUNTS.FX_ROUNDING_DIFFERENCE, tx);
+    // A/P is credited with the authoritative total, so a positive residual
+    // leaves the entry short of debits by exactly that much.
+    lines.push({
+      accountId: rounding.id,
+      debit: residual.isPositive() ? residual : undefined,
+      credit: residual.isNegative() ? residual.abs() : undefined,
+      description: "FX rounding difference",
+    });
+  }
+
+  return { lines, baseTotal, fresh };
+}
+
 export async function approveWorkOrder(input: {
   companyId: string;
   workOrderId: string;
@@ -74,82 +163,13 @@ export async function approveWorkOrder(input: {
     if (workOrder.status !== "DRAFT") throw new PostingError("Only a draft work order can be approved");
     if (workOrder.lines.length === 0) throw new PostingError("A work order needs at least one line");
 
-    const company = await tx.company.findUniqueOrThrow({
-      where: { id: input.companyId },
-      select: { baseCurrency: true },
-    });
-
-    await recalculateWorkOrder(workOrder.id, tx);
-    const fresh = await tx.workOrder.findUniqueOrThrow({
-      where: { id: workOrder.id },
-      include: { lines: { orderBy: { lineNumber: "asc" } } },
-    });
-
-    const total = money(fresh.total);
-    if (total.lessThanOrEqualTo(0)) {
-      // Deductions exceeding the work are not a payable — that is money the
-      // consultant owes back, which is a receivable (SPEC §8.3).
-      throw new PostingError(
-        "A work order must net to more than zero. Deductions exceeding the work are not a payable.",
-      );
-    }
-
-    const foreign = !isBaseCurrency(fresh.currency, company.baseCurrency);
-    const fxRate = foreign ? money(fresh.fxRate) : money(1);
-    if (foreign && fxRate.lessThanOrEqualTo(0)) {
-      throw new PostingError("A foreign-currency work order needs an exchange rate");
-    }
-
-    // Convert the total as the authoritative figure and the lines individually,
-    // then post whatever is left over to FX Rounding Difference (SPEC §4.3).
-    const baseTotal = toBase(total, fxRate);
-    const baseLines = fresh.lines.map((line) => ({
-      line,
-      baseAmount: toBase(money(line.amount), fxRate),
-    }));
-    const summed = sum(baseLines.map((entry) => entry.baseAmount));
-    const residual = baseTotal.minus(summed);
-
-    const payable = await systemAccount(input.companyId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, tx);
-
-    const lines: Parameters<typeof postJournalEntry>[0]["lines"] = baseLines.map((entry) => ({
-      accountId: entry.line.accountId,
-      // A negative line credits its own account rather than debiting a
-      // negative amount — that is what keeps the entry legal and readable.
-      debit: entry.baseAmount.isNegative() ? undefined : entry.baseAmount,
-      credit: entry.baseAmount.isNegative() ? entry.baseAmount.abs() : undefined,
-      description: entry.line.description,
-      vendorId: fresh.vendorId,
-      ...(foreign
-        ? { currency: fresh.currency, fxRate, foreignAmount: money(entry.line.amount) }
-        : {}),
-    }));
-
     const { formatted } = await allocateNumber(tx, input.companyId, "WORK_ORDER");
-
-    lines.push({
-      accountId: payable.id,
-      credit: baseTotal,
-      description: `Work order ${formatted}`,
-      vendorId: fresh.vendorId,
-      ...(foreign ? { currency: fresh.currency, fxRate, foreignAmount: total } : {}),
-    });
-
-    if (!residual.isZero()) {
-      const rounding = await systemAccount(
-        input.companyId,
-        SYSTEM_ACCOUNTS.FX_ROUNDING_DIFFERENCE,
-        tx,
-      );
-      // A/P is credited with the authoritative total, so a positive residual
-      // leaves the entry short of debits by exactly that much.
-      lines.push({
-        accountId: rounding.id,
-        debit: residual.isPositive() ? residual : undefined,
-        credit: residual.isNegative() ? residual.abs() : undefined,
-        description: "FX rounding difference",
-      });
-    }
+    const { lines, baseTotal, fresh } = await workOrderPostingLines(
+      tx,
+      input.companyId,
+      workOrder.id,
+      formatted,
+    );
 
     const approvedAt = accountingDate(input.approvedAt ?? fresh.issueDate);
 
@@ -246,4 +266,119 @@ export function computeWorkOrderLine(line: {
   rate: Prisma.Decimal.Value;
 }) {
   return toCents(money(line.quantity).times(money(line.rate)));
+}
+
+export type WorkOrderLineInput = {
+  description: string;
+  quantity: Prisma.Decimal.Value;
+  rate: Prisma.Decimal.Value;
+  accountId: string;
+};
+
+/**
+ * Edit a work order (SPEC §8.1, which mirrors the invoice machine in §7.1).
+ *
+ *   DRAFT     — changed freely, nothing posted.
+ *   APPROVED  — reversed and reposted (SPEC §4.2 rule 3), keeping its number.
+ *
+ * Blocked once payments are applied: the consultant has been paid against this
+ * document, and moving what it says without moving the payment leaves the two
+ * disagreeing.
+ */
+export async function updateWorkOrder(input: {
+  companyId: string;
+  workOrderId: string;
+  vendorId?: string;
+  issueDate?: Date;
+  dueDate?: Date;
+  currency?: string;
+  fxRate?: Prisma.Decimal.Value;
+  memo?: string | null;
+  lines: WorkOrderLineInput[];
+  userId?: string | null;
+  role?: Role | null;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const workOrder = await tx.workOrder.findFirst({
+      where: { id: input.workOrderId, companyId: input.companyId },
+      include: { applications: { include: { billPayment: { select: { reversedAt: true } } } } },
+    });
+    if (!workOrder) throw new PostingError("Work order not found in this company");
+    if (workOrder.status === "VOID") {
+      throw new PostingError("A void work order cannot be edited. Raise a new one instead.");
+    }
+    if (input.lines.length === 0) throw new PostingError("A work order needs at least one line");
+
+    const live = workOrder.applications.filter((a) => !a.billPayment.reversedAt);
+    if (live.length > 0) {
+      throw new PostingError(
+        "This work order has payments applied. Reverse them first, then edit it.",
+      );
+    }
+
+    if (input.vendorId && input.vendorId !== workOrder.vendorId) {
+      const vendor = await tx.vendor.findFirst({
+        where: { id: input.vendorId, companyId: input.companyId },
+      });
+      if (!vendor) throw new PostingError("Vendor not found in this company");
+    }
+
+    await tx.workOrderLine.deleteMany({ where: { workOrderId: workOrder.id } });
+    await tx.workOrder.update({
+      where: { id: workOrder.id },
+      data: {
+        vendorId: input.vendorId ?? workOrder.vendorId,
+        issueDate: input.issueDate ? accountingDate(input.issueDate) : workOrder.issueDate,
+        dueDate: input.dueDate ? accountingDate(input.dueDate) : workOrder.dueDate,
+        currency: input.currency ? input.currency.toUpperCase() : workOrder.currency,
+        fxRate: input.fxRate ?? workOrder.fxRate,
+        memo: input.memo === undefined ? workOrder.memo : input.memo,
+        lines: {
+          create: input.lines.map((line, index) => ({
+            lineNumber: index + 1,
+            description: line.description,
+            quantity: line.quantity,
+            rate: line.rate,
+            amount: computeWorkOrderLine(line),
+            accountId: line.accountId,
+          })),
+        },
+      },
+    });
+
+    if (workOrder.status === "DRAFT") {
+      await recalculateWorkOrder(workOrder.id, tx);
+      return tx.workOrder.findUniqueOrThrow({
+        where: { id: workOrder.id },
+        include: { lines: { orderBy: { lineNumber: "asc" } } },
+      });
+    }
+
+    const { lines, baseTotal, fresh } = await workOrderPostingLines(
+      tx,
+      input.companyId,
+      workOrder.id,
+      workOrder.workOrderNumber ?? "draft",
+    );
+
+    await amendPosting(
+      {
+        companyId: input.companyId,
+        sourceType: "WORK_ORDER",
+        sourceId: workOrder.id,
+        date: accountingDate(workOrder.approvedAt ?? fresh.issueDate),
+        memo: `Work order ${workOrder.workOrderNumber ?? ""}`.trim(),
+        userId: input.userId,
+        role: input.role,
+        lines,
+      },
+      tx,
+    );
+
+    return tx.workOrder.update({
+      where: { id: workOrder.id },
+      data: { baseTotal },
+      include: { lines: { orderBy: { lineNumber: "asc" } } },
+    });
+  });
 }

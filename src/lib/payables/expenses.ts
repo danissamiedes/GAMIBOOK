@@ -5,6 +5,7 @@ import { money, toCents } from "@/lib/money";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { systemAccount } from "@/lib/ledger/chart";
 import { accountingDate, postJournalEntry, reverseJournalEntry } from "@/lib/ledger/post";
+import { amendPosting } from "@/lib/ledger/amend";
 import { isBaseCurrency, toBase } from "@/lib/ledger/fx";
 
 /**
@@ -187,5 +188,162 @@ export async function voidExpense(input: {
       where: { id: expense.id },
       data: { status: "VOID", voidedAt: new Date(), balanceDue: 0, baseRelieved: 0 },
     });
+  });
+}
+
+/**
+ * Change an expense that has already posted (SPEC §4.2 rule 3, §8.2).
+ *
+ * An expense has no draft state — recording one posts it — so every edit here
+ * is a correction to the ledger, not a change to a scratch document. The
+ * posting is reversed and rewritten by `amendPosting`; the row itself is
+ * updated in place, because the row is not the accounting record, the entry is.
+ *
+ * The kind is fixed. DIRECT credits the bank and BILL credits A/P, and turning
+ * one into the other silently would move money between two accounts that mean
+ * very different things. Void it and record it again.
+ */
+export async function updateExpense(input: {
+  companyId: string;
+  expenseId: string;
+  vendorId?: string | null;
+  date: Date;
+  currency: string;
+  fxRate?: Prisma.Decimal.Value;
+  amount: Prisma.Decimal.Value;
+  expenseAccountId: string;
+  paymentAccountId?: string | null;
+  dueDate?: Date | null;
+  description: string;
+  reference?: string | null;
+  isBillable?: boolean;
+  customerId?: string | null;
+  userId?: string | null;
+  role?: Role | null;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.expense.findFirst({
+      where: { id: input.expenseId, companyId: input.companyId },
+      include: { applications: { include: { billPayment: { select: { reversedAt: true } } } } },
+    });
+    if (!existing) throw new PostingError("Expense not found in this company");
+    if (existing.status === "VOID") {
+      throw new PostingError("A void expense cannot be edited. Record it again instead.");
+    }
+
+    // SPEC §7.1: editing is blocked entirely once payments are applied. Letting
+    // the amount move under a payment would leave the bill and the cash that
+    // settled it disagreeing, with nothing on either screen saying so.
+    const live = existing.applications.filter((a) => !a.billPayment.reversedAt);
+    if (live.length > 0) {
+      throw new PostingError(
+        "This bill has payments applied. Reverse them first, then edit it.",
+      );
+    }
+
+    const company = await tx.company.findUniqueOrThrow({
+      where: { id: input.companyId },
+      select: { baseCurrency: true },
+    });
+
+    const kind = existing.kind;
+    const amount = toCents(money(input.amount));
+    if (amount.lessThanOrEqualTo(0)) throw new PostingError("An expense must be more than zero");
+
+    const expenseAccount = await tx.account.findFirst({
+      where: { id: input.expenseAccountId, companyId: input.companyId, isActive: true },
+    });
+    if (!expenseAccount) throw new PostingError("Expense account not found in this company");
+
+    let vendor = null;
+    if (input.vendorId) {
+      vendor = await tx.vendor.findFirst({
+        where: { id: input.vendorId, companyId: input.companyId },
+      });
+      if (!vendor) throw new PostingError("Vendor not found in this company");
+    }
+    if (kind === "BILL" && !vendor) {
+      throw new PostingError("A bill needs a vendor — that is who you owe");
+    }
+
+    const foreign = !isBaseCurrency(input.currency, company.baseCurrency);
+    const fxRate = foreign ? money(input.fxRate ?? 0) : money(1);
+    if (foreign && fxRate.lessThanOrEqualTo(0)) {
+      throw new PostingError("A foreign-currency expense needs an exchange rate");
+    }
+    const baseAmount = toBase(amount, fxRate);
+
+    let paymentAccount = null;
+    if (kind === "DIRECT") {
+      if (!input.paymentAccountId) {
+        throw new PostingError("A direct expense needs the account it was paid from");
+      }
+      paymentAccount = await tx.account.findFirst({
+        where: { id: input.paymentAccountId, companyId: input.companyId, isActive: true },
+      });
+      if (!paymentAccount) throw new PostingError("Payment account not found in this company");
+    }
+
+    const creditAccountId =
+      kind === "DIRECT"
+        ? paymentAccount!.id
+        : (await systemAccount(input.companyId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, tx)).id;
+
+    const currency = input.currency.toUpperCase();
+    const expense = await tx.expense.update({
+      where: { id: existing.id },
+      data: {
+        vendorId: vendor?.id ?? null,
+        date: accountingDate(input.date),
+        currency,
+        fxRate,
+        paymentAccountId: paymentAccount?.id ?? null,
+        expenseAccountId: expenseAccount.id,
+        amount,
+        description: input.description,
+        reference: input.reference ?? null,
+        isBillable: input.isBillable ?? false,
+        customerId: input.customerId ?? null,
+        dueDate: kind === "BILL" ? (input.dueDate ? accountingDate(input.dueDate) : null) : null,
+        // No payments survive the check above, so the paid side goes back to
+        // what a freshly recorded expense of this kind looks like.
+        status: kind === "DIRECT" ? "PAID" : "APPROVED",
+        amountPaid: kind === "DIRECT" ? amount : 0,
+        balanceDue: kind === "DIRECT" ? 0 : amount,
+        baseTotal: baseAmount,
+        baseRelieved: 0,
+      },
+    });
+
+    const { reposted } = await amendPosting(
+      {
+        companyId: input.companyId,
+        sourceType: "EXPENSE",
+        sourceId: expense.id,
+        date: accountingDate(input.date),
+        memo: input.description,
+        userId: input.userId,
+        role: input.role,
+        lines: [
+          {
+            accountId: expenseAccount.id,
+            debit: baseAmount,
+            description: input.description,
+            vendorId: vendor?.id ?? null,
+            ...(foreign ? { currency, fxRate, foreignAmount: amount } : {}),
+          },
+          {
+            accountId: creditAccountId,
+            credit: baseAmount,
+            description: input.description,
+            vendorId: vendor?.id ?? null,
+            ...(foreign ? { currency, fxRate, foreignAmount: amount } : {}),
+          },
+        ],
+      },
+      tx,
+    );
+
+    return { expense, entry: reposted };
   });
 }

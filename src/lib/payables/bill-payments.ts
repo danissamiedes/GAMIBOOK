@@ -6,6 +6,7 @@ import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { systemAccount } from "@/lib/ledger/chart";
 import { accountingDate, postJournalEntry, reverseJournalEntry } from "@/lib/ledger/post";
 import { isBaseCurrency, relieveProRata, toBase } from "@/lib/ledger/fx";
+import { amendPosting } from "@/lib/ledger/amend";
 import { recalculateWorkOrder } from "./work-orders";
 
 /**
@@ -158,6 +159,146 @@ export async function openDocumentsForVendor(companyId: string, vendorId: string
     .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
 }
 
+/**
+ * Build the journal lines a bill payment posts, create its application rows,
+ * and relieve the documents it settles.
+ *
+ * Shared by recording a payment and by editing one. An edit puts the old
+ * applications back before calling this, so from here the two are the same
+ * operation: apply these amounts to these documents, each at the document's
+ * own fx rate, and say what that cost in the base currency.
+ */
+async function applyBillPayment(
+  tx: Prisma.TransactionClient,
+  context: {
+    companyId: string;
+    baseCurrency: string;
+    vendor: { id: string; name: string };
+    paymentId: string;
+    paymentAccountId: string;
+    amount: Prisma.Decimal;
+    currency: string;
+    paymentRate: Prisma.Decimal;
+    foreignPayment: boolean;
+    applications: BillApplicationInput[];
+  },
+) {
+  const payable = await systemAccount(context.companyId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, tx);
+  const lines: Parameters<typeof postJournalEntry>[0]["lines"] = [];
+  let baseRelievedTotal = money(0);
+
+  for (const application of context.applications) {
+    const applicationAmount = toCents(money(application.amountApplied));
+    if (applicationAmount.lessThanOrEqualTo(0)) {
+      throw new PostingError("Each application must be more than zero");
+    }
+
+    const document = await loadDocument(tx, context.companyId, context.vendor.id, application);
+    if (document.status === "DRAFT") {
+      throw new PostingError(`${document.label} is still a draft — approve it before paying it`);
+    }
+    if (document.status === "VOID") throw new PostingError("A void document cannot be paid");
+    if (document.currency !== context.currency) {
+      throw new PostingError(
+        `Payment is in ${context.currency} but ${document.label} is in ${document.currency}`,
+      );
+    }
+    if (applicationAmount.greaterThan(money(document.balanceDue))) {
+      throw new PostingError(
+        `Applying ${applicationAmount.toFixed(2)} to ${document.label} exceeds its balance of ${money(
+          document.balanceDue,
+        ).toFixed(2)}`,
+      );
+    }
+
+    const settles = money(document.balanceDue).minus(applicationAmount).lessThanOrEqualTo(0);
+    const baseRelieved = relieveProRata({
+      documentBaseTotal: document.baseTotal,
+      alreadyRelieved: document.baseRelieved,
+      documentForeignTotal: document.total,
+      foreignApplied: applicationAmount,
+      settlesDocument: settles,
+    });
+    baseRelievedTotal = baseRelievedTotal.plus(baseRelieved);
+
+    lines.push({
+      accountId: payable.id,
+      debit: baseRelieved,
+      description: document.label,
+      vendorId: context.vendor.id,
+      ...(document.currency !== context.baseCurrency
+        ? {
+            currency: document.currency,
+            fxRate: money(document.fxRate),
+            foreignAmount: applicationAmount,
+          }
+        : {}),
+    });
+
+    await tx.billPaymentApplication.create({
+      data: {
+        billPaymentId: context.paymentId,
+        workOrderId: document.kind === "workOrder" ? document.id : null,
+        expenseId: document.kind === "expense" ? document.id : null,
+        amountApplied: applicationAmount,
+      },
+    });
+
+    if (document.kind === "workOrder") {
+      await tx.workOrder.update({
+        where: { id: document.id },
+        data: { baseRelieved: money(document.baseRelieved).plus(baseRelieved) },
+      });
+      await recalculateWorkOrder(document.id, tx);
+    } else {
+      const paidNow = money(document.total)
+        .minus(money(document.balanceDue))
+        .plus(applicationAmount);
+      const balance = money(document.total).minus(paidNow);
+      await tx.expense.update({
+        where: { id: document.id },
+        data: {
+          baseRelieved: money(document.baseRelieved).plus(baseRelieved),
+          amountPaid: paidNow,
+          balanceDue: balance,
+          status: balance.lessThanOrEqualTo(0) ? "PAID" : "PARTIALLY_PAID",
+        },
+      });
+    }
+  }
+
+  // Cash leg, at the payment's own rate.
+  const basePaid = toBase(context.amount, context.paymentRate);
+  lines.push({
+    accountId: context.paymentAccountId,
+    credit: basePaid,
+    description: `Payment to ${context.vendor.name}`,
+    vendorId: context.vendor.id,
+    ...(context.foreignPayment
+      ? {
+          currency: context.currency,
+          fxRate: context.paymentRate,
+          foreignAmount: context.amount,
+        }
+      : {}),
+  });
+
+  const difference = baseRelievedTotal.minus(basePaid);
+  if (!difference.isZero()) {
+    const fx = await systemAccount(context.companyId, SYSTEM_ACCOUNTS.REALIZED_FX_GAIN_LOSS, tx);
+    lines.push({
+      accountId: fx.id,
+      // Relieved more payable than cash paid: settling cost less than the
+      // liability was booked at, which is a gain.
+      credit: difference.isPositive() ? difference : undefined,
+      debit: difference.isNegative() ? difference.abs() : undefined,
+      description: "Realized FX on settlement",
+    });
+  }
+
+  return lines;
+}
+
 export async function recordBillPayment(input: {
   companyId: string;
   vendorId: string;
@@ -225,113 +366,18 @@ export async function recordBillPayment(input: {
       },
     });
 
-    const payable = await systemAccount(input.companyId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, tx);
-    const lines: Parameters<typeof postJournalEntry>[0]["lines"] = [];
-    let baseRelievedTotal = money(0);
-
-    for (const application of input.applications) {
-      const applicationAmount = toCents(money(application.amountApplied));
-      if (applicationAmount.lessThanOrEqualTo(0)) {
-        throw new PostingError("Each application must be more than zero");
-      }
-
-      const document = await loadDocument(tx, input.companyId, vendor.id, application);
-      if (document.status === "DRAFT") {
-        throw new PostingError(`${document.label} is still a draft — approve it before paying it`);
-      }
-      if (document.status === "VOID") throw new PostingError("A void document cannot be paid");
-      if (document.currency !== input.currency.toUpperCase()) {
-        throw new PostingError(
-          `Payment is in ${input.currency} but ${document.label} is in ${document.currency}`,
-        );
-      }
-      if (applicationAmount.greaterThan(money(document.balanceDue))) {
-        throw new PostingError(
-          `Applying ${applicationAmount.toFixed(2)} to ${document.label} exceeds its balance of ${money(
-            document.balanceDue,
-          ).toFixed(2)}`,
-        );
-      }
-
-      const settles = money(document.balanceDue).minus(applicationAmount).lessThanOrEqualTo(0);
-      const baseRelieved = relieveProRata({
-        documentBaseTotal: document.baseTotal,
-        alreadyRelieved: document.baseRelieved,
-        documentForeignTotal: document.total,
-        foreignApplied: applicationAmount,
-        settlesDocument: settles,
-      });
-      baseRelievedTotal = baseRelievedTotal.plus(baseRelieved);
-
-      lines.push({
-        accountId: payable.id,
-        debit: baseRelieved,
-        description: document.label,
-        vendorId: vendor.id,
-        ...(document.currency !== company.baseCurrency
-          ? {
-              currency: document.currency,
-              fxRate: money(document.fxRate),
-              foreignAmount: applicationAmount,
-            }
-          : {}),
-      });
-
-      await tx.billPaymentApplication.create({
-        data: {
-          billPaymentId: payment.id,
-          workOrderId: document.kind === "workOrder" ? document.id : null,
-          expenseId: document.kind === "expense" ? document.id : null,
-          amountApplied: applicationAmount,
-        },
-      });
-
-      if (document.kind === "workOrder") {
-        await tx.workOrder.update({
-          where: { id: document.id },
-          data: { baseRelieved: money(document.baseRelieved).plus(baseRelieved) },
-        });
-        await recalculateWorkOrder(document.id, tx);
-      } else {
-        const paidNow = money(document.total).minus(money(document.balanceDue)).plus(applicationAmount);
-        const balance = money(document.total).minus(paidNow);
-        await tx.expense.update({
-          where: { id: document.id },
-          data: {
-            baseRelieved: money(document.baseRelieved).plus(baseRelieved),
-            amountPaid: paidNow,
-            balanceDue: balance,
-            status: balance.lessThanOrEqualTo(0) ? "PAID" : "PARTIALLY_PAID",
-          },
-        });
-      }
-    }
-
-    // Cash leg, at the payment's own rate.
-    const basePaid = toBase(amount, paymentRate);
-    lines.push({
-      accountId: paymentAccount.id,
-      credit: basePaid,
-      description: `Payment to ${vendor.name}`,
-      vendorId: vendor.id,
-      ...(foreignPayment
-        ? { currency: input.currency.toUpperCase(), fxRate: paymentRate, foreignAmount: amount }
-        : {}),
+    const lines = await applyBillPayment(tx, {
+      companyId: input.companyId,
+      baseCurrency: company.baseCurrency,
+      vendor,
+      paymentId: payment.id,
+      paymentAccountId: paymentAccount.id,
+      amount,
+      currency: input.currency.toUpperCase(),
+      paymentRate,
+      foreignPayment,
+      applications: input.applications,
     });
-
-    const difference = baseRelievedTotal.minus(basePaid);
-    if (!difference.isZero()) {
-      const fx = await systemAccount(input.companyId, SYSTEM_ACCOUNTS.REALIZED_FX_GAIN_LOSS, tx);
-      lines.push({
-        accountId: fx.id,
-        // Relieved more payable than cash paid: settling cost less than the
-        // liability was booked at, which is a gain.
-        credit: difference.isPositive() ? difference : undefined,
-        debit: difference.isNegative() ? difference.abs() : undefined,
-        description: "Realized FX on settlement",
-      });
-    }
-
     const entry = await postJournalEntry(
       {
         companyId: input.companyId,
@@ -649,5 +695,147 @@ export async function deleteBillPayment(input: {
     });
 
     return snapshot;
+  });
+}
+
+/**
+ * Edit a bill payment (SPEC §4.2 rule 3, §8.1).
+ *
+ * A payment has no draft state, so this is always a correction to the ledger.
+ * The sequence matters and is the whole difficulty:
+ *
+ *   1. put the documents the old applications relieved back as they were,
+ *   2. apply the new ones against those restored balances,
+ *   3. reverse the old posting and write the corrected one.
+ *
+ * Doing 2 before 1 would measure every new application against a balance that
+ * still has the old payment sitting on it, and a payment being edited from
+ * 4,000 to 5,000 would be told it exceeds a balance it is itself the reason
+ * for.
+ *
+ * Refused once a bank line is matched: the statement says this payment cleared
+ * for a particular amount on a particular day, and changing it underneath the
+ * match makes the reconciliation a lie. Unmatch first.
+ */
+export async function updateBillPayment(input: {
+  companyId: string;
+  billPaymentId: string;
+  date: Date;
+  amount: Prisma.Decimal.Value;
+  currency: string;
+  fxRate?: Prisma.Decimal.Value;
+  paymentAccountId: string;
+  method?: PaymentMethod;
+  reference?: string | null;
+  notes?: string | null;
+  applications: BillApplicationInput[];
+  userId?: string | null;
+  role?: Role | null;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.billPayment.findFirst({
+      where: { id: input.billPaymentId, companyId: input.companyId },
+      include: { applications: true, vendor: { select: { id: true, name: true } } },
+    });
+    if (!existing) throw new PostingError("Payment not found in this company");
+    if (existing.reversedAt) {
+      throw new PostingError("This payment has been reversed. Record a new one instead.");
+    }
+
+    const matched = await tx.bankTransaction.count({
+      where: { companyId: input.companyId, matchedBillPaymentId: existing.id },
+    });
+    if (matched > 0) {
+      throw new PostingError(
+        "A bank line is matched to this payment. Unmatch it first, then edit it.",
+      );
+    }
+
+    const company = await tx.company.findUniqueOrThrow({
+      where: { id: input.companyId },
+      select: { baseCurrency: true },
+    });
+
+    const amount = toCents(money(input.amount));
+    if (amount.lessThanOrEqualTo(0)) throw new PostingError("A payment must be more than zero");
+
+    const paymentAccount = await tx.account.findFirst({
+      where: { id: input.paymentAccountId, companyId: input.companyId, isActive: true },
+    });
+    if (!paymentAccount) throw new PostingError("Payment account not found in this company");
+
+    const currency = input.currency.toUpperCase();
+    const foreignPayment = !isBaseCurrency(currency, company.baseCurrency);
+    const paymentRate = foreignPayment ? money(input.fxRate ?? 0) : money(1);
+    if (foreignPayment && paymentRate.lessThanOrEqualTo(0)) {
+      throw new PostingError("A foreign-currency payment needs an exchange rate");
+    }
+
+    const applied = sum(input.applications.map((application) => money(application.amountApplied)));
+    if (applied.greaterThan(amount)) {
+      throw new PostingError(
+        `Applied ${applied.toFixed(2)} exceeds the payment of ${amount.toFixed(2)}`,
+      );
+    }
+    if (applied.lessThan(amount)) {
+      throw new PostingError(
+        "Apply the whole payment. Paying a vendor more than you owe them is an advance, which is not in scope here.",
+      );
+    }
+
+    // Step 1: unwind. The rows go first so the recompute inside
+    // `restoreDocuments` counts only what is still live.
+    const previous = existing.applications;
+    await tx.billPaymentApplication.deleteMany({ where: { billPaymentId: existing.id } });
+    await restoreDocuments(tx, previous);
+
+    await tx.billPayment.update({
+      where: { id: existing.id },
+      data: {
+        date: accountingDate(input.date),
+        amount,
+        currency,
+        fxRate: paymentRate,
+        paymentAccountId: paymentAccount.id,
+        method: input.method ?? existing.method,
+        reference: input.reference ?? null,
+        notes: input.notes ?? null,
+      },
+    });
+
+    // Step 2: apply the new ones against the restored balances.
+    const lines = await applyBillPayment(tx, {
+      companyId: input.companyId,
+      baseCurrency: company.baseCurrency,
+      vendor: existing.vendor,
+      paymentId: existing.id,
+      paymentAccountId: paymentAccount.id,
+      amount,
+      currency,
+      paymentRate,
+      foreignPayment,
+      applications: input.applications,
+    });
+
+    // Step 3: correct the ledger.
+    const { reposted } = await amendPosting(
+      {
+        companyId: input.companyId,
+        sourceType: "CONSULTANT_PAYMENT",
+        sourceId: existing.id,
+        date: accountingDate(input.date),
+        memo: `Payment to ${existing.vendor.name}`,
+        userId: input.userId,
+        role: input.role,
+        lines,
+      },
+      tx,
+    );
+
+    const payment = await tx.billPayment.findUniqueOrThrow({
+      where: { id: existing.id },
+      include: { applications: true },
+    });
+    return { payment, entry: reposted };
   });
 }

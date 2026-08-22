@@ -135,3 +135,81 @@ export async function deleteDraftSalesOrder(companyId: string, salesOrderId: str
   if (order.status !== "DRAFT") throw new PostingError("Only a draft order can be deleted");
   await prisma.salesOrder.delete({ where: { id: salesOrderId } });
 }
+
+/**
+ * Edit a sales order (SPEC §7.1a).
+ *
+ * The one document here with no ledger consequences at all, in either state:
+ * confirming allocates a number and posts nothing. So DRAFT and CONFIRMED are
+ * both freely editable and there is no reverse-and-repost to do — the general
+ * immutability rule in §4.2 has nothing to bite on.
+ *
+ * INVOICED is where it stops. By then the lines have been copied into an
+ * invoice which may itself be issued and posted; changing the order underneath
+ * it would leave two documents claiming to be the same agreement while saying
+ * different things. Edit the invoice instead.
+ */
+export async function updateSalesOrder(input: {
+  companyId: string;
+  salesOrderId: string;
+  customerId?: string;
+  orderDate?: Date;
+  expectedDate?: Date | null;
+  currency?: string;
+  fxRate?: Prisma.Decimal.Value;
+  memo?: string | null;
+  lines: SalesOrderLineInput[];
+}) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.salesOrder.findFirst({
+      where: { id: input.salesOrderId, companyId: input.companyId },
+    });
+    if (!order) throw new PostingError("Sales order not found in this company");
+    if (order.status === "INVOICED") {
+      throw new PostingError(
+        "This order has been turned into an invoice. Edit the invoice instead.",
+      );
+    }
+    if (order.status === "CANCELLED") {
+      throw new PostingError("A cancelled order cannot be edited. Raise a new one instead.");
+    }
+    if (input.lines.length === 0) throw new PostingError("A sales order needs at least one line");
+
+    if (input.customerId && input.customerId !== order.customerId) {
+      const customer = await tx.customer.findFirst({
+        where: { id: input.customerId, companyId: input.companyId },
+      });
+      if (!customer) throw new PostingError("Customer not found in this company");
+    }
+
+    await tx.salesOrderLine.deleteMany({ where: { salesOrderId: order.id } });
+    await tx.salesOrder.update({
+      where: { id: order.id },
+      data: {
+        customerId: input.customerId ?? order.customerId,
+        orderDate: input.orderDate ?? order.orderDate,
+        expectedDate: input.expectedDate === undefined ? order.expectedDate : input.expectedDate,
+        currency: input.currency ? input.currency.toUpperCase() : order.currency,
+        fxRate: input.fxRate ?? order.fxRate,
+        memo: input.memo === undefined ? order.memo : input.memo,
+        lines: {
+          create: input.lines.map((line, index) => ({
+            lineNumber: index + 1,
+            itemId: line.itemId ?? null,
+            description: line.description,
+            quantity: line.quantity,
+            rate: line.rate,
+            amount: computeSalesOrderLine(line),
+            incomeAccountId: line.incomeAccountId,
+          })),
+        },
+      },
+    });
+
+    await recalculateSalesOrder(order.id, tx);
+    return tx.salesOrder.findUniqueOrThrow({
+      where: { id: order.id },
+      include: { lines: { orderBy: { lineNumber: "asc" } } },
+    });
+  });
+}

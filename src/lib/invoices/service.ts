@@ -11,6 +11,7 @@ import {
   accountingDate,
 } from "@/lib/ledger/post";
 import { convertDocument, isBaseCurrency } from "@/lib/ledger/fx";
+import { amendPosting } from "@/lib/ledger/amend";
 
 /**
  * Customer invoices (SPEC §7.1) and their posting rules (SPEC §4.3).
@@ -82,6 +83,108 @@ export async function recalculateTotals(invoiceId: string, tx: Prisma.Transactio
  *       CR  Income account(s)        per line, net of tax
  *       CR  Sales Tax Payable        if tax applies
  */
+/**
+ * The journal lines an invoice posts, built from the invoice as it currently
+ * stands: DR A/R for the converted total, CR each income line and each tax
+ * account, with any conversion residual to FX Rounding Difference (SPEC §4.3).
+ *
+ * Shared by issuing and by editing an issued invoice. It has to be shared: two
+ * copies of this would drift, and the way they would drift is that a corrected
+ * invoice stops matching the one it replaced by a rounding cent.
+ */
+async function invoicePostingLines(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  invoiceId: string,
+  label: string,
+) {
+  const company = await tx.company.findUniqueOrThrow({
+    where: { id: companyId },
+    select: { baseCurrency: true },
+  });
+
+  await recalculateTotals(invoiceId, tx);
+  const fresh = await tx.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    include: { lines: { include: { taxRate: true }, orderBy: { lineNumber: "asc" } } },
+  });
+
+  if (money(fresh.total).lessThanOrEqualTo(0)) {
+    throw new PostingError("An invoice must total more than zero");
+  }
+
+  const foreign = !isBaseCurrency(fresh.currency, company.baseCurrency);
+  const fxRate = foreign ? money(fresh.fxRate) : money(1);
+  if (foreign && fxRate.lessThanOrEqualTo(0)) {
+    throw new PostingError("A foreign-currency invoice needs an exchange rate");
+  }
+
+  const taxByAccount = new Map<string, ReturnType<typeof money>>();
+  for (const line of fresh.lines) {
+    if (!line.taxRate) continue;
+    const tax = toCents(money(line.amount).times(money(line.taxRate.percent)).dividedBy(100));
+    const current = taxByAccount.get(line.taxRate.liabilityAccountId) ?? money(0);
+    taxByAccount.set(line.taxRate.liabilityAccountId, current.plus(tax));
+  }
+
+  const creditParts = [
+    ...fresh.lines.map((line) => ({
+      accountId: line.incomeAccountId,
+      amount: money(line.amount),
+      description: line.description,
+    })),
+    ...[...taxByAccount].map(([accountId, amount]) => ({
+      accountId,
+      amount,
+      description: "Sales tax",
+    })),
+  ];
+
+  // Convert the document total as the authoritative figure, convert the
+  // lines, and post any residual to FX Rounding Difference (SPEC §4.3).
+  const converted = convertDocument({
+    lines: creditParts,
+    amountOf: (part) => part.amount,
+    documentTotal: fresh.total,
+    fxRate,
+  });
+
+  const receivable = await systemAccount(companyId, SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE, tx);
+
+  const lines: Parameters<typeof postJournalEntry>[0]["lines"] = [
+    {
+      accountId: receivable.id,
+      debit: converted.baseTotal,
+      description: `Invoice ${label}`,
+      customerId: fresh.customerId,
+      ...(foreign ? { currency: fresh.currency, fxRate, foreignAmount: money(fresh.total) } : {}),
+    },
+    ...converted.baseLines.map((entry) => ({
+      accountId: entry.line.accountId,
+      credit: entry.baseAmount,
+      description: entry.line.description,
+      customerId: fresh.customerId,
+      ...(foreign ? { currency: fresh.currency, fxRate, foreignAmount: entry.line.amount } : {}),
+    })),
+  ];
+
+  if (!converted.residual.isZero()) {
+    const rounding = await systemAccount(companyId, SYSTEM_ACCOUNTS.FX_ROUNDING_DIFFERENCE, tx);
+    lines.push({
+      accountId: rounding.id,
+      // A/R is debited with the authoritative converted total, so when that
+      // total exceeds the summed income lines the entry is short of credits
+      // by exactly the residual — and vice versa. Never absorb this into a
+      // revenue line (SPEC §4.3).
+      credit: converted.residual.isPositive() ? converted.residual : undefined,
+      debit: converted.residual.isNegative() ? converted.residual.abs() : undefined,
+      description: "FX rounding difference",
+    });
+  }
+
+  return { lines, baseTotal: converted.baseTotal, fresh };
+}
+
 export async function issueInvoice(input: {
   companyId: string;
   invoiceId: string;
@@ -97,94 +200,13 @@ export async function issueInvoice(input: {
     if (invoice.status !== "DRAFT") throw new PostingError("Only a draft invoice can be issued");
     if (invoice.lines.length === 0) throw new PostingError("An invoice needs at least one line");
 
-    const company = await tx.company.findUniqueOrThrow({
-      where: { id: input.companyId },
-      select: { baseCurrency: true },
-    });
-
-    await recalculateTotals(invoice.id, tx);
-    const fresh = await tx.invoice.findUniqueOrThrow({
-      where: { id: invoice.id },
-      include: { lines: { include: { taxRate: true }, orderBy: { lineNumber: "asc" } } },
-    });
-
-    if (money(fresh.total).lessThanOrEqualTo(0)) {
-      throw new PostingError("An invoice must total more than zero");
-    }
-
-    const foreign = !isBaseCurrency(fresh.currency, company.baseCurrency);
-    const fxRate = foreign ? money(fresh.fxRate) : money(1);
-    if (foreign && fxRate.lessThanOrEqualTo(0)) {
-      throw new PostingError("A foreign-currency invoice needs an exchange rate");
-    }
-
-    const taxByAccount = new Map<string, ReturnType<typeof money>>();
-    for (const line of fresh.lines) {
-      if (!line.taxRate) continue;
-      const tax = toCents(money(line.amount).times(money(line.taxRate.percent)).dividedBy(100));
-      const current = taxByAccount.get(line.taxRate.liabilityAccountId) ?? money(0);
-      taxByAccount.set(line.taxRate.liabilityAccountId, current.plus(tax));
-    }
-
-    const creditParts = [
-      ...fresh.lines.map((line) => ({
-        accountId: line.incomeAccountId,
-        amount: money(line.amount),
-        description: line.description,
-      })),
-      ...[...taxByAccount].map(([accountId, amount]) => ({
-        accountId,
-        amount,
-        description: "Sales tax",
-      })),
-    ];
-
-    // Convert the document total as the authoritative figure, convert the
-    // lines, and post any residual to FX Rounding Difference (SPEC §4.3).
-    const converted = convertDocument({
-      lines: creditParts,
-      amountOf: (part) => part.amount,
-      documentTotal: fresh.total,
-      fxRate,
-    });
-
-    const receivable = await systemAccount(input.companyId, SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE, tx);
     const { formatted } = await allocateNumber(tx, input.companyId, "INVOICE");
-
-    const lines: Parameters<typeof postJournalEntry>[0]["lines"] = [
-      {
-        accountId: receivable.id,
-        debit: converted.baseTotal,
-        description: `Invoice ${formatted}`,
-        customerId: fresh.customerId,
-        ...(foreign ? { currency: fresh.currency, fxRate, foreignAmount: money(fresh.total) } : {}),
-      },
-      ...converted.baseLines.map((entry) => ({
-        accountId: entry.line.accountId,
-        credit: entry.baseAmount,
-        description: entry.line.description,
-        customerId: fresh.customerId,
-        ...(foreign ? { currency: fresh.currency, fxRate, foreignAmount: entry.line.amount } : {}),
-      })),
-    ];
-
-    if (!converted.residual.isZero()) {
-      const rounding = await systemAccount(
-        input.companyId,
-        SYSTEM_ACCOUNTS.FX_ROUNDING_DIFFERENCE,
-        tx,
-      );
-      lines.push({
-        accountId: rounding.id,
-        // A/R is debited with the authoritative converted total, so when that
-        // total exceeds the summed income lines the entry is short of credits
-        // by exactly the residual — and vice versa. Never absorb this into a
-        // revenue line (SPEC §4.3).
-        credit: converted.residual.isPositive() ? converted.residual : undefined,
-        debit: converted.residual.isNegative() ? converted.residual.abs() : undefined,
-        description: "FX rounding difference",
-      });
-    }
+    const { lines, baseTotal, fresh } = await invoicePostingLines(
+      tx,
+      input.companyId,
+      invoice.id,
+      formatted,
+    );
 
     const entry = await postJournalEntry(
       {
@@ -206,7 +228,7 @@ export async function issueInvoice(input: {
         invoiceNumber: formatted,
         status: "ISSUED",
         issuedAt: new Date(),
-        baseTotal: converted.baseTotal,
+        baseTotal,
       },
       include: { lines: true },
     });
@@ -276,4 +298,121 @@ export async function deleteDraftInvoice(companyId: string, invoiceId: string) {
     throw new PostingError("Only a draft can be deleted. Issued invoices are voided, never removed.");
   }
   await prisma.invoice.delete({ where: { id: invoiceId } });
+}
+
+/**
+ * Edit an invoice (SPEC §7.1).
+ *
+ *   DRAFT   — changed freely. A draft is not an accounting record, so nothing
+ *             is posted, nothing is reversed, and the lines are simply
+ *             replaced.
+ *   ISSUED  — reversed and reposted (SPEC §4.2 rule 3). The invoice keeps its
+ *             number: the document the customer received is still that
+ *             invoice, now saying something different.
+ *
+ * Blocked entirely once payments are applied, which SPEC §7.1 requires and
+ * which is the right answer anyway — moving the total under a payment leaves
+ * the invoice and the cash that settled it disagreeing.
+ */
+export async function updateInvoice(input: {
+  companyId: string;
+  invoiceId: string;
+  customerId?: string;
+  issueDate?: Date;
+  dueDate?: Date;
+  currency?: string;
+  fxRate?: Prisma.Decimal.Value;
+  terms?: string | null;
+  lines: InvoiceLineInput[];
+  userId?: string | null;
+  role?: Role | null;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.findFirst({
+      where: { id: input.invoiceId, companyId: input.companyId },
+      include: { applications: { include: { payment: { select: { reversedAt: true } } } } },
+    });
+    if (!invoice) throw new PostingError("Invoice not found in this company");
+    if (invoice.status === "VOID") {
+      throw new PostingError("A void invoice cannot be edited. Raise a new one instead.");
+    }
+    if (input.lines.length === 0) throw new PostingError("An invoice needs at least one line");
+
+    const live = invoice.applications.filter((application) => !application.payment.reversedAt);
+    if (live.length > 0) {
+      throw new PostingError(
+        "This invoice has payments applied. Reverse them first, then edit it.",
+      );
+    }
+
+    if (input.customerId && input.customerId !== invoice.customerId) {
+      const customer = await tx.customer.findFirst({
+        where: { id: input.customerId, companyId: input.companyId },
+      });
+      if (!customer) throw new PostingError("Customer not found in this company");
+    }
+
+    // Replaced wholesale rather than diffed. Line numbers are positional and a
+    // diff would have to renumber anyway, so rewriting is both simpler and the
+    // only version that cannot leave a stale line behind.
+    await tx.invoiceLine.deleteMany({ where: { invoiceId: invoice.id } });
+    await tx.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        customerId: input.customerId ?? invoice.customerId,
+        issueDate: input.issueDate ? accountingDate(input.issueDate) : invoice.issueDate,
+        dueDate: input.dueDate ? accountingDate(input.dueDate) : invoice.dueDate,
+        currency: input.currency ? input.currency.toUpperCase() : invoice.currency,
+        fxRate: input.fxRate ?? invoice.fxRate,
+        terms: input.terms === undefined ? invoice.terms : input.terms,
+        lines: {
+          create: input.lines.map((line, index) => ({
+            lineNumber: index + 1,
+            itemId: line.itemId ?? null,
+            description: line.description,
+            quantity: line.quantity,
+            rate: line.rate,
+            amount: computeLine(line),
+            incomeAccountId: line.incomeAccountId,
+            taxRateId: line.taxRateId ?? null,
+          })),
+        },
+      },
+    });
+
+    if (invoice.status === "DRAFT") {
+      await recalculateTotals(invoice.id, tx);
+      return tx.invoice.findUniqueOrThrow({
+        where: { id: invoice.id },
+        include: { lines: { orderBy: { lineNumber: "asc" } } },
+      });
+    }
+
+    const { lines, baseTotal, fresh } = await invoicePostingLines(
+      tx,
+      input.companyId,
+      invoice.id,
+      invoice.invoiceNumber ?? "draft",
+    );
+
+    await amendPosting(
+      {
+        companyId: input.companyId,
+        sourceType: "INVOICE",
+        sourceId: invoice.id,
+        date: accountingDate(fresh.issueDate),
+        memo: `Invoice ${invoice.invoiceNumber ?? ""}`.trim(),
+        userId: input.userId,
+        role: input.role,
+        lines,
+      },
+      tx,
+    );
+
+    return tx.invoice.update({
+      where: { id: invoice.id },
+      data: { baseTotal },
+      include: { lines: { orderBy: { lineNumber: "asc" } } },
+    });
+  });
 }

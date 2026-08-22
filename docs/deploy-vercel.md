@@ -17,13 +17,19 @@ Project Settings → Database:
 
 | Value | Where from |
 |---|---|
-| `DATABASE_URL` | **Transaction pooler**, port **6543** — add `?pgbouncer=true` |
-| `DIRECT_DATABASE_URL` | **Session pooler**, port **5432** |
+| `DATABASE_URL` | **Session pooler**, port **5432** — add `?connection_limit=1` |
+| `DIRECT_DATABASE_URL` | the same string, without `connection_limit` |
 
-Both come from the pooler host and differ only in port. Not the **Direct
-connection**, even though the name sounds right: Supabase serves it over IPv6
-only without the paid IPv4 add-on, and GitHub Actions runners have no IPv6, so
-the nightly backup would fail every night.
+**Not the transaction pooler on 6543**, though that is the usual advice for
+Next.js on serverless. Every posting path in this app runs inside a Prisma
+*interactive* transaction, and a transaction-mode pooler does not hold one
+server connection for the life of a transaction. Reads work; posting fails
+intermittently. `connection_limit=1` is what keeps session mode safe on
+serverless — one connection per instance rather than a pool each.
+
+Not the **Direct connection** either: Supabase serves it over IPv6 only without
+the paid IPv4 add-on, and GitHub Actions runners have no IPv6, so the nightly
+backup would fail every night.
 
 Both strings arrive containing a literal `[YOUR-PASSWORD]`. Replace it, brackets
 and all, with the database password from when you created the project.
@@ -68,8 +74,8 @@ as a Preview and Production stays permanently empty.
 
 | Key | Value |
 |---|---|
-| `DATABASE_URL` | transaction pooler, 6543, `?pgbouncer=true` |
-| `DIRECT_DATABASE_URL` | session pooler, 5432 |
+| `DATABASE_URL` | session pooler, 5432, `?connection_limit=1` |
+| `DIRECT_DATABASE_URL` | the same, without `connection_limit` |
 | `AUTH_SECRET` | generated |
 | `TOKEN_ENCRYPTION_KEY` | generated |
 | `CRON_SECRET` | generated |
@@ -110,8 +116,8 @@ fixture, with demo companies and a shared password.
 DATABASE_URL="<session pooler string, port 5432>" npm run bootstrap
 ```
 
-The session pooler, not the transaction pooler: bootstrap runs in a transaction,
-which port 6543 will not hold.
+The session pooler: bootstrap runs in a transaction, which the transaction
+pooler on 6543 will not hold.
 
 Then sign in, and you land on the setup wizard where the permanent base-currency
 choice is made.

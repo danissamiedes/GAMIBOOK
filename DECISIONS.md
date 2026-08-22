@@ -822,6 +822,58 @@ per address, so saying so reveals nothing either.
 All three paths were checked against a running production build: a wrong
 password, an eleventh attempt, and a server pointed at a port with nothing on it.
 
+## A total on the bill payment form — 2026-08-22
+
+The payment *is* the sum of the amounts applied: the server does not accept an
+amount typed separately, it adds up the lines. So the one figure that matters —
+what will leave the bank — was the only one not on the screen. Now it is, live
+as you type, with a count of how many documents are included.
+
+The total has to agree exactly with what gets recorded, or it is worse than
+nothing. Rather than reimplement the parsing rules in the browser, the text
+handling moved out of `parseMoney` into `money-text.ts`, which has no Decimal or
+Prisma dependency: the server wraps its output in a Decimal, the browser sums it
+in whole cents. One set of rules, and a test that holds the two to the same
+table of inputs.
+
+Cents rather than floats, for the obvious reason: 0.1 + 0.2 is not 0.3, and a
+payment total off by a hundredth is a wrong number shown to someone approving
+money. Text with more than two decimals is treated as unreadable rather than
+rounded — rounding it would show a total that quietly differs from the posting.
+
+Fixing this surfaced a layout bug in the same rows. `Input` bakes in `w-full`,
+and the page passed `w-28` alongside it; two width utilities fighting over
+source order, with `w-full` winning. The amount box took the whole row and
+squeezed the label into one word per line — visible in the screenshot that
+prompted the request. The row is now a grid with an explicit column for the
+amount, which does not depend on which utility happens to sort later.
+
+## Session pooling, not transaction pooling — 2026-08-22
+
+Recording a bill payment on the deployment failed with the app's catch-all error
+page while the same action succeeded locally, against both a seeded database and
+one created by the SQL bootstrap. What differs is the connection.
+
+Every write path in this app runs inside a Prisma *interactive* transaction —
+`postJournalEntry` and the twelve modules that call it. A transaction-mode
+pooler does not hold one server connection for the life of a transaction, which
+is exactly what an interactive transaction requires. Reads are unaffected, so
+the app looks healthy until something posts, and then fails intermittently
+depending on whether the pooler happened to keep the connection.
+
+The earlier advice here — transaction pooler on 6543 for `DATABASE_URL` — is the
+right default for a typical Next.js app and the wrong one for a double-entry
+ledger, where every meaningful action is a transaction. Both variables now use
+the session pooler on 5432, with `connection_limit=1` on the app's so that a
+burst of serverless instances does not exhaust the database.
+
+The error page was making this harder to diagnose than it needed to be. It
+offered "ask an owner for access" for every error that reached it, which sends
+people to check their permissions when the cause is a database. It now says
+plainly that nothing was saved and that this is a fault in the app, and prints
+the Next.js error digest so a report can be matched to the stack trace in the
+server log.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

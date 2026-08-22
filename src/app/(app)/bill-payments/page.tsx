@@ -11,6 +11,7 @@ import {
 import { openDocumentsForVendor } from "@/lib/payables/bill-payments";
 import { writeAudit } from "@/lib/audit";
 import { failTo } from "@/lib/fail";
+import { PaymentLines } from "@/components/payment-lines";
 import { money, parseMoney, sum } from "@/lib/money";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
@@ -403,30 +404,17 @@ export default async function BillPaymentsPage({
                 value={openDocuments[0].currency}
               />
 
-              <div className="space-y-2">
-                {openDocuments.map((document) => (
-                  <div
-                    key={`${document.type}-${document.id}`}
-                    className="flex items-center gap-2"
-                  >
-                    <label className="flex-1 text-sm">
-                      {document.label}
-                      <span className="block text-xs text-slate-500">
-                        due {formatAccountingDate(document.dueDate)} · owing{" "}
-                        {money(document.balanceDue).toFixed(2)}{" "}
-                        {document.currency}
-                      </span>
-                    </label>
-                    <Input
-                      className="w-28 text-right"
-                      inputMode="decimal"
-                      name={`apply-${document.type}-${document.id}`}
-                      defaultValue={money(document.balanceDue).toFixed(2)}
-                      aria-label={`Amount to apply to ${document.label}`}
-                    />
-                  </div>
-                ))}
-              </div>
+              <PaymentLines
+                currency={openDocuments[0].currency}
+                lines={openDocuments.map((document) => ({
+                  name: `apply-${document.type}-${document.id}`,
+                  label: document.label,
+                  dueLabel: `due ${formatAccountingDate(document.dueDate)}`,
+                  owing: money(document.balanceDue).toFixed(2),
+                  currency: document.currency,
+                  defaultAmount: money(document.balanceDue).toFixed(2),
+                }))}
+              />
 
               {/* Everything open is in one currency, because the service will
                   not settle a document in a currency other than its own. */}

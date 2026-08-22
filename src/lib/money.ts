@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import DecimalJs from "decimal.js";
+import { normaliseMoneyText } from "./money-text";
 
 /**
  * Money is Decimal, never a float, never JavaScript `number` arithmetic
@@ -48,23 +49,8 @@ export function parseMoney(input: string | number | null | undefined): Money | n
     return Number.isFinite(input) ? toCents(input) : null;
   }
 
-  let text = input.trim();
-  if (text === "") return null;
+  const normalised = normaliseMoneyText(input);
+  if (normalised === null) return null;
 
-  let negative = false;
-  if (/^\(.*\)$/.test(text)) {
-    negative = true;
-    text = text.slice(1, -1).trim();
-  }
-  if (text.startsWith("-")) {
-    negative = !negative;
-    text = text.slice(1).trim();
-  }
-
-  // Strip currency codes/symbols and thousands separators.
-  text = text.replace(/[A-Za-z$₱€£¥\s]/g, "").replace(/,/g, "");
-  if (text === "" || !/^\d*\.?\d*$/.test(text) || text === ".") return null;
-
-  const value = new Prisma.Decimal(text);
-  return negative ? value.negated() : value;
+  return new Prisma.Decimal(normalised);
 }

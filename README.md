@@ -422,18 +422,28 @@ You need three accounts, all free tier: **Vercel**, **Supabase** (Postgres and
 file storage in one), and **GitHub** (the repository, and the scheduler).
 
 **1. Create the database.** In Supabase, make a project and open Project
-Settings → Database (or the **Connect** button). Copy **two** connection strings,
-both from the *pooler* host and differing only in port:
+Settings → Database (or the **Connect** button). Copy the **session pooler**
+string — port **5432** — and use it for *both* variables:
 
-- **Transaction pooler**, port **6543** — serves requests. Serverless multiplies
-  instances and each opens its own connections, which is what the pooler is for.
-- **Session pooler**, port **5432** — runs migrations. A transaction pooler
-  cannot: the migration engine needs advisory locks and a session it holds open.
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | session pooler, port 5432, plus `?connection_limit=1` |
+| `DIRECT_DATABASE_URL` | the same string, without `connection_limit` |
 
-Not the **Direct connection**, even though it also holds a session. Supabase
-serves it over IPv6 only unless you buy the IPv4 add-on, and GitHub Actions
-runners are IPv4-only — the nightly backup would fail to connect every night.
-The session pooler is reachable over IPv4 and does the same job.
+**Not the transaction pooler on 6543**, even though that is the usual advice for
+Next.js on serverless. This app writes through Prisma *interactive*
+transactions — `postJournalEntry` and everything that calls it, which is every
+posting path there is — and a transaction-mode pooler does not keep one server
+connection for the life of a transaction. Reads work fine; posting fails, and
+intermittently, which is the worst way for it to fail.
+
+`connection_limit=1` is what makes session mode safe here: each serverless
+instance holds one connection instead of a pool, so a burst of them does not
+exhaust the database.
+
+**Not the Direct connection** either: Supabase serves it over IPv6 only without
+the paid IPv4 add-on, and GitHub Actions runners have no IPv6, so the nightly
+backup could not connect.
 
 Both strings arrive containing a literal `[YOUR-PASSWORD]`. Replace it, brackets
 and all, with the database password you set when you created the project.
@@ -466,8 +476,8 @@ openssl rand -base64 32   # CRON_SECRET
 
 | Variable | Value |
 |---|---|
-| `DATABASE_URL` | Supabase **transaction pooler**, port 6543, with `?pgbouncer=true` |
-| `DIRECT_DATABASE_URL` | Supabase **session pooler**, port 5432 |
+| `DATABASE_URL` | Supabase **session pooler**, port 5432, `?connection_limit=1` |
+| `DIRECT_DATABASE_URL` | the same string without `connection_limit` |
 | `AUTH_SECRET` | generated above |
 | `AUTH_URL` | `https://your-project.vercel.app` — update it if you add a domain |
 | `TOKEN_ENCRYPTION_KEY` | generated above |
@@ -491,9 +501,6 @@ machine, pointed at the production database:
 ```bash
 DATABASE_URL="<the session pooler string, port 5432>" npm run bootstrap
 ```
-
-The session pooler, not the transaction pooler: bootstrap runs in a transaction,
-which port 6543 will not hold.
 
 **Without a terminal**, `scripts/sql/bootstrap-owner.sql` does the same job from
 the Supabase SQL editor. Edit the four marked values and run the whole file. It
@@ -588,7 +595,7 @@ knowing before you meet them:
 |---|---|---|
 | Storage | local disk volume | S3-compatible bucket, required |
 | Scheduler | in-process timers | `/api/cron` plus an external schedule |
-| Database | one direct connection | transaction pooler to serve, session pooler to migrate |
+| Database | one direct connection | session pooler, `connection_limit=1` |
 | Login throttling | same table | same table — it lives in Postgres, not memory |
 | Backups | `scripts/backup.sh` from cron | `.github/workflows/backup.yml` nightly |
 | Upload size | 10 MB | 4 MB, capped by the platform |

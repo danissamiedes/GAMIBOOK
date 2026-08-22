@@ -4,7 +4,8 @@ import { failTo } from "@/lib/fail";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
-import { recordExpense } from "@/lib/payables/expenses";
+import { recordExpense, updateExpense } from "@/lib/payables/expenses";
+import Link from "next/link";
 import { recordBillPayment } from "@/lib/payables/bill-payments";
 import { money, parseMoney } from "@/lib/money";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
@@ -32,7 +33,7 @@ export const metadata = { title: pageTitle("Expenses and bills") };
 export default async function ExpensesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; tab?: string }>;
+  searchParams: Promise<{ error?: string; tab?: string; edit?: string; saved?: string }>;
 }) {
   const scope = await sectionScope("VENDORS");
   const params = await searchParams;
@@ -56,11 +57,25 @@ export default async function ExpensesPage({
       // Regular vendors only: a consultant's bill belongs to the Consultants
       // section, and this section must not see consultant information at all.
       where: { ...scope.where, OR: [{ vendorId: null }, { vendor: { kind: "REGULAR" } }] },
-      include: { vendor: { select: { name: true } } },
+      include: {
+        vendor: { select: { name: true } },
+        applications: { include: { billPayment: { select: { reversedAt: true } } } },
+      },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 100,
     }),
   ]);
+
+  // The row named by ?edit=. Only an unpaid, unvoided one can be edited, and
+  // the service checks that again before it changes anything.
+  const editable = (expense: (typeof expenses)[number]) =>
+    expense.status !== "VOID" &&
+    !expense.applications.some((application) => !application.billPayment.reversedAt);
+
+  const editing = params.edit
+    ? (expenses.find((expense) => expense.id === params.edit && editable(expense)) ?? null)
+    : null;
+  const editKind = editing?.kind ?? null;
 
   async function create(formData: FormData) {
     "use server";
@@ -99,6 +114,45 @@ export default async function ExpensesPage({
       else throw thrown;
     }
     redirect(`/expenses?tab=${kind === "BILL" ? "bill" : "direct"}`);
+  }
+
+  async function save(formData: FormData) {
+    "use server";
+    const inner = await sectionScope("VENDORS");
+    const expenseId = String(formData.get("expenseId") || "");
+    const back = `/expenses?tab=${tab}&edit=${expenseId}`;
+    const amount = parseMoney(String(formData.get("amount") || ""));
+    if (!amount) failTo(back, "Enter the amount");
+
+    try {
+      await updateExpense({
+        companyId: inner.companyId,
+        expenseId,
+        vendorId: String(formData.get("vendorId") || "") || null,
+        date: parseAccountingDate(String(formData.get("date") || "")) ?? today(),
+        currency: String(formData.get("currency") || "").toUpperCase(),
+        fxRate: parseMoney(String(formData.get("fxRate") || "1")) ?? 1,
+        amount: amount!,
+        expenseAccountId: String(formData.get("expenseAccountId")),
+        paymentAccountId: String(formData.get("paymentAccountId") || "") || null,
+        dueDate: parseAccountingDate(String(formData.get("dueDate") || "")),
+        description: String(formData.get("description") || "").trim(),
+        reference: String(formData.get("reference") || "").trim() || null,
+        userId: inner.userId,
+        role: inner.role,
+      });
+      await writeAudit({
+        companyId: inner.companyId,
+        userId: inner.userId,
+        action: "expense.updated",
+        entityType: "Expense",
+        entityId: expenseId,
+      });
+    } catch (thrown) {
+      if (thrown instanceof PostingError) failTo(back, thrown.message);
+      else throw thrown;
+    }
+    redirect(`/expenses?tab=${tab}&saved=1`);
   }
 
   async function payBill(formData: FormData) {
@@ -146,6 +200,12 @@ export default async function ExpensesPage({
         description="A direct expense is paid as you record it. A bill is owed and cleared later."
       />
       {params.error ? <Alert tone="error">{params.error}</Alert> : null}
+      {params.saved ? (
+        <Alert tone="success">
+          Saved. The original entry was reversed and the corrected one posted in
+          its place.
+        </Alert>
+      ) : null}
 
       <div className="mb-4 flex gap-2">
         <a href="/expenses?tab=direct">
@@ -173,6 +233,7 @@ export default async function ExpensesPage({
                   <th className="py-2">Vendor</th>
                   <th className="py-2 text-right">Amount</th>
                   {tab === "bill" ? <th className="py-2 text-right">Balance</th> : null}
+                  <th />
                   {tab === "bill" ? <th /> : null}
                 </tr>
               </thead>
@@ -190,6 +251,16 @@ export default async function ExpensesPage({
                         {formatMoney(expense.balanceDue.toFixed(2), expense.currency)}
                       </td>
                     ) : null}
+                    <td className="py-2 text-right">
+                      {editable(expense) ? (
+                        <Link
+                          href={`/expenses?tab=${tab}&edit=${expense.id}`}
+                          className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                          Edit
+                        </Link>
+                      ) : null}
+                    </td>
                     {tab === "bill" ? (
                       <td className="py-2 text-right">
                         {money(expense.balanceDue).greaterThan(0) && expense.status !== "VOID" ? (
@@ -222,18 +293,38 @@ export default async function ExpensesPage({
 
         <Card tone="muted">
           <h2 className="mb-3 text-sm font-semibold">
-            {tab === "bill" ? "Record a bill" : "Record a direct expense"}
+            {editing
+              ? `Edit ${editKind === "BILL" ? "bill" : "expense"}`
+              : tab === "bill"
+                ? "Record a bill"
+                : "Record a direct expense"}
           </h2>
-          <form action={create} className="space-y-4">
+          {editing ? (
+            <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+              This has already posted. Saving reverses that entry and posts the
+              corrected one, dated to the original so the month it belongs to
+              stays right.
+            </p>
+          ) : null}
+          <form
+            key={editing?.id ?? "new"}
+            action={editing ? save : create}
+            className="space-y-4"
+          >
             <input type="hidden" name="kind" value={tab === "bill" ? "BILL" : "DIRECT"} />
+            {editing ? <input type="hidden" name="expenseId" value={editing.id} /> : null}
             <Field label="Date">
-              <Input type="date" name="date" defaultValue={formatAccountingDate(today())} />
+              <Input
+                type="date"
+                name="date"
+                defaultValue={formatAccountingDate(editing?.date ?? today())}
+              />
             </Field>
             <Field label="Description">
-              <Input name="description" required />
+              <Input name="description" required defaultValue={editing?.description ?? ""} />
             </Field>
             <Field label="Vendor" hint={tab === "bill" ? "Required — this is who you owe." : undefined}>
-              <Select name="vendorId" defaultValue="" required={tab === "bill"}>
+              <Select name="vendorId" defaultValue={editing?.vendorId ?? ""} required={tab === "bill"}>
                 <option value="">{tab === "bill" ? "Select…" : "None"}</option>
                 {vendors.map((vendor) => (
                   <option key={vendor.id} value={vendor.id}>
@@ -243,10 +334,15 @@ export default async function ExpensesPage({
               </Select>
             </Field>
             <Field label="Amount">
-              <Input name="amount" inputMode="decimal" required />
+              <Input
+                name="amount"
+                inputMode="decimal"
+                required
+                defaultValue={editing ? editing.amount.toFixed(2) : ""}
+              />
             </Field>
             <Field label="Currency">
-              <Select name="currency" defaultValue={company.baseCurrency}>
+              <Select name="currency" defaultValue={editing?.currency ?? company.baseCurrency}>
                 {[...new Set([company.baseCurrency, ...vendors.map((v) => v.defaultCurrency)])].map(
                   (currency) => (
                     <option key={currency} value={currency}>
@@ -257,10 +353,18 @@ export default async function ExpensesPage({
               </Select>
             </Field>
             <Field label={`Exchange rate (${company.baseCurrency} per unit)`}>
-              <Input name="fxRate" inputMode="decimal" defaultValue="1" />
+              <Input
+                name="fxRate"
+                inputMode="decimal"
+                defaultValue={editing ? editing.fxRate.toString() : "1"}
+              />
             </Field>
             <Field label="Expense account">
-              <Select name="expenseAccountId" defaultValue={expenseAccounts[0]?.id} required>
+              <Select
+                name="expenseAccountId"
+                defaultValue={editing?.expenseAccountId ?? expenseAccounts[0]?.id}
+                required
+              >
                 {expenseAccounts.map((account) => (
                   <option key={account.id} value={account.id}>
                     {account.code} — {account.name}
@@ -268,13 +372,21 @@ export default async function ExpensesPage({
                 ))}
               </Select>
             </Field>
-            {tab === "bill" ? (
+            {(editing ? editKind === "BILL" : tab === "bill") ? (
               <Field label="Due date">
-                <Input type="date" name="dueDate" />
+                <Input
+                  type="date"
+                  name="dueDate"
+                  defaultValue={editing?.dueDate ? formatAccountingDate(editing.dueDate) : ""}
+                />
               </Field>
             ) : (
               <Field label="Paid from">
-                <Select name="paymentAccountId" defaultValue={paymentAccounts[0]?.id} required>
+                <Select
+                  name="paymentAccountId"
+                  defaultValue={editing?.paymentAccountId ?? paymentAccounts[0]?.id}
+                  required
+                >
                   {paymentAccounts.map((account) => (
                     <option key={account.id} value={account.id}>
                       {account.code} — {account.name}
@@ -284,9 +396,21 @@ export default async function ExpensesPage({
               </Field>
             )}
             <Field label="Reference">
-              <Input name="reference" />
+              <Input name="reference" defaultValue={editing?.reference ?? ""} />
             </Field>
-            <Button type="submit">{tab === "bill" ? "Record bill" : "Record expense"}</Button>
+            <div className="flex items-center gap-2">
+              <Button type="submit">
+                {editing ? "Save changes" : tab === "bill" ? "Record bill" : "Record expense"}
+              </Button>
+              {editing ? (
+                <Link
+                  href={`/expenses?tab=${tab}`}
+                  className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </Link>
+              ) : null}
+            </div>
           </form>
         </Card>
       </div>

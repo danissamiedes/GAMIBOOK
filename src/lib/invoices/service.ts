@@ -323,6 +323,7 @@ export async function updateInvoice(input: {
   currency?: string;
   fxRate?: Prisma.Decimal.Value;
   terms?: string | null;
+  memo?: string | null;
   lines: InvoiceLineInput[];
   userId?: string | null;
   role?: Role | null;
@@ -365,6 +366,7 @@ export async function updateInvoice(input: {
         currency: input.currency ? input.currency.toUpperCase() : invoice.currency,
         fxRate: input.fxRate ?? invoice.fxRate,
         terms: input.terms === undefined ? invoice.terms : input.terms,
+        memo: input.memo === undefined ? invoice.memo : input.memo,
         lines: {
           create: input.lines.map((line, index) => ({
             lineNumber: index + 1,

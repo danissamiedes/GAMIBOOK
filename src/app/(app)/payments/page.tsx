@@ -6,6 +6,7 @@ import { formatAccountingDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money, sum } from "@/lib/money";
 import {
+  Alert,
   Card,
   DataTable,
   EmptyState,
@@ -19,7 +20,7 @@ export const metadata = { title: pageTitle("Customer payments") };
 export default async function PaymentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; saved?: string; error?: string }>;
 }) {
   const scope = await sectionScope("SALES");
 
@@ -47,6 +48,13 @@ export default async function PaymentsPage({
         title="Customer payments"
         description="Money in. Reversal deletes nothing."
       />
+      {params.error ? <Alert tone="error">{params.error}</Alert> : null}
+      {params.saved ? (
+        <Alert tone="success">
+          Saved. The original entry was reversed and the corrected one posted in
+          its place.
+        </Alert>
+      ) : null}
       {payments.length === 0 ? (
         <EmptyState
           title="No payments recorded yet"
@@ -65,6 +73,7 @@ export default async function PaymentsPage({
                 <th className="py-2">Method</th>
                 <th className="py-2 text-right">Amount</th>
                 <th className="py-2 text-right">Unapplied</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -116,6 +125,16 @@ export default async function PaymentsPage({
                       {unapplied.isZero()
                         ? "—"
                         : formatMoney(unapplied.toFixed(2), payment.currency)}
+                    </td>
+                    <td className="py-2 text-right">
+                      {payment.reversedAt ? null : (
+                        <Link
+                          href={`/payments/${payment.id}/edit`}
+                          className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                          Edit
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 );

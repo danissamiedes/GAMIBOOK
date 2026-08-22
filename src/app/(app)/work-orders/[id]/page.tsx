@@ -197,6 +197,9 @@ export default async function WorkOrderPage({
   }
 
   const isDraft = workOrder.status === "DRAFT";
+  const hasLivePayments = workOrder.applications.some(
+    (application) => !application.billPayment.reversedAt,
+  );
   const isOpen = workOrder.status === "APPROVED" || workOrder.status === "PARTIALLY_PAID";
   const foreign = workOrder.currency !== company.baseCurrency;
 
@@ -365,6 +368,14 @@ export default async function WorkOrderPage({
 
           <Card>
             <h2 className="mb-3 text-sm font-semibold">Actions</h2>
+              {workOrder.status !== "VOID" && !hasLivePayments ? (
+                <Link
+                  href={`/work-orders/${workOrder.id}/edit`}
+                  className="mb-3 flex h-9 w-full items-center justify-center rounded-md border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Edit work order
+                </Link>
+              ) : null}
             {isDraft ? (
               <div className="space-y-3">
                 <form action={approve} className="space-y-2">

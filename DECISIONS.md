@@ -1145,3 +1145,53 @@ when the kind is CONSULTANT. There is a test for exactly this.
 
 Vendors gained an `address`, which only customers had. A remittance address had
 been living in the notes field or nowhere.
+
+## Every transaction can be edited
+
+Nothing in the app could be edited — not an issued invoice, not a draft one.
+`SPEC.md:494` had specified "Only a `DRAFT` invoice can be freely edited" and
+that freedom had never been built, so a typo in a line meant voiding a document
+and raising it again under a new number.
+
+Two behaviours, decided by whether the document has posted:
+
+- **Not posted** (draft invoice, draft work order, draft or confirmed sales
+  order) — changed outright. A draft is not an accounting record; nothing is
+  reversed because nothing was written.
+- **Posted** (issued invoice, approved work order, any expense, either kind of
+  payment) — `amendPosting` reverses the standing entry and writes the
+  corrected one, per SPEC §4.2 rule 3. The document keeps its number: the
+  invoice the customer received is still that invoice, now saying something
+  else.
+
+**The reversal is dated to the original entry, not to today.** Correcting a
+15 August invoice on 22 August with a reversal dated the 22nd leaves August
+overstated and September understated until someone notices. Dating it back to
+the 15th makes the correction vanish from both months, which is what "this was
+always wrong" means. The cost is that a correction can land in a closed period
+— which is not a hole, because both postings go through `postJournalEntry` and
+rule 4 rejects that for everyone but an OWNER.
+
+**Editing stops where money has moved against the document.** Payments applied
+blocks editing an invoice, work order or bill (SPEC §7.1 requires this); a
+matched bank line blocks editing a payment, because the statement says that
+amount cleared on that day. Both refusals name the thing to undo first.
+
+**One arithmetic per document, not two.** The posting-line construction for
+invoices, work orders and both payment types was extracted so that recording
+and correcting build the entry from the same code. Two copies would drift, and
+the way they would drift is that a corrected document stops matching the one it
+replaced by a rounding cent.
+
+**Editing a payment is three ordered steps**, and the order is the whole
+difficulty: put the documents the old applications relieved back, apply the new
+amounts against those restored balances, then correct the ledger. Applying
+first would measure each new application against a balance the old payment is
+still sitting on — so raising a payment from 4,000 to 6,000 would be told it
+exceeds a balance it is itself the reason for.
+
+**A bug the browser caught and the types could not.** The Edit link on expenses
+was gated on `amountPaid` being zero. A direct expense is paid the instant it
+is recorded, so that hid the link on every direct expense there was. The gate
+is now the same condition the service enforces — whether a live payment is
+applied — which is what it should have been read from in the first place.

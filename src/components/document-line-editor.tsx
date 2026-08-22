@@ -12,7 +12,7 @@ type ItemOption = {
   accountId: string | null;
 };
 
-type Line = {
+export type Line = {
   itemId: string;
   description: string;
   quantity: string;
@@ -32,12 +32,15 @@ export function DocumentLineEditor({
   accountLabel = "Account",
   currency,
   defaultAccountId,
+  initialLines,
 }: {
   accounts: AccountOption[];
   items?: ItemOption[];
   accountLabel?: string;
   currency: string;
   defaultAccountId?: string;
+  /** Existing lines, when editing. Omitted on a new document. */
+  initialLines?: Line[];
 }) {
   const blank = (): Line => ({
     itemId: "",
@@ -47,7 +50,13 @@ export function DocumentLineEditor({
     accountId: defaultAccountId ?? "",
   });
 
-  const [lines, setLines] = useState<Line[]>([blank()]);
+  // Seeded once. The editor owns its rows from here, and re-seeding on every
+  // render would overwrite what someone is in the middle of typing. When the
+  // caller needs to start it over on a different document, it gives the
+  // component a different `key`.
+  const [lines, setLines] = useState<Line[]>(
+    initialLines && initialLines.length > 0 ? initialLines : [blank()],
+  );
   const { gridProps, addRow, removeRow } = useLineGrid({
     setLines,
     blank,
@@ -99,7 +108,7 @@ export function DocumentLineEditor({
               <th className="pb-2">Description</th>
               <th className="pb-2 w-24 text-right">Quantity</th>
               <th className="pb-2 w-32 text-right">Rate</th>
-              <th className="pb-2 w-36 text-right">Amount</th>
+              <th className="pb-2 pr-2 w-36 text-right">Amount</th>
               <th className="pb-2">{accountLabel}</th>
               <th />
             </tr>

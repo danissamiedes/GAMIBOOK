@@ -487,6 +487,12 @@ export default async function BillPaymentsPage({
                     <td className="py-2 text-right">
                       {payment.reversedAt ? null : (
                         <div className="flex items-center justify-end gap-1">
+                          <Link
+                            href={`/bill-payments/${payment.id}/edit`}
+                            className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                          >
+                            Edit
+                          </Link>
                           <form action={reverse}>
                             <input
                               type="hidden"

@@ -166,6 +166,15 @@ export default async function SalesOrderPage({
         <Card>
           <h2 className="mb-3 text-sm font-semibold">Actions</h2>
           <div className="space-y-3">
+              {order.status === "DRAFT" || order.status === "CONFIRMED" ? (
+                <Link
+                  href={`/sales-orders/${order.id}/edit`}
+                  className="mb-3 flex h-9 w-full items-center justify-center rounded-md border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Edit order
+                </Link>
+              ) : null}
+
             {order.status === "DRAFT" ? (
               <>
                 <form action={confirm}>

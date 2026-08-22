@@ -216,6 +216,9 @@ export default async function InvoicePage({
   }
 
   const isDraft = invoice.status === "DRAFT";
+  const hasLivePayments = invoice.applications.some(
+    (application) => !application.payment.reversedAt,
+  );
   const isOpen = invoice.status === "ISSUED" || invoice.status === "PARTIALLY_PAID";
   const foreign = invoice.currency !== company.baseCurrency;
 
@@ -396,6 +399,14 @@ export default async function InvoicePage({
           <Card>
             <h2 className="mb-3 text-sm font-semibold">Actions</h2>
             <div className="space-y-3">
+              {invoice.status !== "VOID" && !hasLivePayments ? (
+                <Link
+                  href={`/invoices/${invoice.id}/edit`}
+                  className="flex h-9 w-full items-center justify-center rounded-md border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Edit invoice
+                </Link>
+              ) : null}
               {isDraft ? (
                 <>
                   <form action={issue}>

@@ -325,6 +325,9 @@ export default async function ReceiptsPage({
                       <div className="border-t border-slate-200 p-3 dark:border-slate-800">
                         <form action={approve} className="space-y-3">
                           <input type="hidden" name="receiptId" value={receipt.id} />
+                          {/* Two columns, read across: what it is and when,
+                              who and when it is due, the reference pair, then
+                              the figures, then the currency pair. */}
                           <div className="grid gap-3 sm:grid-cols-2">
                             <Field label="Record as">
                               <Select name="kind" defaultValue="DIRECT">
@@ -338,6 +341,31 @@ export default async function ReceiptsPage({
                                 name="date"
                                 defaultValue={formatAccountingDate(receipt.readDate ?? today())}
                               />
+                            </Field>
+                            <Field label="Vendor" hint="Required for a bill.">
+                              <Select name="vendorId" defaultValue="">
+                                <option value="">None</option>
+                                {vendors.map((vendor) => (
+                                  <option key={vendor.id} value={vendor.id}>
+                                    {vendor.name}
+                                  </option>
+                                ))}
+                              </Select>
+                            </Field>
+                            <Field label="Due date" hint="Used for a bill.">
+                              <Input type="date" name="dueDate" />
+                            </Field>
+                            <Field label="Reference">
+                              <Input name="reference" />
+                            </Field>
+                            <Field label="Paid from" hint="Used for a direct expense.">
+                              <Select name="paymentAccountId" defaultValue={paymentAccounts[0]?.id}>
+                                {paymentAccounts.map((account) => (
+                                  <option key={account.id} value={account.id}>
+                                    {account.code} — {account.name}
+                                  </option>
+                                ))}
+                              </Select>
                             </Field>
                             <Field label="Description">
                               <Input
@@ -358,6 +386,30 @@ export default async function ReceiptsPage({
                                 }
                               />
                             </Field>
+                            <Field label="Expense account">
+                              <Select
+                                name="expenseAccountId"
+                                defaultValue={expenseAccounts[0]?.id}
+                                required
+                              >
+                                {expenseAccounts.map((account) => (
+                                  <option key={account.id} value={account.id}>
+                                    {account.code} — {account.name}
+                                  </option>
+                                ))}
+                              </Select>
+                            </Field>
+                            <Field
+                              label="File link"
+                              hint="Optional. Paste a Google Drive link and it becomes a click-through on the expense."
+                            >
+                              <Input
+                                name="fileUrl"
+                                type="url"
+                                inputMode="url"
+                                placeholder="https://drive.google.com/…"
+                              />
+                            </Field>
                             <Field label="Currency">
                               <Select
                                 name="currency"
@@ -372,55 +424,6 @@ export default async function ReceiptsPage({
                             </Field>
                             <Field label={`Exchange rate (${company.baseCurrency} per unit)`}>
                               <Input name="fxRate" inputMode="decimal" defaultValue="1" />
-                            </Field>
-                            <Field label="Expense account">
-                              <Select
-                                name="expenseAccountId"
-                                defaultValue={expenseAccounts[0]?.id}
-                                required
-                              >
-                                {expenseAccounts.map((account) => (
-                                  <option key={account.id} value={account.id}>
-                                    {account.code} — {account.name}
-                                  </option>
-                                ))}
-                              </Select>
-                            </Field>
-                            <Field label="Paid from" hint="Used for a direct expense.">
-                              <Select name="paymentAccountId" defaultValue={paymentAccounts[0]?.id}>
-                                {paymentAccounts.map((account) => (
-                                  <option key={account.id} value={account.id}>
-                                    {account.code} — {account.name}
-                                  </option>
-                                ))}
-                              </Select>
-                            </Field>
-                            <Field label="Vendor" hint="Required for a bill.">
-                              <Select name="vendorId" defaultValue="">
-                                <option value="">None</option>
-                                {vendors.map((vendor) => (
-                                  <option key={vendor.id} value={vendor.id}>
-                                    {vendor.name}
-                                  </option>
-                                ))}
-                              </Select>
-                            </Field>
-                            <Field label="Due date" hint="Used for a bill.">
-                              <Input type="date" name="dueDate" />
-                            </Field>
-                            <Field label="Reference">
-                              <Input name="reference" />
-                            </Field>
-                            <Field
-                              label="File link"
-                              hint="Optional. Paste a Google Drive link and it becomes a click-through on the expense."
-                            >
-                              <Input
-                                name="fileUrl"
-                                type="url"
-                                inputMode="url"
-                                placeholder="https://drive.google.com/…"
-                              />
                             </Field>
                           </div>
                           <div className="flex items-center gap-2">

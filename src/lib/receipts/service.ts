@@ -8,6 +8,7 @@ import { storage, storageKeys, withStorage } from "@/lib/storage";
 import { writeAudit } from "@/lib/audit";
 import { recordExpense } from "@/lib/payables/expenses";
 import { readReceipt } from "./extract";
+import { downloadFile } from "@/lib/drive/client";
 
 /**
  * The receipt inbox (SPEC §8.2 extension).
@@ -70,7 +71,7 @@ export async function extractReceipt(companyId: string, receiptId: string) {
     throw new PostingError("This receipt has already been entered");
   }
 
-  const bytes = await withStorage("download", () => storage().get(receipt.fileKey));
+  const bytes = await receiptBytes(receipt);
 
   try {
     const reading = await readReceipt({ bytes, mimeType: receipt.mimeType });
@@ -106,6 +107,27 @@ export async function extractReceipt(companyId: string, receiptId: string) {
       },
     });
   }
+}
+
+/**
+ * The image itself, from wherever it lives.
+ *
+ * A receipt that came from a watched Drive folder was never copied in, so it
+ * is fetched from Drive when something actually needs the pixels — reading it,
+ * or showing it to someone who cannot open Drive. The bytes are not kept.
+ */
+export async function receiptBytes(receipt: {
+  fileKey: string | null;
+  sourceFileId: string | null;
+  source: "UPLOAD" | "GOOGLE_DRIVE";
+}): Promise<Buffer> {
+  if (receipt.fileKey) {
+    return withStorage("download", () => storage().get(receipt.fileKey!));
+  }
+  if (receipt.source === "GOOGLE_DRIVE" && receipt.sourceFileId) {
+    return downloadFile(receipt.sourceFileId);
+  }
+  throw new PostingError("This receipt has no image behind it");
 }
 
 /**
@@ -154,8 +176,10 @@ export async function approveReceipt(input: {
     description: input.description,
     reference: input.reference,
     // The photo becomes the expense's receipt, so the document and its
-    // evidence stay together without a second copy.
+    // evidence stay together without a second copy. A Drive receipt was never
+    // copied in, so what travels is the link rather than a storage key.
     receiptFileKey: receipt.fileKey,
+    receiptUrl: receipt.sourceUrl,
     userId: input.userId,
     role: input.role,
   });

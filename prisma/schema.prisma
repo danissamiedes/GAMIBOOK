@@ -313,6 +313,7 @@ model Company {
   billPayments              BillPayment[]
   recurringInvoiceTemplates RecurringInvoiceTemplate[]
   receiptUploads            ReceiptUpload[]
+  driveWatch                DriveWatch?
 
   @@index([organizationId])
 }
@@ -818,6 +819,9 @@ model Expense {
   description      String
   reference        String?
   receiptFileKey   String?
+  /// A link to the receipt where it lives outside the app — a Google Drive
+  /// file, say. Set instead of receiptFileKey when nothing was copied in.
+  receiptUrl       String?
   isBillable       Boolean     @default(false)
   customerId       String?
   dueDate          DateTime?   @db.Date
@@ -1320,13 +1324,22 @@ model RateLimit {
 model ReceiptUpload {
   id        String              @id @default(cuid())
   companyId String
-  /// Where the image lives in object storage.
-  fileKey   String
+  /// Where the image lives in object storage. Null for a receipt that lives
+  /// somewhere else — a Drive file is linked, not copied.
+  fileKey   String?
   filename  String
   mimeType  String
   byteSize  Int
 
   status ReceiptStatus @default(PENDING)
+
+  /// Where this came from, and how to get back to it.
+  source     ReceiptSource @default(UPLOAD)
+  /// The provider's own id, so a folder can be scanned repeatedly without
+  /// queueing the same photo twice.
+  sourceFileId String?
+  /// The link a person clicks to see the original in its own home.
+  sourceUrl    String?
 
   /// What the reader made of the image. All nullable: extraction is a
   /// suggestion, and a receipt it cannot read is still a receipt.
@@ -1355,7 +1368,15 @@ model ReceiptUpload {
   uploadedBy User?    @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
   expense    Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
 
+  @@unique([companyId, sourceFileId])
   @@index([companyId, status, createdAt])
+}
+
+enum ReceiptSource {
+  /// Somebody added it through the app.
+  UPLOAD
+  /// It appeared in a watched Google Drive folder.
+  GOOGLE_DRIVE
 }
 
 enum ReceiptStatus {
@@ -1367,4 +1388,27 @@ enum ReceiptStatus {
   APPROVED
   /// Not an expense — kept, but out of the queue.
   DISMISSED
+}
+
+/// A Google Drive folder scanned for new receipts.
+///
+/// One per company. Access is a service account the folder has been shared
+/// with, not a person's OAuth grant — so the app can reach this folder and
+/// nothing else in anybody's Drive.
+model DriveWatch {
+  id         String  @id @default(cuid())
+  companyId  String  @unique
+  folderId   String
+  folderName String?
+
+  lastSyncAt    DateTime?
+  lastError     String?
+  /// How many receipts this folder has produced, for the settings screen.
+  queuedTotal   Int      @default(0)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }

@@ -33,6 +33,8 @@ export async function recordExpense(input: {
   description: string;
   reference?: string | null;
   receiptFileKey?: string | null;
+  /// A link to the receipt where it lives outside the app.
+  receiptUrl?: string | null;
   isBillable?: boolean;
   customerId?: string | null;
   userId?: string | null;
@@ -96,6 +98,7 @@ export async function recordExpense(input: {
         description: input.description,
         reference: input.reference ?? null,
         receiptFileKey: input.receiptFileKey ?? null,
+        receiptUrl: input.receiptUrl ?? null,
         isBillable: input.isBillable ?? false,
         customerId: input.customerId ?? null,
         dueDate: input.kind === "BILL" ? (input.dueDate ? accountingDate(input.dueDate) : null) : null,

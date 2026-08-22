@@ -1277,3 +1277,39 @@ show when the photo arrived and who added it, the unread banner is suppressed,
 Read is not rendered, and the upload panel says plainly that automatic reading
 is off and which variable turns it on. `readerConfigured()` is the one place
 that asks.
+
+## A watched Google Drive folder feeds the receipt inbox
+
+Drive, unlike Messenger, has a real API, so this one is genuinely built.
+
+**A service account, not an OAuth grant.** The only Drive scope that can read
+an arbitrary folder is `drive.readonly`, and over a person's account that means
+the whole of their Drive. A service account sees exactly what has been shared
+with it, so sharing one folder grants one folder. It costs about five one-time
+setup steps and is worth them.
+
+**Linked, not copied** — the choice made deliberately, with its consequence
+stated on the settings screen: the queue row holds the file id and the Drive
+link, Drive keeps the only picture, and deleting the file there takes the
+evidence behind any expense it became. `ReceiptUpload.fileKey` became nullable
+to carry that; `Expense` gained `receiptUrl` alongside `receiptFileKey`, and
+which one is set says where the receipt lives.
+
+**The sync re-scans the whole folder every time** rather than asking for
+what changed since the last run. The cron endpoint runs every job on every
+knock, so a sync must be idempotent regardless — and the
+`(companyId, sourceFileId)` unique index makes a full re-scan both cheap and
+safe. A "since last sync" filter has a real failure mode: a file that lands
+while a scan is running falls between the two windows and is never seen.
+
+**A failure is recorded, not lost.** `lastError` is written onto the watch row
+and shown on the settings screen; one company's unreachable folder does not
+stop the next company's scan.
+
+**Hand-rolled against the REST API**, matching the Gmail integration next door.
+`googleapis` is tens of megabytes to make two calls, and the two-legged JWT
+flow is about thirty lines with `node:crypto`.
+
+A receipt with no local copy still reads: `receiptBytes()` fetches from Drive
+on demand for extraction or for someone who cannot open Drive, and keeps
+nothing.

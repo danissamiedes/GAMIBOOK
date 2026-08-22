@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { ConfigurationError } from "@/lib/errors";
-import { storage, withStorage } from "@/lib/storage";
+import { receiptBytes } from "@/lib/receipts/service";
 
 /**
  * Serves a receipt photo through the app rather than from a public URL.
@@ -18,13 +18,19 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   const receipt = await prisma.receiptUpload.findFirst({
     where: { id, ...scope.where },
-    select: { fileKey: true, mimeType: true, filename: true },
+    select: {
+      fileKey: true,
+      mimeType: true,
+      filename: true,
+      source: true,
+      sourceFileId: true,
+    },
   });
   if (!receipt) notFound();
 
   let bytes;
   try {
-    bytes = await withStorage("download", () => storage().get(receipt.fileKey));
+    bytes = await receiptBytes(receipt);
   } catch (thrown) {
     if (thrown instanceof ConfigurationError) {
       return new Response(`This photo could not be loaded.\n\n${thrown.message}\n`, {

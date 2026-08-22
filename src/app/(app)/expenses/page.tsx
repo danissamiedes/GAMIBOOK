@@ -60,6 +60,7 @@ export default async function ExpensesPage({
       include: {
         vendor: { select: { name: true } },
         applications: { include: { billPayment: { select: { reversedAt: true } } } },
+        receipt: { select: { id: true } },
       },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 100,
@@ -233,6 +234,7 @@ export default async function ExpensesPage({
                   <th className="py-2">Vendor</th>
                   <th className="py-2 text-right">Amount</th>
                   {tab === "bill" ? <th className="py-2 text-right">Balance</th> : null}
+                  <th className="py-2">Receipt</th>
                   <th />
                   {tab === "bill" ? <th /> : null}
                 </tr>
@@ -251,6 +253,28 @@ export default async function ExpensesPage({
                         {formatMoney(expense.balanceDue.toFixed(2), expense.currency)}
                       </td>
                     ) : null}
+                    <td className="py-2 text-xs">
+                      {expense.receiptUrl ? (
+                        <a
+                          className="underline"
+                          href={expense.receiptUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Drive
+                        </a>
+                      ) : expense.receipt ? (
+                        <Link
+                          className="underline"
+                          href={`/receipts/${expense.receipt.id}/image`}
+                          target="_blank"
+                        >
+                          Photo
+                        </Link>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
                     <td className="py-2 text-right">
                       {editable(expense) ? (
                         <Link

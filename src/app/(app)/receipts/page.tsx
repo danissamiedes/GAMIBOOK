@@ -247,13 +247,25 @@ export default async function ReceiptsPage({
                     className="rounded-lg border border-slate-200 dark:border-slate-800"
                   >
                     <div className="flex items-center gap-3 p-3">
-                      <Link
-                        href={`/receipts/${receipt.id}/image`}
-                        target="_blank"
-                        className="shrink-0 text-xs underline"
-                      >
-                        View
-                      </Link>
+                      {receipt.sourceUrl ? (
+                        <a
+                          href={receipt.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="shrink-0 text-xs underline"
+                          title="Open in Google Drive"
+                        >
+                          Drive
+                        </a>
+                      ) : (
+                        <Link
+                          href={`/receipts/${receipt.id}/image`}
+                          target="_blank"
+                          className="shrink-0 text-xs underline"
+                        >
+                          View
+                        </Link>
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm">
                           {receipt.readDescription ?? receipt.filename}
@@ -276,7 +288,11 @@ export default async function ReceiptsPage({
                           ) : (
                             <>
                               added {formatAccountingDate(receipt.createdAt)}
-                              {receipt.uploadedBy?.name ? ` by ${receipt.uploadedBy.name}` : ""}
+                              {receipt.source === "GOOGLE_DRIVE"
+                                ? " from Drive"
+                                : receipt.uploadedBy?.name
+                                  ? ` by ${receipt.uploadedBy.name}`
+                                  : ""}
                             </>
                           )}
                         </div>
@@ -414,7 +430,9 @@ export default async function ReceiptsPage({
                           <div className="flex items-center gap-2">
                             <Button type="submit">Record it</Button>
                             <span className="text-xs text-slate-500">
-                              The photo is attached to the expense.
+                              {receipt.sourceUrl
+                                ? "The Drive link is kept on the expense."
+                                : "The photo is attached to the expense."}
                             </span>
                           </div>
                         </form>

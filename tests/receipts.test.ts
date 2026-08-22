@@ -62,7 +62,7 @@ describe("receipt inbox", () => {
 
     expect(receipt.status).toBe("PENDING");
     expect(receipt.fileKey).toContain(fixture.company.id);
-    expect(await storage().exists(receipt.fileKey)).toBe(true);
+    expect(await storage().exists(receipt.fileKey!)).toBe(true);
     expect(await prisma.journalEntry.count()).toBe(0);
     expect(await prisma.expense.count()).toBe(0);
   });
@@ -218,7 +218,7 @@ describe("receipt inbox", () => {
     });
     expect(dismissed.status).toBe("DISMISSED");
     expect(dismissed.dismissedReason).toBe("Personal, not the company's");
-    expect(await storage().exists(receipt.fileKey)).toBe(true);
+    expect(await storage().exists(receipt.fileKey!)).toBe(true);
 
     const restored = await restoreReceipt(fixture.company.id, receipt.id);
     expect(restored.status).toBe("PENDING");

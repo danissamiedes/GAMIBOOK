@@ -1024,6 +1024,31 @@ the middle of a multi-line import and produces a syntax error. Typecheck caught
 it in one file; the repair inserts after the directive prologue instead, which
 is always valid. A codemod needs the same suspicion as the code it edits.
 
+## A misconfiguration should say which setting — 2026-08-22
+
+Emailing a work order failed with the app's generic error page, and downloading
+the same work order's PDF returned a bare HTTP 500. Both go through
+`cachedPdf`, which renders the document and files it in storage; storage was
+never configured on the deployment, so `storage()` threw — exactly as designed,
+since a serverless filesystem would accept a receipt and lose it.
+
+The guard was right and the reporting was wrong. The message named the setting
+and how to fix it, and it went only to the server log. Diagnosing it took a
+video, a log hunt and a round of elimination for something the app knew the
+instant it happened.
+
+Configuration failures are now `ConfigurationError`, which is a different
+audience from the other errors in that file: not a person doing something they
+may not, but an operator who has to change a setting. Nothing in the message is
+secret — it names `STORAGE_DRIVER` and the variables to set — so the download
+route answers 503 with it as plain text, and the two email actions report it on
+the page they came from.
+
+Worth noticing: the failure was in the *attachment*, not the email. Dry run
+short-circuits before any network call, so Gmail was never involved, and the
+one thing the screen said with confidence — that this was about emailing — was
+the one thing it had wrong.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

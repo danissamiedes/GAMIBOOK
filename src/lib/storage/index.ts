@@ -1,3 +1,4 @@
+import { ConfigurationError } from "@/lib/errors";
 import { LocalDiskAdapter } from "./local";
 import { S3Adapter } from "./s3";
 import type { StorageAdapter } from "./types";
@@ -27,7 +28,7 @@ export function storage(): StorageAdapter {
 
   if (driver === "s3") {
     const bucket = process.env.S3_BUCKET;
-    if (!bucket) throw new Error("STORAGE_DRIVER=s3 requires S3_BUCKET");
+    if (!bucket) throw new ConfigurationError("STORAGE_DRIVER=s3 requires S3_BUCKET to be set.");
     cached = new S3Adapter(bucket, {
       region: process.env.S3_REGION,
       endpoint: process.env.S3_ENDPOINT,
@@ -38,7 +39,7 @@ export function storage(): StorageAdapter {
     return cached;
   }
 
-  if (driver !== "local") throw new Error(`Unknown STORAGE_DRIVER: ${driver}`);
+  if (driver !== "local") throw new ConfigurationError(`Unknown STORAGE_DRIVER: ${driver}. Use "local" or "s3".`);
 
   // A serverless instance has a writable /tmp and nothing else, and that /tmp
   // goes away with the instance. Writing there would "work" — every call
@@ -47,10 +48,11 @@ export function storage(): StorageAdapter {
   // that will not start is a far smaller problem than books missing their
   // source documents.
   if (isServerless()) {
-    throw new Error(
-      "STORAGE_DRIVER=local cannot be used on a serverless host: its filesystem does " +
-        "not survive between requests, so receipts and uploaded files would be lost. " +
-        "Set STORAGE_DRIVER=s3 with S3_BUCKET and credentials.",
+    throw new ConfigurationError(
+      "File storage is not set up for this deployment. STORAGE_DRIVER is \"local\", " +
+        "and a serverless filesystem does not survive between requests — receipts and " +
+        "generated PDFs would be accepted and then lost. Set STORAGE_DRIVER=s3 along " +
+        "with S3_BUCKET, S3_ENDPOINT, S3_REGION and the access key pair, then redeploy.",
     );
   }
 

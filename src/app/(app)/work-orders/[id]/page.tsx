@@ -13,7 +13,7 @@ import { recordBillPayment, reverseBillPayment } from "@/lib/payables/bill-payme
 import { money, parseMoney } from "@/lib/money";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
-import { PostingError } from "@/lib/errors";
+import { ConfigurationError, PostingError } from "@/lib/errors";
 import { prepareWorkOrderEmail, sendEmail, stampEmailed } from "@/lib/email/send";
 import { dryRun } from "@/lib/email/gmail";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
@@ -159,10 +159,19 @@ export default async function WorkOrderPage({
   async function email() {
     "use server";
     const inner = await sectionScope("CONSULTANTS");
-    const prepared = await prepareWorkOrderEmail({
-      companyId: inner.companyId,
-      workOrderId: id,
-    });
+    // Building the email renders the PDF and files it in storage, so an
+    // unconfigured deployment fails here rather than at the send. Report it:
+    // it names the setting, and nothing about it is secret.
+    let prepared;
+    try {
+      prepared = await prepareWorkOrderEmail({
+        companyId: inner.companyId,
+        workOrderId: id,
+      });
+    } catch (thrown) {
+      if (thrown instanceof ConfigurationError) failTo(`/work-orders/${id}`, thrown.message);
+      throw thrown;
+    }
     if (prepared.to.length === 0) {
       failTo(`/work-orders/${id}`, prepared.excludedReason ?? "This consultant has no email address on file");
     }

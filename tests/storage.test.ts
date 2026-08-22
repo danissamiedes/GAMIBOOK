@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { ConfigurationError } from "@/lib/errors";
 import { LocalDiskAdapter, resetStorage, storage, storageKeys } from "@/lib/storage";
 
 describe("local disk storage adapter", () => {
@@ -54,11 +55,21 @@ describe("choosing a driver", () => {
     resetStorage();
   });
 
+  /**
+   * The refusal has to reach the operator, not just the log. It is thrown as a
+   * ConfigurationError so the download route and the email actions can tell
+   * them which setting is wrong instead of returning a bare 500 — which is
+   * exactly what happened: a PDF download 500'd and the reason was only ever
+   * in the server log.
+   */
   it("refuses the local driver on a serverless host rather than losing files quietly", () => {
     process.env.VERCEL = "1";
     process.env.STORAGE_DRIVER = "local";
     resetStorage();
-    expect(() => storage()).toThrow(/serverless/i);
+    expect(() => storage()).toThrow(ConfigurationError);
+    expect(() => storage()).toThrow(/STORAGE_DRIVER/);
+    // The message has to name what to do, not merely that something is wrong.
+    expect(() => storage()).toThrow(/S3_BUCKET/);
   });
 
   it("still allows the local driver on a host with a real filesystem", () => {
@@ -82,6 +93,7 @@ describe("choosing a driver", () => {
     process.env.STORAGE_DRIVER = "s3";
     delete process.env.S3_BUCKET;
     resetStorage();
+    expect(() => storage()).toThrow(ConfigurationError);
     expect(() => storage()).toThrow(/S3_BUCKET/);
   });
 });

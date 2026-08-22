@@ -44,3 +44,20 @@ export class RateLimitError extends Error {
     this.retryAfterSeconds = retryAfterSeconds;
   }
 }
+
+/**
+ * The deployment is missing or misconfiguring something it needs — a storage
+ * driver that cannot work on this host, a bucket that was never set up.
+ *
+ * Distinct from the other errors here because the audience is different: this
+ * is not a person doing something they may not, it is an operator who has to
+ * change a setting. The message names the setting and is safe to show, which is
+ * the whole point — a bare 500 sends someone to the logs to learn something the
+ * app already knew.
+ */
+export class ConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigurationError";
+  }
+}

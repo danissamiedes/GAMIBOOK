@@ -9,7 +9,7 @@ import { recordPayment, reversePayment } from "@/lib/invoices/payments";
 import { parseMoney, money } from "@/lib/money";
 import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
-import { PostingError } from "@/lib/errors";
+import { ConfigurationError, PostingError } from "@/lib/errors";
 import { prepareInvoiceEmail, sendEmail, stampEmailed } from "@/lib/email/send";
 import { dryRun } from "@/lib/email/gmail";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
@@ -182,7 +182,13 @@ export default async function InvoicePage({
   async function email() {
     "use server";
     const inner = await sectionScope("SALES");
-    const prepared = await prepareInvoiceEmail({ companyId: inner.companyId, invoiceId: id });
+    let prepared;
+    try {
+      prepared = await prepareInvoiceEmail({ companyId: inner.companyId, invoiceId: id });
+    } catch (thrown) {
+      if (thrown instanceof ConfigurationError) failTo(`/invoices/${id}`, thrown.message);
+      throw thrown;
+    }
     if (prepared.to.length === 0) {
       failTo(`/invoices/${id}`, "This customer has no email address on file");
     }

@@ -6,7 +6,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { updateInvoice } from "@/lib/invoices/service";
 import { parseMoney } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate } from "@/lib/dates";
+import { isoDate, parseAccountingDate } from "@/lib/dates";
 import { PostingError } from "@/lib/errors";
 import { failTo } from "@/lib/fail";
 import { DocumentLineEditor } from "@/components/document-line-editor";
@@ -157,14 +157,14 @@ export default async function EditInvoicePage({
               <Input
                 type="date"
                 name="issueDate"
-                defaultValue={formatAccountingDate(invoice.issueDate)}
+                defaultValue={isoDate(invoice.issueDate)}
               />
             </Field>
             <Field label="Due date">
               <Input
                 type="date"
                 name="dueDate"
-                defaultValue={formatAccountingDate(invoice.dueDate)}
+                defaultValue={isoDate(invoice.dueDate)}
               />
             </Field>
             <Field label="Currency">

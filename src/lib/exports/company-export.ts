@@ -2,7 +2,7 @@ import { zipSync, strToU8 } from "fflate";
 import { prisma } from "@/lib/db";
 import { csvCell } from "@/lib/reports/csv";
 import { money } from "@/lib/money";
-import { formatAccountingDate } from "@/lib/dates";
+import { isoDate } from "@/lib/dates";
 
 /**
  * The full data export (SPEC §13): every row this company owns, as CSVs in one
@@ -19,7 +19,9 @@ import { formatAccountingDate } from "@/lib/dates";
 type Table = { name: string; header: string[]; rows: unknown[][] };
 
 const date = (value: Date | null | undefined) =>
-  value ? formatAccountingDate(value) : "";
+  // ISO in an archive: it sorts, it parses, and it does not depend on the
+  // reader knowing whether 03/04 is March or April.
+  value ? isoDate(value) : "";
 /** Timestamps stay full ISO in UTC — they are events, not accounting dates (SPEC §13). */
 const instant = (value: Date | null | undefined) =>
   value ? value.toISOString() : "";
@@ -696,7 +698,7 @@ export async function buildCompanyExport(companyId: string): Promise<{
       .replace(/^-|-$/g, "") || "company";
 
   return {
-    filename: `${slug}-export-${formatAccountingDate(new Date())}.zip`,
+    filename: `${slug}-export-${isoDate(new Date())}.zip`,
     bytes: zipSync(files, { level: 6 }),
     tables: tables.map((table) => ({
       name: table.name,

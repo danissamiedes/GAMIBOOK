@@ -6,7 +6,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { updateWorkOrder } from "@/lib/payables/work-orders";
 import { parseMoney } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate } from "@/lib/dates";
+import { isoDate, parseAccountingDate } from "@/lib/dates";
 import { PostingError } from "@/lib/errors";
 import { failTo } from "@/lib/fail";
 import { DocumentLineEditor } from "@/components/document-line-editor";
@@ -153,14 +153,14 @@ export default async function EditWorkOrderPage({
               <Input
                 type="date"
                 name="issueDate"
-                defaultValue={formatAccountingDate(workOrder.issueDate)}
+                defaultValue={isoDate(workOrder.issueDate)}
               />
             </Field>
             <Field label="Due date">
               <Input
                 type="date"
                 name="dueDate"
-                defaultValue={formatAccountingDate(workOrder.dueDate)}
+                defaultValue={isoDate(workOrder.dueDate)}
               />
             </Field>
             <Field label="Currency">

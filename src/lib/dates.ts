@@ -1,7 +1,22 @@
 /**
  * Accounting dates are plain dates: no time, no zone (SPEC §13). They are
- * parsed and rendered as ISO yyyy-mm-dd and stored at UTC midnight, so a
- * viewer in Manila and a viewer in New York see the same date on the same row.
+ * stored at UTC midnight, so a viewer in Manila and a viewer in New York see
+ * the same date on the same row.
+ *
+ * Two renderings, and the difference matters:
+ *
+ *   isoDate()               yyyy-mm-dd — the machine format. What an
+ *                           `<input type="date">` requires as its value
+ *                           whatever the browser chooses to display, what a
+ *                           URL query carries, what `parseAccountingDate`
+ *                           reads back, and what an archived CSV should hold
+ *                           so it still sorts and parses in ten years.
+ *
+ *   formatAccountingDate()  mm/dd/yyyy — what a person reads.
+ *
+ * Using the display one where the machine one belongs is the failure to watch
+ * for: a date input silently renders empty and a query param silently falls
+ * back to its default, neither of which looks like an error.
  */
 
 export function parseAccountingDate(input: string | null | undefined): Date | null {
@@ -14,8 +29,16 @@ export function parseAccountingDate(input: string | null | undefined): Date | nu
   return date;
 }
 
-export function formatAccountingDate(date: Date): string {
+/** yyyy-mm-dd. For inputs, URLs, keys, filenames and archives. */
+export function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+/** mm/dd/yyyy. For anything a person reads. */
+export function formatAccountingDate(date: Date): string {
+  const iso = isoDate(date);
+  const [year, month, day] = iso.split("-");
+  return `${month}/${day}/${year}`;
 }
 
 export function today(): Date {

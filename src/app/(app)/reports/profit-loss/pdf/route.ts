@@ -4,7 +4,7 @@ import { profitAndLoss } from "@/lib/reports/profit-loss";
 import { brandingFor } from "@/lib/pdf/render";
 import { renderReportPdf } from "@/lib/pdf/report";
 import { formatMoney } from "@/lib/currency";
-import { fiscalYearStart, formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { fiscalYearStart, formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 
 export async function GET(request: Request) {
   const scope = await sectionScope("REPORTS");
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
   return new Response(new Uint8Array(bytes), {
     headers: {
       "content-type": "application/pdf",
-      "content-disposition": `inline; filename="ProfitAndLoss-${formatAccountingDate(from)}-to-${formatAccountingDate(to)}.pdf"`,
+      "content-disposition": `inline; filename="ProfitAndLoss-${isoDate(from)}-to-${isoDate(to)}.pdf"`,
     },
   });
 }

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { accountDetail, sourceDocumentHref, sourceLabel } from "@/lib/reports/general-ledger";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { normalBalance } from "@/lib/ledger/accounts";
 import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
@@ -61,8 +61,8 @@ export default async function AccountDetailPage({
           { label: "Balance Sheet", href: "/reports/balance-sheet" },
         ]}
       >
-        <DateField label="From" name="from" value={from ? formatAccountingDate(from) : ""} />
-        <DateField label="To" name="to" value={formatAccountingDate(to)} />
+        <DateField label="From" name="from" value={from ? isoDate(from) : ""} />
+        <DateField label="To" name="to" value={isoDate(to)} />
       </ReportControls>
 
       {detail.rows.length === 0 ? (

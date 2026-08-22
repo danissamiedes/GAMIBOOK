@@ -2,7 +2,7 @@ import { pageTitle } from "@/lib/brand";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { trialBalance } from "@/lib/ledger/reports";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import {
   Alert,
@@ -42,8 +42,8 @@ export default async function TrialBalancePage({
     includeZeroRows,
   });
 
-  const csvHref = `/reports/trial-balance/csv?asOf=${formatAccountingDate(asOf)}${
-    from ? `&from=${formatAccountingDate(from)}` : ""
+  const csvHref = `/reports/trial-balance/csv?asOf=${isoDate(asOf)}${
+    from ? `&from=${isoDate(from)}` : ""
   }${includeZeroRows ? "&zero=1" : ""}`;
 
   return (
@@ -61,7 +61,7 @@ export default async function TrialBalancePage({
             <Input type="date" name="from" defaultValue={params.from ?? ""} />
           </Field>
           <Field label="As of">
-            <Input type="date" name="asOf" defaultValue={formatAccountingDate(asOf)} />
+            <Input type="date" name="asOf" defaultValue={isoDate(asOf)} />
           </Field>
           <label className="flex h-9 items-center gap-2 text-sm">
             <input type="checkbox" name="zero" value="1" defaultChecked={includeZeroRows} />

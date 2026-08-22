@@ -4,7 +4,7 @@ import { balanceSheet } from "@/lib/reports/balance-sheet";
 import { brandingFor } from "@/lib/pdf/render";
 import { renderReportPdf } from "@/lib/pdf/report";
 import { formatMoney } from "@/lib/currency";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 
 export async function GET(request: Request) {
   const scope = await sectionScope("REPORTS");
@@ -62,7 +62,7 @@ export async function GET(request: Request) {
   return new Response(new Uint8Array(bytes), {
     headers: {
       "content-type": "application/pdf",
-      "content-disposition": `inline; filename="BalanceSheet-${formatAccountingDate(asOf)}.pdf"`,
+      "content-disposition": `inline; filename="BalanceSheet-${isoDate(asOf)}.pdf"`,
     },
   });
 }

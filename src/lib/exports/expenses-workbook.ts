@@ -60,7 +60,7 @@ export async function buildExpensesWorkbook(options: {
       fileLink: row.receiptUrl ?? "",
     });
 
-    added.getCell("date").numFmt = "yyyy-mm-dd";
+    added.getCell("date").numFmt = "mm/dd/yyyy";
     added.getCell("amount").numFmt = "#,##0.00";
     if (isBill) added.getCell("balance").numFmt = "#,##0.00";
 

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { arAging, agingBucketLabels, bucketValues } from "@/lib/invoices/aging";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import {
   Alert,
@@ -65,11 +65,11 @@ export default async function ArAgingPage({
             <Input
               type="date"
               name="asOf"
-              defaultValue={formatAccountingDate(asOf)}
+              defaultValue={isoDate(asOf)}
             />
           </Field>
           <Button type="submit">Update</Button>
-          <a href={`/reports/ar-aging/csv?asOf=${formatAccountingDate(asOf)}`}>
+          <a href={`/reports/ar-aging/csv?asOf=${isoDate(asOf)}`}>
             <Button variant="secondary" type="button">
               Export CSV
             </Button>
@@ -91,7 +91,7 @@ export default async function ArAgingPage({
           Showing {focused.customerName} only.{" "}
           <Link
             className="underline"
-            href={`/reports/ar-aging?asOf=${formatAccountingDate(asOf)}`}
+            href={`/reports/ar-aging?asOf=${isoDate(asOf)}`}
           >
             Show every customer
           </Link>
@@ -153,7 +153,7 @@ export default async function ArAgingPage({
                           {" · "}
                           <Link
                             className="underline"
-                            href={`/reports/ar-aging?asOf=${formatAccountingDate(asOf)}&customer=${row.customerId}`}
+                            href={`/reports/ar-aging?asOf=${isoDate(asOf)}&customer=${row.customerId}`}
                           >
                             and {row.invoices.length - INLINE_DOCUMENTS} more
                           </Link>

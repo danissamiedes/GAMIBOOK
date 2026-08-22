@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { salesByCustomer } from "@/lib/reports/sales-by-customer";
 import { periodPresets } from "@/lib/reports/periods";
-import { fiscalYearStart, formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { fiscalYearStart, formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 import { DateField, ReportControls } from "@/components/report-controls";
@@ -38,12 +38,12 @@ export default async function SalesByCustomerPage({
 
       <ReportControls
         presets={periodPresets(company.fiscalYearStartMonth, "/reports/sales-by-customer")}
-        csvHref={`/reports/sales-by-customer/csv?from=${formatAccountingDate(
+        csvHref={`/reports/sales-by-customer/csv?from=${isoDate(
           from,
-        )}&to=${formatAccountingDate(to)}`}
+        )}&to=${isoDate(to)}`}
       >
-        <DateField label="From" name="from" value={formatAccountingDate(from)} />
-        <DateField label="To" name="to" value={formatAccountingDate(to)} />
+        <DateField label="From" name="from" value={isoDate(from)} />
+        <DateField label="To" name="to" value={isoDate(to)} />
       </ReportControls>
 
       {report.rows.length === 0 ? (

@@ -9,7 +9,7 @@ import Link from "next/link";
 import { recordBillPayment } from "@/lib/payables/bill-payments";
 import { money, parseMoney } from "@/lib/money";
 import { linkLabel, safeExternalUrl } from "@/lib/links";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
 import {
@@ -355,7 +355,7 @@ export default async function ExpensesPage({
               <Input
                 type="date"
                 name="date"
-                defaultValue={formatAccountingDate(editing?.date ?? today())}
+                defaultValue={isoDate(editing?.date ?? today())}
               />
             </Field>
             <Field label="Reference">
@@ -400,7 +400,7 @@ export default async function ExpensesPage({
                 <Input
                   type="date"
                   name="dueDate"
-                  defaultValue={editing?.dueDate ? formatAccountingDate(editing.dueDate) : ""}
+                  defaultValue={editing?.dueDate ? isoDate(editing.dueDate) : ""}
                 />
               </Field>
             ) : (

@@ -10,7 +10,7 @@ import {
   convertToInvoice,
   deleteDraftSalesOrder,
 } from "@/lib/invoices/sales-orders";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader } from "@/components/ui";
@@ -194,7 +194,7 @@ export default async function SalesOrderPage({
               <>
                 <form action={invoice} className="space-y-2">
                   <Field label="Invoice date">
-                    <Input type="date" name="issueDate" defaultValue={formatAccountingDate(today())} />
+                    <Input type="date" name="issueDate" defaultValue={isoDate(today())} />
                   </Field>
                   <Button type="submit" className="w-full">
                     Convert to invoice

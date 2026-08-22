@@ -17,7 +17,7 @@ import { writeAudit } from "@/lib/audit";
 import { failTo } from "@/lib/fail";
 import { PaymentLines } from "@/components/payment-lines";
 import { money, parseMoney, sum } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
 import {
@@ -591,7 +591,7 @@ export default async function BillPaymentsPage({
                 <Input
                   type="date"
                   name="date"
-                  defaultValue={formatAccountingDate(today())}
+                  defaultValue={isoDate(today())}
                 />
               </Field>
               <Field label="Paid from">

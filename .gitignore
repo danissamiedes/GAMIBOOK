@@ -43,6 +43,8 @@ next-env.d.ts
 
 # Ledger
 /storage
+# Written by the receipt tests (STORAGE_LOCAL_PATH), not source.
+/storage-test
 
 # playwright
 /test-results

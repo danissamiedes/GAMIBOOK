@@ -11,7 +11,7 @@ import {
 } from "@/lib/payables/work-orders";
 import { recordBillPayment, reverseBillPayment } from "@/lib/payables/bill-payments";
 import { money, parseMoney } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { ConfigurationError, PostingError } from "@/lib/errors";
 import { prepareWorkOrderEmail, sendEmail, stampEmailed } from "@/lib/email/send";
@@ -383,7 +383,7 @@ export default async function WorkOrderPage({
                     <Input
                       type="date"
                       name="approvedAt"
-                      defaultValue={formatAccountingDate(workOrder.issueDate)}
+                      defaultValue={isoDate(workOrder.issueDate)}
                     />
                   </Field>
                   <Button type="submit" className="w-full">
@@ -399,7 +399,7 @@ export default async function WorkOrderPage({
             ) : workOrder.status !== "VOID" ? (
               <form action={makeVoid} className="space-y-2">
                 <Field label="Void date">
-                  <Input type="date" name="date" defaultValue={formatAccountingDate(today())} />
+                  <Input type="date" name="date" defaultValue={isoDate(today())} />
                 </Field>
                 <Button type="submit" variant="danger" className="w-full">
                   Void work order
@@ -417,7 +417,7 @@ export default async function WorkOrderPage({
                 <input type="hidden" name="vendorId" value={workOrder.vendorId} />
                 <input type="hidden" name="currency" value={workOrder.currency} />
                 <Field label="Date">
-                  <Input type="date" name="date" defaultValue={formatAccountingDate(today())} />
+                  <Input type="date" name="date" defaultValue={isoDate(today())} />
                 </Field>
                 <Field label={`Amount (${workOrder.currency})`}>
                   <Input name="amount" inputMode="decimal" defaultValue={workOrder.balanceDue.toFixed(2)} />

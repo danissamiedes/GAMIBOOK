@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { profitAndLoss } from "@/lib/reports/profit-loss";
 import { csvResponse } from "@/lib/reports/csv";
-import { fiscalYearStart, formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { fiscalYearStart, formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 
 export async function GET(request: Request) {
   const scope = await sectionScope("REPORTS");
@@ -39,5 +39,5 @@ export async function GET(request: Request) {
   rows.push(["Operating income", "", "", report.operatingIncome.toFixed(2)]);
   rows.push(["Net income", "", "", report.netIncome.toFixed(2)]);
 
-  return csvResponse(rows, `ProfitAndLoss-${formatAccountingDate(from)}-to-${formatAccountingDate(to)}.csv`);
+  return csvResponse(rows, `ProfitAndLoss-${isoDate(from)}-to-${isoDate(to)}.csv`);
 }

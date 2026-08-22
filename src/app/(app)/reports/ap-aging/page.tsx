@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { companyScope } from "@/lib/session-scope";
 import { apAging, apBucketValues } from "@/lib/payables/aging";
 import { agingBucketLabels } from "@/lib/invoices/aging";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import {
   Alert,
@@ -99,7 +99,7 @@ export default async function ApAgingPage({
             <Input
               type="date"
               name="asOf"
-              defaultValue={formatAccountingDate(asOf)}
+              defaultValue={isoDate(asOf)}
             />
           </Field>
           {canSwitch ? (
@@ -116,7 +116,7 @@ export default async function ApAgingPage({
             ].map((option) => (
               <Link
                 key={option.label}
-                href={`/reports/ap-aging?asOf=${formatAccountingDate(asOf)}${
+                href={`/reports/ap-aging?asOf=${isoDate(asOf)}${
                   option.value ? `&kind=${option.value}` : ""
                 }`}
               >
@@ -175,7 +175,7 @@ export default async function ApAgingPage({
           Showing {focused.vendorName} only.{" "}
           <Link
             className="underline"
-            href={`/reports/ap-aging?asOf=${formatAccountingDate(asOf)}${kind ? `&kind=${kind}` : ""}`}
+            href={`/reports/ap-aging?asOf=${isoDate(asOf)}${kind ? `&kind=${kind}` : ""}`}
           >
             Show every payee
           </Link>
@@ -239,7 +239,7 @@ export default async function ApAgingPage({
                           {" · "}
                           <Link
                             className="underline"
-                            href={`/reports/ap-aging?asOf=${formatAccountingDate(asOf)}${
+                            href={`/reports/ap-aging?asOf=${isoDate(asOf)}${
                               kind ? `&kind=${kind}` : ""
                             }&vendor=${row.vendorId}`}
                           >

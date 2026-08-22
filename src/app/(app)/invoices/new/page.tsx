@@ -6,7 +6,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { issueInvoice, computeLine } from "@/lib/invoices/service";
 import { parseMoney } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { PostingError } from "@/lib/errors";
 import { DocumentLineEditor } from "@/components/document-line-editor";
 import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
@@ -152,7 +152,7 @@ export default async function NewInvoicePage({
               </Select>
             </Field>
             <Field label="Issue date">
-              <Input type="date" name="issueDate" defaultValue={formatAccountingDate(today())} />
+              <Input type="date" name="issueDate" defaultValue={isoDate(today())} />
             </Field>
             <Field label="Due date" hint="Defaults from the customer's terms.">
               <Input type="date" name="dueDate" />

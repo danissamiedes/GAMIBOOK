@@ -13,7 +13,7 @@ import {
   upcomingOccurrences,
 } from "@/lib/invoices/recurring";
 import { money, parseMoney } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { DocumentLineEditor } from "@/components/document-line-editor";
 import {
@@ -229,7 +229,7 @@ export default async function RecurringInvoicesPage({
       operatingToday(new Date(), company.operatingTimeZone)
     ) {
       redirect(
-        `/invoices/recurring?ran=NOT_DUE&next=${formatAccountingDate(template!.nextRunDate)}`,
+        `/invoices/recurring?ran=NOT_DUE&next=${isoDate(template!.nextRunDate)}`,
       );
     }
 
@@ -482,7 +482,7 @@ export default async function RecurringInvoicesPage({
                 <Input
                   type="date"
                   name="startDate"
-                  defaultValue={formatAccountingDate(today())}
+                  defaultValue={isoDate(today())}
                   required
                 />
               </Field>

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { balanceSheet } from "@/lib/reports/balance-sheet";
 import { asOfPresets } from "@/lib/reports/periods";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import type { Money } from "@/lib/money";
 import { Alert, Card, DataTable, PageHeader } from "@/components/ui";
@@ -69,7 +69,7 @@ export default async function BalanceSheetPage({
   const report = await balanceSheet({ companyId: scope.companyId, asOf });
 
   const drill = (accountId: string) =>
-    `/reports/account/${accountId}?to=${formatAccountingDate(asOf)}`;
+    `/reports/account/${accountId}?to=${isoDate(asOf)}`;
 
   const amount = (value: Money) => formatMoney(value.toFixed(2), company.baseCurrency);
 
@@ -82,10 +82,10 @@ export default async function BalanceSheetPage({
 
       <ReportControls
         presets={asOfPresets(company.fiscalYearStartMonth, "/reports/balance-sheet")}
-        csvHref={`/reports/balance-sheet/csv?asOf=${formatAccountingDate(asOf)}`}
-        pdfHref={`/reports/balance-sheet/pdf?asOf=${formatAccountingDate(asOf)}`}
+        csvHref={`/reports/balance-sheet/csv?asOf=${isoDate(asOf)}`}
+        pdfHref={`/reports/balance-sheet/pdf?asOf=${isoDate(asOf)}`}
       >
-        <DateField label="As of" name="asOf" value={formatAccountingDate(asOf)} />
+        <DateField label="As of" name="asOf" value={isoDate(asOf)} />
       </ReportControls>
 
       {!report.balanced ? (

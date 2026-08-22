@@ -8,7 +8,7 @@ import {
 } from "@/lib/imports/parse";
 import { parseSheetDate } from "@/lib/imports/validate";
 import { money, parseMoney, type Money } from "@/lib/money";
-import { formatAccountingDate } from "@/lib/dates";
+import { isoDate } from "@/lib/dates";
 
 /**
  * Reading a bank statement (SPEC §8.4).
@@ -72,7 +72,10 @@ export function dedupeHash(input: {
   return createHash("sha256")
     .update(
       [
-        formatAccountingDate(input.date),
+        // isoDate, not the display format: this string is hashed, and every
+        // previously imported row was hashed with yyyy-mm-dd. Change it and a
+        // re-imported statement matches nothing and duplicates every line.
+        isoDate(input.date),
         input.amount.toFixed(2),
         // Whitespace and case vary between a bank's own re-exports.
         input.description.trim().toLowerCase().replace(/\s+/g, " "),

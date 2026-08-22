@@ -7,7 +7,7 @@ import { writeAudit } from "@/lib/audit";
 import { postOpeningBalances } from "@/lib/ledger/opening-balances";
 import { isBalanceSheet, SYSTEM_ACCOUNTS, TYPE_ORDER, normalBalance } from "@/lib/ledger/accounts";
 import { parseMoney } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { PostingError } from "@/lib/errors";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader } from "@/components/ui";
 
@@ -108,7 +108,7 @@ export default async function OpeningBalancesPage({
             <Input
               type="date"
               name="date"
-              defaultValue={formatAccountingDate(today())}
+              defaultValue={isoDate(today())}
               required
               className="max-w-xs"
             />

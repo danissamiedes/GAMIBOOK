@@ -5,7 +5,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { postJournalEntry } from "@/lib/ledger/post";
 import { parseMoney } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { PostingError } from "@/lib/errors";
 import { JournalLineEditor } from "@/components/journal-line-editor";
 import { Alert, Button, Card, Field, Input, PageHeader } from "@/components/ui";
@@ -93,7 +93,7 @@ export default async function NewJournalEntryPage({
         <form action={post} className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Date" hint="The accounting date. No time zone applies.">
-              <Input type="date" name="date" defaultValue={formatAccountingDate(today())} required />
+              <Input type="date" name="date" defaultValue={isoDate(today())} required />
             </Field>
             <Field label="Memo">
               <Input name="memo" placeholder="What this entry is for" />

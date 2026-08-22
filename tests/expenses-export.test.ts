@@ -58,6 +58,7 @@ describe("the expenses spreadsheet", () => {
     expect(typeof amount.value).toBe("number");
     expect(amount.value).toBe(3250);
     expect(amount.numFmt).toBe("#,##0.00");
+    expect(sheet.getRow(2).getCell(1).numFmt).toBe("mm/dd/yyyy");
     // And a real date, so sorting and filtering work.
     expect(sheet.getRow(2).getCell(1).value).toBeInstanceOf(Date);
   });

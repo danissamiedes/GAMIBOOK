@@ -6,7 +6,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { updateSalesOrder } from "@/lib/invoices/sales-orders";
 import { parseMoney } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate } from "@/lib/dates";
+import { isoDate, parseAccountingDate } from "@/lib/dates";
 import { PostingError } from "@/lib/errors";
 import { failTo } from "@/lib/fail";
 import { DocumentLineEditor } from "@/components/document-line-editor";
@@ -132,14 +132,14 @@ export default async function EditSalesOrderPage({
               <Input
                 type="date"
                 name="orderDate"
-                defaultValue={formatAccountingDate(order.orderDate)}
+                defaultValue={isoDate(order.orderDate)}
               />
             </Field>
             <Field label="Expected date">
               <Input
                 type="date"
                 name="expectedDate"
-                defaultValue={order.expectedDate ? formatAccountingDate(order.expectedDate) : ""}
+                defaultValue={order.expectedDate ? isoDate(order.expectedDate) : ""}
               />
             </Field>
             <Field label="Currency">

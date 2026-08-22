@@ -2,7 +2,7 @@ import type { RecurringFrequency } from "@prisma/client";
 import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "@/lib/db";
 import { PostingError } from "@/lib/errors";
-import { formatAccountingDate, parseAccountingDate } from "@/lib/dates";
+import { isoDate, parseAccountingDate } from "@/lib/dates";
 import { issueInvoice, recalculateTotals } from "./service";
 
 /**
@@ -141,7 +141,9 @@ export async function generateOccurrence(options: {
   templateId: string;
   scheduledDate: Date;
 }): Promise<GenerationResult> {
-  const scheduledDate = formatAccountingDate(options.scheduledDate);
+  // ISO: this rides along in the result as an identifier beside the
+  // (templateId, scheduledDate) unique row, not as something anyone reads.
+  const scheduledDate = isoDate(options.scheduledDate);
 
   const outcome = await prisma
     .$transaction(async (tx) => {

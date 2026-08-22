@@ -1,4 +1,4 @@
-import { fiscalYearStart, formatAccountingDate, today } from "@/lib/dates";
+import { fiscalYearStart, isoDate, today } from "@/lib/dates";
 
 /** The presets every report offers (SPEC §12). */
 export function periodPresets(fiscalYearStartMonth: number, basePath: string) {
@@ -8,7 +8,7 @@ export function periodPresets(fiscalYearStartMonth: number, basePath: string) {
 
   const range = (from: Date, to: Date, label: string) => ({
     label,
-    href: `${basePath}?from=${formatAccountingDate(from)}&to=${formatAccountingDate(to)}`,
+    href: `${basePath}?from=${isoDate(from)}&to=${isoDate(to)}`,
   });
 
   const monthStart = new Date(Date.UTC(year, month, 1));
@@ -40,7 +40,7 @@ export function asOfPresets(fiscalYearStartMonth: number, basePath: string) {
 
   const at = (date: Date, label: string) => ({
     label,
-    href: `${basePath}?asOf=${formatAccountingDate(date)}`,
+    href: `${basePath}?asOf=${isoDate(date)}`,
   });
 
   return [

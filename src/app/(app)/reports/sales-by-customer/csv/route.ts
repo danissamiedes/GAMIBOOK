@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { salesByCustomer } from "@/lib/reports/sales-by-customer";
 import { csvResponse } from "@/lib/reports/csv";
-import { fiscalYearStart, formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { fiscalYearStart, formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 
 export async function GET(request: Request) {
   const scope = await sectionScope("SALES");
@@ -43,6 +43,6 @@ export async function GET(request: Request) {
 
   return csvResponse(
     rows,
-    `SalesByCustomer-${formatAccountingDate(from)}-to-${formatAccountingDate(to)}.csv`,
+    `SalesByCustomer-${isoDate(from)}-to-${isoDate(to)}.csv`,
   );
 }

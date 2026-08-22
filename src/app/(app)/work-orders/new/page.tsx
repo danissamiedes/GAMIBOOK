@@ -5,7 +5,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { approveWorkOrder, computeWorkOrderLine } from "@/lib/payables/work-orders";
 import { parseMoney } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { PostingError } from "@/lib/errors";
 import { DocumentLineEditor } from "@/components/document-line-editor";
 import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
@@ -149,7 +149,7 @@ export default async function NewWorkOrderPage({
               </Select>
             </Field>
             <Field label="Work order date" hint="The A/P entry posts on this date.">
-              <Input type="date" name="issueDate" defaultValue={formatAccountingDate(today())} />
+              <Input type="date" name="issueDate" defaultValue={isoDate(today())} />
             </Field>
             <Field label="Due date">
               <Input type="date" name="dueDate" />

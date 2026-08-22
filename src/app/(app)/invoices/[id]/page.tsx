@@ -7,7 +7,7 @@ import { writeAudit } from "@/lib/audit";
 import { issueInvoice, voidInvoice, deleteDraftInvoice } from "@/lib/invoices/service";
 import { recordPayment, reversePayment } from "@/lib/invoices/payments";
 import { parseMoney, money } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { ConfigurationError, PostingError } from "@/lib/errors";
 import { prepareInvoiceEmail, sendEmail, stampEmailed } from "@/lib/email/send";
@@ -424,7 +424,7 @@ export default async function InvoicePage({
               {invoice.status !== "VOID" && !isDraft ? (
                 <form action={makeVoid} className="space-y-2">
                   <Field label="Void date">
-                    <Input type="date" name="date" defaultValue={formatAccountingDate(today())} />
+                    <Input type="date" name="date" defaultValue={isoDate(today())} />
                   </Field>
                   <Button type="submit" variant="danger" className="w-full">
                     Void invoice
@@ -441,7 +441,7 @@ export default async function InvoicePage({
                 <input type="hidden" name="customerId" value={invoice.customerId} />
                 <input type="hidden" name="currency" value={invoice.currency} />
                 <Field label="Date">
-                  <Input type="date" name="date" defaultValue={formatAccountingDate(today())} />
+                  <Input type="date" name="date" defaultValue={isoDate(today())} />
                 </Field>
                 <Field label={`Amount (${invoice.currency})`}>
                   <Input

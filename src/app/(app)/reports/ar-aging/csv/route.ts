@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { arAging, agingBucketLabels, bucketValues } from "@/lib/invoices/aging";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 
 function csvCell(value: string): string {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
@@ -42,7 +42,7 @@ export async function GET(request: Request) {
   return new Response(rows.map((row) => row.map((cell) => csvCell(String(cell))).join(",")).join("\r\n"), {
     headers: {
       "content-type": "text/csv; charset=utf-8",
-      "content-disposition": `attachment; filename="AR-Aging-${formatAccountingDate(asOf)}.csv"`,
+      "content-disposition": `attachment; filename="AR-Aging-${isoDate(asOf)}.csv"`,
     },
   });
 }

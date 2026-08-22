@@ -7,7 +7,7 @@ import { withSectionScope } from "@/lib/company-scope";
 import { writeAudit } from "@/lib/audit";
 import { updateBillPayment } from "@/lib/payables/bill-payments";
 import { money, parseMoney, sum } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate } from "@/lib/dates";
 import { PostingError } from "@/lib/errors";
 import { failTo } from "@/lib/fail";
 import { PaymentLines } from "@/components/payment-lines";
@@ -224,7 +224,7 @@ export default async function EditBillPaymentPage({
         <form action={save} className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Date">
-              <Input type="date" name="date" defaultValue={formatAccountingDate(payment.date)} />
+              <Input type="date" name="date" defaultValue={isoDate(payment.date)} />
             </Field>
             <Field label="Paid from">
               <Select name="paymentAccountId" defaultValue={payment.paymentAccountId}>

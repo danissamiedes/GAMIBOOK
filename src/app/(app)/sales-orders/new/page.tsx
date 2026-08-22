@@ -5,7 +5,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { computeSalesOrderLine, confirmSalesOrder } from "@/lib/invoices/sales-orders";
 import { parseMoney, sum } from "@/lib/money";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { PostingError } from "@/lib/errors";
 import { DocumentLineEditor } from "@/components/document-line-editor";
 import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
@@ -129,7 +129,7 @@ export default async function NewSalesOrderPage({
               </Select>
             </Field>
             <Field label="Order date">
-              <Input type="date" name="orderDate" defaultValue={formatAccountingDate(today())} />
+              <Input type="date" name="orderDate" defaultValue={isoDate(today())} />
             </Field>
             <Field label="Expected date">
               <Input type="date" name="expectedDate" />

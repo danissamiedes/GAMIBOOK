@@ -5,7 +5,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { reverseJournalEntry } from "@/lib/ledger/post";
 import { PostingError } from "@/lib/errors";
-import { formatAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money, sum } from "@/lib/money";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader } from "@/components/ui";
@@ -146,7 +146,7 @@ export default async function JournalEntryPage({
           </p>
           <form action={reverse} className="mt-3 flex items-end gap-3">
             <Field label="Reversal date">
-              <Input type="date" name="date" defaultValue={formatAccountingDate(today())} required />
+              <Input type="date" name="date" defaultValue={isoDate(today())} required />
             </Field>
             <Button variant="danger" type="submit">
               Reverse

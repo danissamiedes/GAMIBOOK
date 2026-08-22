@@ -14,7 +14,7 @@ import {
 } from "@/lib/receipts/service";
 import { money, parseMoney } from "@/lib/money";
 import { formatMoney, SUPPORTED_CURRENCIES } from "@/lib/currency";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { ConfigurationError, PostingError } from "@/lib/errors";
 import { failTo } from "@/lib/fail";
 import {
@@ -342,7 +342,7 @@ export default async function ReceiptsPage({
                               <Input
                                 type="date"
                                 name="date"
-                                defaultValue={formatAccountingDate(receipt.readDate ?? today())}
+                                defaultValue={isoDate(receipt.readDate ?? today())}
                               />
                             </Field>
                             <Field label="Vendor" hint="Required for a bill.">

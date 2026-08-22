@@ -3,7 +3,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { balancesByAccount } from "@/lib/reports/balances";
-import { fiscalYearStart, formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { fiscalYearStart, formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { TYPE_ORDER } from "@/lib/ledger/accounts";
 import { Card, DataTable, PageHeader } from "@/components/ui";
@@ -35,8 +35,8 @@ export default async function GeneralLedgerPage({
         description={`${company.name} · ${formatAccountingDate(from)} to ${formatAccountingDate(to)}`}
       />
       <ReportControls presets={periodPresets(company.fiscalYearStartMonth, "/reports/general-ledger")}>
-        <DateField label="From" name="from" value={formatAccountingDate(from)} />
-        <DateField label="To" name="to" value={formatAccountingDate(to)} />
+        <DateField label="From" name="from" value={isoDate(from)} />
+        <DateField label="To" name="to" value={isoDate(to)} />
       </ReportControls>
 
       <Card>
@@ -56,9 +56,9 @@ export default async function GeneralLedgerPage({
                       <td className="py-1.5">
                         <Link
                           className="underline decoration-dotted underline-offset-2"
-                          href={`/reports/account/${row.accountId}?from=${formatAccountingDate(
+                          href={`/reports/account/${row.accountId}?from=${isoDate(
                             from,
-                          )}&to=${formatAccountingDate(to)}`}
+                          )}&to=${isoDate(to)}`}
                         >
                           {row.name}
                         </Link>

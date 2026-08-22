@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { profitAndLoss } from "@/lib/reports/profit-loss";
 import { periodPresets } from "@/lib/reports/periods";
-import { fiscalYearStart, formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { fiscalYearStart, formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money, type Money } from "@/lib/money";
 import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
@@ -79,9 +79,9 @@ export default async function ProfitLossPage({
     compare ? profitAndLoss({ companyId: scope.companyId, from: priorFrom, to: priorTo }) : null,
   ]);
 
-  const query = `from=${formatAccountingDate(from)}&to=${formatAccountingDate(to)}`;
+  const query = `from=${formatAccountingDate(from)}&to=${isoDate(to)}`;
   const drill = (accountId: string) =>
-    `/reports/account/${accountId}?from=${formatAccountingDate(from)}&to=${formatAccountingDate(to)}`;
+    `/reports/account/${accountId}?from=${isoDate(from)}&to=${isoDate(to)}`;
 
   const priorFor = (accountId: string): Money =>
     prior?.sections.flatMap((section) => section.rows).find((row) => row.accountId === accountId)
@@ -104,8 +104,8 @@ export default async function ProfitLossPage({
         csvHref={`/reports/profit-loss/csv?${query}`}
         pdfHref={`/reports/profit-loss/pdf?${query}`}
       >
-        <DateField label="From" name="from" value={formatAccountingDate(from)} />
-        <DateField label="To" name="to" value={formatAccountingDate(to)} />
+        <DateField label="From" name="from" value={isoDate(from)} />
+        <DateField label="To" name="to" value={isoDate(to)} />
         <label className="flex h-9 items-center gap-2 text-sm">
           <input type="checkbox" name="compare" value="1" defaultChecked={compare} />
           Compare with prior period

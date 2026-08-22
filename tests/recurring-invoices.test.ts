@@ -8,7 +8,7 @@ import {
   runRecurringInvoices,
   upcomingOccurrences,
 } from "@/lib/invoices/recurring";
-import { formatAccountingDate } from "@/lib/dates";
+import { isoDate } from "@/lib/dates";
 import { accountBalance } from "@/lib/ledger/reports";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import {
@@ -22,7 +22,7 @@ type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
 const at = (year: number, month: number, day: number) =>
   new Date(Date.UTC(year, month - 1, day));
-const iso = (date: Date) => formatAccountingDate(date);
+const iso = (date: Date) => isoDate(date);
 
 /** SPEC §7.2 — the schedule arithmetic, with no database in the way. */
 describe("recurring schedules", () => {

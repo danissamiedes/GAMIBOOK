@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { trialBalance } from "@/lib/ledger/reports";
-import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 
 /** CSV export (SPEC §12). Every report ships with one. */
 function csvCell(value: string): string {
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
   return new Response(csv, {
     headers: {
       "content-type": "text/csv; charset=utf-8",
-      "content-disposition": `attachment; filename="TrialBalance-${formatAccountingDate(asOf)}.csv"`,
+      "content-disposition": `attachment; filename="TrialBalance-${isoDate(asOf)}.csv"`,
     },
   });
 }

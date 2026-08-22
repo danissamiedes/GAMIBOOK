@@ -1,9 +1,10 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import type { Section } from "@prisma/client";
 import { SECTION_DESCRIPTIONS, SECTION_LABELS } from "@/lib/company-scope";
 import { Alert, Card } from "@/components/ui";
 
-export const metadata = { title: "No access — Ledger" };
+export const metadata = { title: pageTitle("No access") };
 
 export default async function NoAccessPage({
   searchParams,

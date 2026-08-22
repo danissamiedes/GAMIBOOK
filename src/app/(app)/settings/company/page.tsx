@@ -153,7 +153,7 @@ export default async function CompanySettingsPage({
           <a
             href="/settings/export"
             download
-            className="mt-4 inline-flex items-center rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
+            className="mt-4 inline-flex items-center rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 dark:hover:bg-brand-500"
           >
             Download a full data export
           </a>

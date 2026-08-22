@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -9,7 +10,7 @@ import type { Money } from "@/lib/money";
 import { Alert, Card, DataTable, PageHeader } from "@/components/ui";
 import { DateField, ReportControls } from "@/components/report-controls";
 
-export const metadata = { title: "Balance Sheet — Ledger" };
+export const metadata = { title: pageTitle("Balance Sheet") };
 
 type GroupRow = { accountId: string; code: string; name: string; amount: Money };
 

@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -9,7 +10,7 @@ import { PostingError } from "@/lib/errors";
 import { DocumentLineEditor } from "@/components/document-line-editor";
 import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
 
-export const metadata = { title: "New work order — Ledger" };
+export const metadata = { title: pageTitle("New work order") };
 
 export default async function NewWorkOrderPage({
   searchParams,

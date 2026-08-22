@@ -1,5 +1,6 @@
 "use client";
 
+import { APP_NAME } from "@/lib/brand";
 /**
  * The root error boundary.
  *
@@ -21,7 +22,7 @@ export default function RootError({
 }) {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">
-      <h1 className="mb-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">Ledger</h1>
+      <h1 className="mb-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{APP_NAME}</h1>
       <p className="mb-6 text-sm text-slate-600 dark:text-slate-400">
         This page could not be loaded.
       </p>

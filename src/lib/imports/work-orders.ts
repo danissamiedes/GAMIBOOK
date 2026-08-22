@@ -1,3 +1,4 @@
+import { APP_NAME } from "@/lib/brand";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import ExcelJS from "exceljs";
@@ -321,7 +322,7 @@ export async function buildTemplateWorkbook(options: {
   accounts: { code: string; name: string }[];
 }): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Ledger";
+  workbook.creator = APP_NAME;
 
   const sheet = workbook.addWorksheet("Work Orders");
   sheet.columns = WORK_ORDER_IMPORT_COLUMNS.map((column) => ({

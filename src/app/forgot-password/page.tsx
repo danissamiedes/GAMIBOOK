@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -7,7 +8,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { writeAudit } from "@/lib/audit";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 
-export const metadata = { title: "Reset your password — Ledger" };
+export const metadata = { title: pageTitle("Reset your password") };
 
 /**
  * Self-service password reset (SPEC §2). Until Gmail is connected (Phase 7)

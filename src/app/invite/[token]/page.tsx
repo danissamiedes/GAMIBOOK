@@ -1,3 +1,5 @@
+import { APP_NAME } from "@/lib/brand";
+import { pageTitle } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { hashToken } from "@/lib/tokens";
@@ -5,7 +7,7 @@ import { hashPassword, PASSWORD_MIN_LENGTH } from "@/lib/password";
 import { writeAudit } from "@/lib/audit";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 
-export const metadata = { title: "Accept your invitation — Ledger" };
+export const metadata = { title: pageTitle("Accept your invitation") };
 
 /**
  * Invite acceptance (SPEC §2): the invitee sets their own password on first
@@ -96,7 +98,7 @@ export default async function InvitePage({
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-4 py-10">
-      <h1 className="mb-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">Ledger</h1>
+      <h1 className="mb-1 text-2xl font-semibold text-slate-900 dark:text-slate-50">{APP_NAME}</h1>
       {valid ? (
         <p className="mb-6 text-sm text-slate-600 dark:text-slate-400">
           You have been invited to {invite.company.name} as {invite.role.toLowerCase()}. Set a

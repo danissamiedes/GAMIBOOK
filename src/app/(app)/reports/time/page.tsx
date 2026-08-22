@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { timesheet } from "@/lib/time/report";
@@ -9,7 +10,7 @@ import {
 } from "@/lib/time/zone";
 import { Button, Card, DataTable, EmptyState, Field, Input, PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Time report — Ledger" };
+export const metadata = { title: pageTitle("Time report") };
 
 /** SPEC §12.7: hours per consultant per day/week/period, in the clock's zone. */
 export default async function TimeReportPage({

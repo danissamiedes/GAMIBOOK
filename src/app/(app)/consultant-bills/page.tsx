@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { failTo } from "@/lib/fail";
 import { redirect } from "next/navigation";
@@ -22,7 +23,7 @@ import {
   Select,
 } from "@/components/ui";
 
-export const metadata = { title: "Consultant bills — Ledger" };
+export const metadata = { title: pageTitle("Consultant bills") };
 
 /**
  * Bills owed to a consultant that are not work orders — a reimbursement, an

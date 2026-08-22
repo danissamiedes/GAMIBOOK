@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -16,7 +17,7 @@ import {
   Select,
 } from "@/components/ui";
 
-export const metadata = { title: "Customers — Ledger" };
+export const metadata = { title: pageTitle("Customers") };
 
 export default async function CustomersPage({
   searchParams,

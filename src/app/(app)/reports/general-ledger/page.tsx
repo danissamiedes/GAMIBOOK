@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -9,7 +10,7 @@ import { Card, DataTable, PageHeader } from "@/components/ui";
 import { DateField, ReportControls } from "@/components/report-controls";
 import { periodPresets } from "@/lib/reports/periods";
 
-export const metadata = { title: "General Ledger — Ledger" };
+export const metadata = { title: pageTitle("General Ledger") };
 
 /** The index into account detail: pick an account, see every line (SPEC §12.4). */
 export default async function GeneralLedgerPage({

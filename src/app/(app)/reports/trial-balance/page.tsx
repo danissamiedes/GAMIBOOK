@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { trialBalance } from "@/lib/ledger/reports";
@@ -14,7 +15,7 @@ import {
   PageHeader,
 } from "@/components/ui";
 
-export const metadata = { title: "Trial Balance — Ledger" };
+export const metadata = { title: pageTitle("Trial Balance") };
 
 /**
  * Trial Balance (SPEC §12.3). Built early because it is the first debugging

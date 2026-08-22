@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -8,7 +9,7 @@ import { formatMoney } from "@/lib/currency";
 import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 import { DateField, ReportControls } from "@/components/report-controls";
 
-export const metadata = { title: "Sales by customer — Ledger" };
+export const metadata = { title: pageTitle("Sales by customer") };
 
 /** SPEC §12.8 — lives in the Sales section, not Reports. */
 export default async function SalesByCustomerPage({

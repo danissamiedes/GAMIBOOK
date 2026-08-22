@@ -122,9 +122,9 @@ function NavDropdown({
         }}
         className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition-colors ${
           holdsCurrent
-            ? "font-medium text-slate-900 dark:text-white"
+            ? "font-medium text-brand-700 dark:text-brand-400"
             : "text-slate-600 dark:text-slate-300"
-        } hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white`}
+        } hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-slate-800 dark:hover:text-brand-400`}
       >
         {group.label}
         <svg
@@ -148,9 +148,9 @@ function NavDropdown({
                 aria-current={item.href === currentHref ? "page" : undefined}
                 className={`block whitespace-nowrap px-3 py-2 text-sm transition-colors ${
                   item.href === currentHref
-                    ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-white"
+                    ? "bg-brand-50 font-medium text-brand-700 dark:bg-slate-800 dark:text-brand-400"
                     : "text-slate-600 dark:text-slate-300"
-                } hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white`}
+                } hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-slate-800 dark:hover:text-brand-400`}
               >
                 {item.label}
               </Link>
@@ -177,9 +177,9 @@ function NavAnchor({
       aria-current={current ? "page" : undefined}
       className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
         current
-          ? "font-medium text-slate-900 dark:text-white"
+          ? "font-medium text-brand-700 dark:text-brand-400"
           : "text-slate-600 dark:text-slate-300"
-      } hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white`}
+      } hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-slate-800 dark:hover:text-brand-400`}
     >
       {children}
     </Link>

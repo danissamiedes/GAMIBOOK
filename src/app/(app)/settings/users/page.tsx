@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
@@ -16,7 +17,7 @@ import { writeAudit } from "@/lib/audit";
 import { requestOrigin } from "@/lib/request-origin";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
 
-export const metadata = { title: "Users — Ledger" };
+export const metadata = { title: pageTitle("Users") };
 
 /**
  * User and role management is OWNER-only (SPEC §2). Invites carry the role and

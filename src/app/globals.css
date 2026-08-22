@@ -1,8 +1,38 @@
 @import "tailwindcss";
 
+/**
+ * Blue, grey and white.
+ *
+ * The accent is defined once here as `brand`, so the scheme changes in this
+ * block rather than across sixty files. Everything interactive — the primary
+ * button, focus rings, links, the current page in the navigation — is brand;
+ * everything structural is slate, a grey that leans blue and so sits with the
+ * accent rather than against it; surfaces are white.
+ *
+ * Red, amber and green are deliberately left alone. On these screens they are
+ * not decoration: red is overdue and negative, amber is a warning that needs
+ * acting on, green is money coming in. Recolouring them to fit a palette would
+ * take meaning out of the figures.
+ */
+@theme {
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-950: #172554;
+}
+
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  /* Slate-900 rather than a neutral near-black: the body text should belong to
+     the same family as the greys around it. */
+  --foreground: #0f172a;
+  --link: var(--color-brand-700);
+  --link-hover: var(--color-brand-800);
 }
 
 @theme inline {
@@ -14,9 +44,20 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #020617;
+    --foreground: #e2e8f0;
+    --link: var(--color-brand-400);
+    --link-hover: var(--color-brand-200);
   }
+}
+
+/* Every link in the app is a bare `underline`, inheriting body colour — which
+   made them read as emphasis rather than as somewhere to go. */
+a.underline {
+  color: var(--link);
+}
+a.underline:hover {
+  color: var(--link-hover);
 }
 
 body {

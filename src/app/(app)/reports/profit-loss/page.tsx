@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -9,7 +10,7 @@ import { money, type Money } from "@/lib/money";
 import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
 import { DateField, ReportControls } from "@/components/report-controls";
 
-export const metadata = { title: "Profit & Loss — Ledger" };
+export const metadata = { title: pageTitle("Profit & Loss") };
 
 /** One P&L line. Declared here so it is not re-created on every render. */
 function Row({

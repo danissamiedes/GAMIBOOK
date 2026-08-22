@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -6,7 +7,7 @@ import { storage, storageKeys } from "@/lib/storage";
 import { invalidatePdf } from "@/lib/pdf/render";
 import { Alert, Button, Card, Field, Input, PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Branding — Ledger" };
+export const metadata = { title: pageTitle("Branding") };
 
 /** SPEC §11: what appears on the invoice, work order and receipt. */
 export default async function BrandingPage({

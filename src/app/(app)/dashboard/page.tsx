@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { financialScope } from "@/lib/session-scope";
 import { prisma } from "@/lib/db";
@@ -8,7 +9,7 @@ import { dashboard, type TrendMonth } from "@/lib/reports/dashboard";
 import { formatDateTimeInZone, formatDuration } from "@/lib/time/zone";
 import type { Money } from "@/lib/money";
 
-export const metadata = { title: "Dashboard — Ledger" };
+export const metadata = { title: pageTitle("Dashboard") };
 
 /**
  * The landing page (SPEC §12). Tiles are section-gated in the data layer, so

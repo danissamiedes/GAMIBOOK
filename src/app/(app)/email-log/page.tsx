@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { companyScope } from "@/lib/session-scope";
@@ -12,7 +13,7 @@ import {
 } from "@/components/ui";
 import { pageHref, pageSummary, readPage } from "@/lib/pagination";
 
-export const metadata = { title: "Email log — Ledger" };
+export const metadata = { title: pageTitle("Email log") };
 
 const STATUS_STYLES: Record<string, string> = {
   QUEUED: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",

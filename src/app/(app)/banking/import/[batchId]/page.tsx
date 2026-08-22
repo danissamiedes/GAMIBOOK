@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { BankAmountLayout } from "@prisma/client";
@@ -26,7 +27,7 @@ import {
   Select,
 } from "@/components/ui";
 
-export const metadata = { title: "Map statement columns — Ledger" };
+export const metadata = { title: pageTitle("Map statement columns") };
 
 const DATE_FORMATS: { value: DateFormat; label: string }[] = [
   { value: "ISO", label: "2026-06-30 (ISO)" },

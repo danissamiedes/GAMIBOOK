@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { VendorKind } from "@prisma/client";
@@ -28,7 +29,7 @@ import {
   Select,
 } from "@/components/ui";
 
-export const metadata = { title: "Bill payments — Ledger" };
+export const metadata = { title: pageTitle("Bill payments") };
 
 /**
  * Paying a consultant and paying a regular vendor are the same act, so they

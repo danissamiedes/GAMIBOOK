@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { failTo } from "@/lib/fail";
 import { prisma } from "@/lib/db";
@@ -21,7 +22,7 @@ import {
   Select,
 } from "@/components/ui";
 
-export const metadata = { title: "Expenses and bills — Ledger" };
+export const metadata = { title: pageTitle("Expenses and bills") };
 
 /**
  * SPEC §8.2: a direct expense and a bill are two forms sharing one model, not

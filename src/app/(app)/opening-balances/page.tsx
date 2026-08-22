@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -10,7 +11,7 @@ import { formatAccountingDate, parseAccountingDate, today } from "@/lib/dates";
 import { PostingError } from "@/lib/errors";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Opening balances — Ledger" };
+export const metadata = { title: pageTitle("Opening balances") };
 
 /**
  * Opening balances (SPEC §4.3). One entry, once, with the difference plugged

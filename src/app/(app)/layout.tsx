@@ -1,3 +1,4 @@
+import { APP_NAME } from "@/lib/brand";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
@@ -132,8 +133,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     <div className="min-h-dvh">
       <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
-          <Link href="/dashboard" className="text-sm font-semibold tracking-tight">
-            Ledger
+          <Link
+            href="/dashboard"
+            className="text-sm font-semibold tracking-tight text-brand-700 dark:text-brand-400"
+          >
+            {APP_NAME}
           </Link>
           <CompanySwitcher
             companies={companies.map((c) => ({

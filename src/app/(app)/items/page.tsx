@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -13,7 +14,7 @@ import {
   Select,
 } from "@/components/ui";
 
-export const metadata = { title: "Items — Ledger" };
+export const metadata = { title: pageTitle("Items") };
 
 /** SPEC §6: light. Pre-fills document lines; deliberately not inventory. */
 export default async function ItemsPage({

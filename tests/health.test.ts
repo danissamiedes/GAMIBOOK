@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { GET } from "@/app/api/health/route";
+import { prisma } from "@/lib/db";
 
 /**
  * Vercel will not show a Sensitive environment variable back, so the only place
@@ -17,6 +18,16 @@ const POOLER = "aws-1-ap-southeast-1.pooler.supabase.com";
 
 describe("health endpoint", () => {
   const saved = { ...process.env };
+
+  /**
+   * Connect before any test rewrites DATABASE_URL. Prisma connects lazily, so
+   * without this the pool would be opened against whichever fake host the
+   * previous case happened to set, and the reachability check would fail for a
+   * reason that has nothing to do with the endpoint.
+   */
+  beforeAll(async () => {
+    await prisma.$queryRaw`SELECT 1`;
+  });
 
   beforeEach(() => {
     process.env.CRON_SECRET = SECRET;

@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -9,7 +10,7 @@ import { PostingError } from "@/lib/errors";
 import { formatAccountingDate } from "@/lib/dates";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
 
-export const metadata = { title: "Import work orders — Ledger" };
+export const metadata = { title: pageTitle("Import work orders") };
 
 /**
  * SPEC §8.3. Upload → parse → validation report → confirm → create. This page

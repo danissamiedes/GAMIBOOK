@@ -992,6 +992,38 @@ link, which a closed menu breaks; it now asserts the link is hidden at rest,
 reachable in one tap, and closed again after navigating. Reachable was always
 the requirement — visible-at-rest was the old shape's way of meeting it.
 
+## Blue, grey and white — and the product has a name — 2026-08-22
+
+The scheme is defined once, as `brand` in globals.css, rather than spread across
+the sixty files that use a colour. Everything interactive takes it — the primary
+button, focus rings, links, the current page in the navigation — while structure
+stays slate, a grey that leans blue and so sits with the accent rather than
+against it, on white.
+
+**Red, amber and green are deliberately untouched.** On these screens they are
+not decoration: red is overdue and negative, amber is a warning that needs
+acting on, green is money coming in. A palette that recoloured them would be
+taking meaning out of the figures to match a swatch. If the three-colour rule is
+meant strictly, that is a decision to make knowingly.
+
+One thing the recolouring fixed by accident: every link in the app is a bare
+`underline`, inheriting body colour, so links read as emphasis rather than as
+somewhere to go. They are brand-coloured now, from one rule, without touching
+fifty-one call sites.
+
+**The product name moved into `lib/brand.ts`.** It was a literal in forty-five
+page titles and four headings, so renaming it to GAMIBOOK by hand would have
+been a find-and-replace that drifts the first time one is missed. `pageTitle()`
+builds the tab title so the separator and word order stay consistent too. This
+is the *product* name and not the company's — the company name lives on the
+Company record and is what a customer sees on an invoice.
+
+Worth recording because it nearly shipped broken: the script that added the
+import inserted it after "the last line starting with `import `", which lands in
+the middle of a multi-line import and produces a syntax error. Typecheck caught
+it in one file; the repair inserts after the directive prologue instead, which
+is always valid. A codemod needs the same suspicion as the code it edits.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

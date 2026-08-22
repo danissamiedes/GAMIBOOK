@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -15,7 +16,7 @@ import {
   PageHeader,
 } from "@/components/ui";
 
-export const metadata = { title: "A/R Aging — Ledger" };
+export const metadata = { title: pageTitle("A/R Aging") };
 
 /** How many invoices to name inline before linking to the rest. */
 const INLINE_DOCUMENTS = 5;

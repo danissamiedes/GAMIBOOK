@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -26,7 +27,7 @@ import {
   Select,
 } from "@/components/ui";
 
-export const metadata = { title: "Timesheets — Ledger" };
+export const metadata = { title: pageTitle("Timesheets") };
 
 /** Admin timesheet grid: consultant × day, in the clock's zone (SPEC §9). */
 export default async function TimesheetsPage({

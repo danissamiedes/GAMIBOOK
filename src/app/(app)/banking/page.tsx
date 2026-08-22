@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -18,7 +19,7 @@ import {
   Select,
 } from "@/components/ui";
 
-export const metadata = { title: "Banking — Ledger" };
+export const metadata = { title: pageTitle("Banking") };
 
 /**
  * Bank accounts and statement uploads (SPEC §8.4). Reconciling is the daily

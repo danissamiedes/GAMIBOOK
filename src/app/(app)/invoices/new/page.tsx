@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { recalculateTotals } from "@/lib/invoices/service";
 import { prisma } from "@/lib/db";
@@ -10,7 +11,7 @@ import { PostingError } from "@/lib/errors";
 import { DocumentLineEditor } from "@/components/document-line-editor";
 import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
 
-export const metadata = { title: "New invoice — Ledger" };
+export const metadata = { title: pageTitle("New invoice") };
 
 export default async function NewInvoicePage({
   searchParams,

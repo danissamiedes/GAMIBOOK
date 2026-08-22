@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { RecurringFrequency, RecurringMode } from "@prisma/client";
@@ -27,7 +28,7 @@ import {
   Select,
 } from "@/components/ui";
 
-export const metadata = { title: "Recurring invoices — Ledger" };
+export const metadata = { title: pageTitle("Recurring invoices") };
 
 const FREQUENCIES: { value: RecurringFrequency; label: string }[] = [
   { value: "WEEKLY", label: "Weekly" },

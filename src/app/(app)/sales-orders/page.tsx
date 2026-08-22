@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui";
 import { pageHref, pageSummary, readPage } from "@/lib/pagination";
 
-export const metadata = { title: "Sales orders — Ledger" };
+export const metadata = { title: pageTitle("Sales orders") };
 
 const STATUS_STYLES: Record<string, string> = {
   DRAFT: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",

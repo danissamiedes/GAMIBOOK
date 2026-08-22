@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { currentUserId, signOut } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -24,7 +25,7 @@ import {
 import { LiveClock, ElapsedSince } from "@/components/live-clock";
 import { Alert, Button, Card, EmptyState, Input } from "@/components/ui";
 
-export const metadata = { title: "Time clock — Ledger" };
+export const metadata = { title: pageTitle("Time clock") };
 
 /**
  * The consultant's only screen (SPEC §2, §9). Big buttons, one decision at a

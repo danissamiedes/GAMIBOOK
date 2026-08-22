@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { EmailTemplateKind } from "@prisma/client";
@@ -24,7 +25,7 @@ import {
 import { sendEmail } from "@/lib/email/send";
 import { Alert, Button, Card, Field, Input, PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Email settings — Ledger" };
+export const metadata = { title: pageTitle("Email settings") };
 
 const KINDS: EmailTemplateKind[] = [
   "INVOICE",

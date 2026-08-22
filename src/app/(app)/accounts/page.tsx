@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -17,7 +18,7 @@ import {
   Select,
 } from "@/components/ui";
 
-export const metadata = { title: "Chart of accounts — Ledger" };
+export const metadata = { title: pageTitle("Chart of accounts") };
 
 const TYPE_LABELS: Record<AccountType, string> = {
   ASSET: "Assets",

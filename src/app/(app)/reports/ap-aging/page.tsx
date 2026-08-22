@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import type { VendorKind } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -17,7 +18,7 @@ import {
   PageHeader,
 } from "@/components/ui";
 
-export const metadata = { title: "A/P Aging — Ledger" };
+export const metadata = { title: pageTitle("A/P Aging") };
 
 /** How many documents to name inline before linking to the rest. */
 const INLINE_DOCUMENTS = 5;

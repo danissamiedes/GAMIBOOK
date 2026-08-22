@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui";
 import { pageHref, pageSummary, readPage } from "@/lib/pagination";
 
-export const metadata = { title: "Customer payments — Ledger" };
+export const metadata = { title: pageTitle("Customer payments") };
 
 export default async function PaymentsPage({
   searchParams,

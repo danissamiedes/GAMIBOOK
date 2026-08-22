@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { currentUserId } from "@/lib/auth";
 import { withCompanyScope } from "@/lib/company-scope";
@@ -7,7 +8,7 @@ import { writeAudit } from "@/lib/audit";
 import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
 import { COMMON_TIME_ZONES, MONTHS, SUPPORTED_CURRENCIES, isSupportedCurrency } from "@/lib/currency";
 
-export const metadata = { title: "Set up your company — Ledger" };
+export const metadata = { title: pageTitle("Set up your company") };
 
 /**
  * Company setup wizard (SPEC §1 Phase 1, §5). One screen, because there are

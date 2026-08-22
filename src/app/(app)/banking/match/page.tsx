@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { Prisma } from "@prisma/client";
@@ -32,7 +33,7 @@ import {
 } from "@/components/ui";
 import { pageHref, pageSummary, readPage } from "@/lib/pagination";
 
-export const metadata = { title: "Match bank transactions — Ledger" };
+export const metadata = { title: pageTitle("Match bank transactions") };
 
 /**
  * Where a match action returns to.

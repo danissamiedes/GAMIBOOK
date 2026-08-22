@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -9,7 +10,7 @@ import { PostingError } from "@/lib/errors";
 import { JournalLineEditor } from "@/components/journal-line-editor";
 import { Alert, Button, Card, Field, Input, PageHeader } from "@/components/ui";
 
-export const metadata = { title: "New journal entry — Ledger" };
+export const metadata = { title: pageTitle("New journal entry") };
 
 export default async function NewJournalEntryPage({
   searchParams,

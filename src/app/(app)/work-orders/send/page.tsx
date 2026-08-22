@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -19,7 +20,7 @@ import {
   Select,
 } from "@/components/ui";
 
-export const metadata = { title: "Send work orders — Ledger" };
+export const metadata = { title: pageTitle("Send work orders") };
 
 /**
  * The bulk send screen (SPEC §10.1). Filter, select, see exactly where every

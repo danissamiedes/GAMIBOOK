@@ -1,9 +1,10 @@
+import { APP_NAME } from "@/lib/brand";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Ledger",
+  title: APP_NAME,
   description: "Small-business accounting with consultant time tracking",
 };
 

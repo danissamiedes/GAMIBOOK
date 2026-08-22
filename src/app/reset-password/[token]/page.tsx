@@ -1,3 +1,4 @@
+import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -6,7 +7,7 @@ import { hashPassword, PASSWORD_MIN_LENGTH } from "@/lib/password";
 import { writeAudit } from "@/lib/audit";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
 
-export const metadata = { title: "Choose a new password — Ledger" };
+export const metadata = { title: pageTitle("Choose a new password") };
 
 export default async function ResetPasswordPage({
   params,

@@ -123,9 +123,18 @@ test.describe("phone", () => {
   }) => {
     await signIn(page, "owner@example.com");
     await page.goto("/dashboard");
-    // Whatever shape it takes, a link to invoices must be reachable.
-    await expect(
-      page.getByRole("link", { name: "Invoices", exact: true }),
-    ).toBeVisible();
+
+    // The nav is grouped, so Invoices lives one tap in rather than on the
+    // surface. Reachable is the requirement, not visible-at-rest.
+    const invoices = page.getByRole("link", { name: "Invoices", exact: true });
+    await expect(invoices).toBeHidden();
+
+    await page.getByRole("button", { name: "Customers" }).tap();
+    await expect(invoices).toBeVisible();
+    await invoices.tap();
+    await expect(page).toHaveURL(/\/invoices$/);
+
+    // And it closes behind you rather than covering the page you asked for.
+    await expect(invoices).toBeHidden();
   });
 });

@@ -144,22 +144,6 @@ export function Alert({
   );
 }
 
-export function NavLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className="rounded-md px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
-    >
-      {children}
-    </Link>
-  );
-}
 
 /**
  * A table that scrolls inside itself instead of stretching the page.

@@ -965,6 +965,33 @@ had proved only that the code was fine — the log should have come first. And a
 config change made on an unverified theory reached production before the theory
 was tested; the theory was cheap to check and the outage was not.
 
+## The navigation is grouped — 2026-08-22
+
+Thirty links wrapped across three rows is not navigation, it is a list, and it
+was the weakest thing in the app to look at. The grouping is the customer's own
+and follows how the work is organised rather than how the routes are: Customers,
+Consultants, Vendors, Banking, Reporting, Other, with Dashboard staying a plain
+link because it has nothing under it.
+
+The rule while regrouping was that nothing may become visible or invisible as a
+side effect. Every item kept exactly the section check it had in the flat row,
+which is why Bill payments and A/P Aging sit under Vendors but are gated on
+CONSULTANTS *or* VENDORS — a consultant's work order and a supplier's bill are
+settled the same way (SPEC §6). Empty groups are dropped, so a bookkeeper with
+one section gets two menus rather than seven, five of which open onto nothing.
+
+Two details worth keeping. The open menu is stored with the path it was opened
+on and closed by derivation, not by an effect on pathname — an effect fires
+after the new page has painted, so the menu visibly hangs over the page you just
+asked for. And the current-page match takes the longest matching href, so
+`/invoices/recurring` marks Recurring rather than Invoices; both are prefixes of
+the path and only one of them is the page.
+
+The mobile end-to-end test changed with it. It asserted a *visible* Invoices
+link, which a closed menu breaks; it now asserts the link is hidden at rest,
+reachable in one tap, and closed again after navigating. Reachable was always
+the requirement — visible-at-rest was the old shape's way of meeting it.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

@@ -5,7 +5,8 @@ import { currentUserId, signOut } from "@/lib/auth";
 import { listUserCompanies, withCompanyScope } from "@/lib/company-scope";
 import { resolveActiveCompanyId, setActiveCompany } from "@/lib/active-company";
 import { CompanySwitcher } from "@/components/company-switcher";
-import { Button, NavLink } from "@/components/ui";
+import { Button } from "@/components/ui";
+import { NavMenu, type NavGroup } from "@/components/nav-menu";
 
 /**
  * The accounting shell. Everything under it is OWNER/BOOKKEEPER territory:
@@ -49,6 +50,84 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     await signOut({ redirectTo: "/login" });
   }
 
+  /**
+   * The nav, grouped as the business thinks of it rather than as the routes are
+   * laid out. Each item keeps exactly the section check it had when these were
+   * one flat row — regrouping must not widen or narrow what anyone can see.
+   *
+   * `only` drops the empty groups, so a bookkeeper with two sections gets two
+   * menus rather than five, three of which open onto nothing.
+   */
+  const sales = scope.hasSection("SALES");
+  const consultants = scope.hasSection("CONSULTANTS");
+  const vendors = scope.hasSection("VENDORS");
+  const payables = consultants || vendors;
+
+  const groups: NavGroup[] = only([
+    { label: "Dashboard", href: "/dashboard", items: [] },
+    {
+      label: "Customers",
+      items: only([
+        sales && { href: "/customers", label: "Customers" },
+        sales && { href: "/sales-orders", label: "Sales orders" },
+        sales && { href: "/invoices", label: "Invoices" },
+        sales && { href: "/invoices/recurring", label: "Recurring" },
+        sales && { href: "/payments", label: "Payments" },
+        sales && { href: "/reports/sales-by-customer", label: "Sales by customer" },
+        sales && { href: "/reports/ar-aging", label: "A/R Aging" },
+      ]),
+    },
+    {
+      label: "Consultants",
+      items: only([
+        consultants && { href: "/consultants", label: "Consultants" },
+        consultants && { href: "/work-orders", label: "Work orders" },
+        consultants && { href: "/work-orders/send", label: "Send" },
+        consultants && { href: "/consultant-bills", label: "Consultant bills" },
+        consultants && { href: "/timesheets", label: "Timesheets" },
+      ]),
+    },
+    {
+      label: "Vendors",
+      items: only([
+        vendors && { href: "/vendors", label: "Vendors" },
+        vendors && { href: "/expenses", label: "Expenses" },
+        // A consultant's work order and a supplier's bill are settled the same
+        // way, so these belong to whoever holds either section (SPEC §6).
+        payables && { href: "/bill-payments", label: "Bill payments" },
+        payables && { href: "/reports/ap-aging", label: "A/P Aging" },
+      ]),
+    },
+    {
+      label: "Banking",
+      items: only([
+        scope.hasSection("BANKING") && { href: "/banking", label: "Banking" },
+        scope.hasSection("BANKING") && { href: "/banking/match", label: "Match" },
+      ]),
+    },
+    {
+      label: "Reporting",
+      items: only([
+        scope.hasSection("REPORTS") && { href: "/reports/profit-loss", label: "P&L" },
+        scope.hasSection("REPORTS") && { href: "/reports/balance-sheet", label: "Balance Sheet" },
+        scope.hasSection("REPORTS") && { href: "/reports/trial-balance", label: "Trial Balance" },
+        scope.hasSection("REPORTS") && { href: "/reports/general-ledger", label: "General Ledger" },
+      ]),
+    },
+    {
+      label: "Other",
+      items: only([
+        scope.hasSection("REPORTS") && { href: "/journal", label: "Journal" },
+        scope.hasSection("SETTINGS") && { href: "/accounts", label: "Accounts" },
+        scope.hasSection("SETTINGS") && { href: "/settings/branding", label: "Branding" },
+        scope.hasSection("SETTINGS") && { href: "/settings/email", label: "Email" },
+        scope.hasSection("SETTINGS") && { href: "/settings/company", label: "Company" },
+        { href: "/email-log", label: "Email log" },
+        scope.role === "OWNER" && { href: "/settings/users", label: "Users" },
+      ]),
+    },
+  ]).filter((group) => group.items.length > 0 || group.href);
+
   return (
     <div className="min-h-dvh">
       <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
@@ -65,68 +144,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             activeId={activeCompanyId}
             action={switchCompany}
           />
-          <nav className="flex flex-1 flex-wrap items-center gap-1">
-            <NavLink href="/dashboard">Dashboard</NavLink>
-            {/* Nav follows the sections this membership holds (SPEC §2.1).
-                Hiding a link is not the guard — every page re-checks. */}
-            {scope.hasSection("SALES") ? (
-              <>
-                <NavLink href="/customers">Customers</NavLink>
-                <NavLink href="/sales-orders">Sales orders</NavLink>
-                <NavLink href="/invoices">Invoices</NavLink>
-                <NavLink href="/invoices/recurring">Recurring</NavLink>
-                <NavLink href="/payments">Payments</NavLink>
-                <NavLink href="/reports/sales-by-customer">Sales by customer</NavLink>
-                <NavLink href="/reports/ar-aging">A/R Aging</NavLink>
-              </>
-            ) : null}
-            {scope.hasSection("CONSULTANTS") ? (
-              <>
-                <NavLink href="/consultants">Consultants</NavLink>
-                <NavLink href="/work-orders">Work orders</NavLink>
-                <NavLink href="/work-orders/send">Send</NavLink>
-                <NavLink href="/consultant-bills">Consultant bills</NavLink>
-                <NavLink href="/timesheets">Timesheets</NavLink>
-              </>
-            ) : null}
-            {scope.hasSection("VENDORS") ? (
-              <>
-                <NavLink href="/vendors">Vendors</NavLink>
-                <NavLink href="/expenses">Expenses</NavLink>
-              </>
-            ) : null}
-            {scope.hasSection("CONSULTANTS") || scope.hasSection("VENDORS") ? (
-              <>
-                <NavLink href="/bill-payments">Bill payments</NavLink>
-                <NavLink href="/reports/ap-aging">A/P Aging</NavLink>
-              </>
-            ) : null}
-            {scope.hasSection("BANKING") ? (
-              <>
-                <NavLink href="/banking">Banking</NavLink>
-                <NavLink href="/banking/match">Match</NavLink>
-              </>
-            ) : null}
-            {scope.hasSection("REPORTS") ? (
-              <>
-                <NavLink href="/reports/profit-loss">P&amp;L</NavLink>
-                <NavLink href="/reports/balance-sheet">Balance Sheet</NavLink>
-                <NavLink href="/reports/trial-balance">Trial Balance</NavLink>
-                <NavLink href="/reports/general-ledger">General Ledger</NavLink>
-                <NavLink href="/journal">Journal</NavLink>
-              </>
-            ) : null}
-            {scope.hasSection("SETTINGS") ? (
-              <>
-                <NavLink href="/accounts">Accounts</NavLink>
-                <NavLink href="/settings/branding">Branding</NavLink>
-                <NavLink href="/settings/email">Email</NavLink>
-                <NavLink href="/settings/company">Company</NavLink>
-              </>
-            ) : null}
-            <NavLink href="/email-log">Email log</NavLink>
-            {scope.role === "OWNER" ? <NavLink href="/settings/users">Users</NavLink> : null}
-          </nav>
+          <NavMenu groups={groups} />
           <form action={endSession}>
             <Button variant="ghost" type="submit">
               Sign out
@@ -137,4 +155,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
     </div>
   );
+}
+
+/** Drops the `false` entries a conditional list leaves behind. */
+function only<T>(entries: (T | false | null | undefined)[]): T[] {
+  return entries.filter((entry): entry is T => Boolean(entry));
 }

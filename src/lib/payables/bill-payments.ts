@@ -350,6 +350,64 @@ export async function recordBillPayment(input: {
   });
 }
 
+/**
+ * Put the documents a payment settled back the way they were. Shared by
+ * reversal and by same-day delete: what happens to the ledger differs between
+ * the two, what happens to the documents does not.
+ *
+ * Callers must have taken the payment out of the running first — a payment
+ * still counted as live leaves its documents looking part-paid after their
+ * money has come back.
+ */
+async function restoreDocuments(
+  tx: Prisma.TransactionClient,
+  applications: { workOrderId: string | null; expenseId: string | null; amountApplied: Prisma.Decimal }[],
+) {
+  for (const application of applications) {
+    if (application.workOrderId) {
+      const workOrder = await tx.workOrder.findUniqueOrThrow({
+        where: { id: application.workOrderId },
+      });
+      const share = money(workOrder.total).isZero()
+        ? money(0)
+        : toCents(
+            money(workOrder.baseTotal)
+              .times(money(application.amountApplied))
+              .dividedBy(money(workOrder.total)),
+          );
+      const restored = money(workOrder.baseRelieved).minus(share);
+      await tx.workOrder.update({
+        where: { id: workOrder.id },
+        data: { baseRelieved: restored.isNegative() ? money(0) : restored },
+      });
+      await recalculateWorkOrder(workOrder.id, tx);
+    }
+
+    if (application.expenseId) {
+      const expense = await tx.expense.findUniqueOrThrow({ where: { id: application.expenseId } });
+      const share = money(expense.amount).isZero()
+        ? money(0)
+        : toCents(
+            money(expense.baseTotal)
+              .times(money(application.amountApplied))
+              .dividedBy(money(expense.amount)),
+          );
+      const restoredBase = money(expense.baseRelieved).minus(share);
+      const paid = money(expense.amountPaid).minus(money(application.amountApplied));
+      const balance = money(expense.amount).minus(paid);
+      await tx.expense.update({
+        where: { id: expense.id },
+        data: {
+          baseRelieved: restoredBase.isNegative() ? money(0) : restoredBase,
+          amountPaid: paid.isNegative() ? money(0) : paid,
+          balanceDue: balance,
+          status: paid.lessThanOrEqualTo(0) ? "APPROVED" : "PARTIALLY_PAID",
+        },
+      });
+    }
+  }
+}
+
 export async function reverseBillPayment(input: {
   companyId: string;
   billPaymentId: string;
@@ -395,50 +453,201 @@ export async function reverseBillPayment(input: {
       data: { reversedAt: new Date(), reversalEntryId: reversal.id },
     });
 
-    for (const application of payment.applications) {
-      if (application.workOrderId) {
-        const workOrder = await tx.workOrder.findUniqueOrThrow({
-          where: { id: application.workOrderId },
-        });
-        const share = money(workOrder.total).isZero()
-          ? money(0)
-          : toCents(
-              money(workOrder.baseTotal)
-                .times(money(application.amountApplied))
-                .dividedBy(money(workOrder.total)),
-            );
-        const restored = money(workOrder.baseRelieved).minus(share);
-        await tx.workOrder.update({
-          where: { id: workOrder.id },
-          data: { baseRelieved: restored.isNegative() ? money(0) : restored },
-        });
-        await recalculateWorkOrder(workOrder.id, tx);
-      }
-
-      if (application.expenseId) {
-        const expense = await tx.expense.findUniqueOrThrow({ where: { id: application.expenseId } });
-        const share = money(expense.amount).isZero()
-          ? money(0)
-          : toCents(
-              money(expense.baseTotal)
-                .times(money(application.amountApplied))
-                .dividedBy(money(expense.amount)),
-            );
-        const restoredBase = money(expense.baseRelieved).minus(share);
-        const paid = money(expense.amountPaid).minus(money(application.amountApplied));
-        const balance = money(expense.amount).minus(paid);
-        await tx.expense.update({
-          where: { id: expense.id },
-          data: {
-            baseRelieved: restoredBase.isNegative() ? money(0) : restoredBase,
-            amountPaid: paid.isNegative() ? money(0) : paid,
-            balanceDue: balance,
-            status: paid.lessThanOrEqualTo(0) ? "APPROVED" : "PARTIALLY_PAID",
-          },
-        });
-      }
-    }
+    await restoreDocuments(tx, payment.applications);
 
     return reversal;
+  });
+}
+
+/** Said in two places, so it reads the same in the list and from the action. */
+export const MULTIPLE_POSTINGS =
+  "This payment has more than one posting against it. Reverse it instead.";
+
+/** How long after recording a payment it can still be deleted outright. */
+const DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Why a payment cannot be deleted, or null if it can. Exported so the list can
+ * decide whether to offer the button and say why when it does not — the same
+ * rules the delete itself enforces, read from one place.
+ */
+export type DeletableInput = {
+  payment: { reversedAt: Date | null; createdAt: Date };
+  entry: { postedAt: Date; date: Date; createdByUserId: string | null; reversedByEntryId: string | null } | null;
+  bankMatchCount: number;
+  booksClosedThrough: Date | null;
+  userId: string;
+};
+
+export function whyNotDeletable(input: DeletableInput): string | null {
+  const { payment, entry } = input;
+
+  if (payment.reversedAt) {
+    return "This payment has already been reversed. The reversal is the record of the correction — deleting it now would hide that anything happened.";
+  }
+  if (!entry) return "No posting was found for this payment, so there is nothing to unwind safely.";
+  if (entry.reversedByEntryId) return "This payment's posting has already been reversed.";
+
+  if (Date.now() - entry.postedAt.getTime() > DELETE_WINDOW_MS) {
+    return "A payment can only be deleted within 24 hours of being recorded. Reverse it instead, which keeps both the payment and the correction on the record.";
+  }
+  if (!entry.createdByUserId || entry.createdByUserId !== input.userId) {
+    return "Only the person who recorded a payment can delete it. Reverse it instead.";
+  }
+  if (input.bankMatchCount > 0) {
+    return "A bank line is matched to this payment. Unmatch it first, or reverse the payment instead.";
+  }
+  if (input.booksClosedThrough && entry.date <= input.booksClosedThrough) {
+    return `The books are closed through ${input.booksClosedThrough
+      .toISOString()
+      .slice(0, 10)}. A payment dated on or before that can only be reversed, never deleted.`;
+  }
+
+  return null;
+}
+
+/**
+ * Erase a payment recorded by mistake — the payment, its applications and its
+ * journal entry — and put the documents it settled back the way they were.
+ *
+ * This is the one place in the app that destroys a posting, and it is narrow on
+ * purpose: your own payment, within a day, before a bank line or a period close
+ * has come to depend on it. Outside that, reversal is the answer and the answer
+ * is not negotiable.
+ *
+ * What is lost is real: nothing afterwards shows that the payment ever existed
+ * except the audit row written here, which carries the whole of it, and the gap
+ * it leaves in the journal numbering. Both are deliberate — a missing entry
+ * number is the thread an auditor pulls.
+ */
+export async function deleteBillPayment(input: {
+  companyId: string;
+  billPaymentId: string;
+  userId: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const payment = await tx.billPayment.findFirst({
+      where: { id: input.billPaymentId, companyId: input.companyId },
+      include: { applications: true, vendor: { select: { name: true } } },
+    });
+    if (!payment) throw new PostingError("Payment not found in this company");
+
+    const entry = await tx.journalEntry.findFirst({
+      where: {
+        companyId: input.companyId,
+        sourceType: "CONSULTANT_PAYMENT",
+        sourceId: payment.id,
+      },
+      orderBy: { postedAt: "asc" },
+      include: { lines: { orderBy: { lineNumber: "asc" } } },
+    });
+
+    const [postings, bankMatchCount, company] = await Promise.all([
+      tx.journalEntry.count({
+        where: { companyId: input.companyId, sourceType: "CONSULTANT_PAYMENT", sourceId: payment.id },
+      }),
+      tx.bankTransaction.count({
+        where: {
+          companyId: input.companyId,
+          OR: [
+            { matchedBillPaymentId: payment.id },
+            ...(entry ? [{ matchedJournalEntryId: entry.id }] : []),
+          ],
+        },
+      }),
+      tx.company.findUniqueOrThrow({
+        where: { id: input.companyId },
+        select: { booksClosedThrough: true },
+      }),
+    ]);
+
+    const refusal = whyNotDeletable({
+      payment,
+      entry,
+      bankMatchCount,
+      booksClosedThrough: company.booksClosedThrough,
+      userId: input.userId,
+    });
+    if (refusal) throw new PostingError(refusal);
+
+    // Checked after the rest, because a reversed payment also has two postings
+    // and "already reversed" is the more useful thing to be told. More than one
+    // posting otherwise means something else has built on this payment, and
+    // unwinding the first would leave the ledger holding the rest.
+    if (postings > 1) {
+      throw new PostingError(MULTIPLE_POSTINGS);
+    }
+
+    // Everything about to be destroyed, kept verbatim. The audit trail is
+    // append-only (SPEC §13), so this row is the only thing that will still
+    // know what the payment was.
+    const snapshot = {
+      payment: {
+        id: payment.id,
+        vendorId: payment.vendorId,
+        vendorName: payment.vendor.name,
+        date: payment.date.toISOString().slice(0, 10),
+        amount: money(payment.amount).toFixed(2),
+        currency: payment.currency,
+        fxRate: money(payment.fxRate).toString(),
+        paymentAccountId: payment.paymentAccountId,
+        method: payment.method,
+        reference: payment.reference,
+        notes: payment.notes,
+        createdAt: payment.createdAt.toISOString(),
+      },
+      applications: payment.applications.map((application) => ({
+        workOrderId: application.workOrderId,
+        expenseId: application.expenseId,
+        amountApplied: money(application.amountApplied).toFixed(2),
+      })),
+      entry: {
+        id: entry!.id,
+        entryNumber: entry!.entryNumber,
+        date: entry!.date.toISOString().slice(0, 10),
+        memo: entry!.memo,
+        postedAt: entry!.postedAt.toISOString(),
+        lines: entry!.lines.map((line) => ({
+          lineNumber: line.lineNumber,
+          accountId: line.accountId,
+          debit: money(line.debit).toFixed(2),
+          credit: money(line.credit).toFixed(2),
+          description: line.description,
+          customerId: line.customerId,
+          vendorId: line.vendorId,
+          currency: line.currency,
+          fxRate: line.fxRate ? money(line.fxRate).toString() : null,
+          foreignAmount: line.foreignAmount ? money(line.foreignAmount).toFixed(2) : null,
+        })),
+      },
+    };
+
+    // Take the payment out of the running before recomputing, for the same
+    // reason reversal does: the recompute counts live applications.
+    await tx.billPaymentApplication.deleteMany({ where: { billPaymentId: payment.id } });
+    await restoreDocuments(tx, payment.applications);
+
+    // Open the hatch for this one entry, for the rest of this transaction only.
+    // The trigger refuses every other delete, including any that a later bug
+    // might attempt while this transaction is still open.
+    await tx.$executeRaw`SELECT set_config('ledger.allow_entry_delete', ${entry!.id}, true)`;
+    await tx.journalEntry.delete({ where: { id: entry!.id } });
+    await tx.billPayment.delete({ where: { id: payment.id } });
+
+    await tx.auditLog.create({
+      data: {
+        companyId: input.companyId,
+        userId: input.userId,
+        action: "billPayment.deleted",
+        entityType: "BillPayment",
+        entityId: payment.id,
+        summary: `Deleted payment of ${money(payment.amount).toFixed(2)} ${payment.currency} to ${
+          payment.vendor.name
+        }, entry ${entry!.entryNumber}`,
+        data: snapshot,
+      },
+    });
+
+    return snapshot;
   });
 }

@@ -6,8 +6,11 @@ import { prisma } from "@/lib/db";
 import { companyScope } from "@/lib/session-scope";
 import { withSectionScope } from "@/lib/company-scope";
 import {
+  deleteBillPayment,
+  MULTIPLE_POSTINGS,
   recordBillPayment,
   reverseBillPayment,
+  whyNotDeletable,
 } from "@/lib/payables/bill-payments";
 import { openDocumentsForVendor } from "@/lib/payables/bill-payments";
 import { writeAudit } from "@/lib/audit";
@@ -46,6 +49,8 @@ export default async function BillPaymentsPage({
     kind?: string;
     error?: string;
     saved?: string;
+    delete?: string;
+    deleted?: string;
   }>;
 }) {
   const scope = await companyScope();
@@ -116,6 +121,67 @@ export default async function BillPaymentsPage({
   const openDocuments = selected
     ? await openDocumentsForVendor(scope.companyId, selected.id)
     : [];
+
+  // Whether each listed payment can still be deleted outright, worked out with
+  // the same rule the delete enforces so the button and the action never
+  // disagree. Two queries for the whole page rather than two per row.
+  const liveIds = payments.filter((payment) => !payment.reversedAt).map((payment) => payment.id);
+  const [postings, bankMatches] = await Promise.all([
+    liveIds.length
+      ? prisma.journalEntry.findMany({
+          where: {
+            ...scope.where,
+            sourceType: "CONSULTANT_PAYMENT" as const,
+            sourceId: { in: liveIds },
+          },
+          select: {
+            sourceId: true,
+            postedAt: true,
+            date: true,
+            createdByUserId: true,
+            reversedByEntryId: true,
+          },
+        })
+      : [],
+    liveIds.length
+      ? prisma.bankTransaction.findMany({
+          where: { ...scope.where, matchedBillPaymentId: { in: liveIds } },
+          select: { matchedBillPaymentId: true },
+        })
+      : [],
+  ]);
+
+  // A payment with two postings is not deletable, and the map keeps only one,
+  // so count them here and let the count decide.
+  const postingCount = new Map<string, number>();
+  for (const posting of postings) {
+    postingCount.set(posting.sourceId!, (postingCount.get(posting.sourceId!) ?? 0) + 1);
+  }
+  const postingBySource = new Map(postings.map((posting) => [posting.sourceId!, posting]));
+  const matchCount = new Map<string, number>();
+  for (const match of bankMatches) {
+    matchCount.set(match.matchedBillPaymentId!, (matchCount.get(match.matchedBillPaymentId!) ?? 0) + 1);
+  }
+
+  // The row named by ?delete=, only if it is genuinely deletable — a stale link
+  // or a guessed id gets no confirmation screen.
+  const pendingDelete = params.delete
+    ? (payments.find(
+        (payment) => payment.id === params.delete && deleteRefusal(payment) === null,
+      ) ?? null)
+    : null;
+
+  function deleteRefusal(payment: (typeof payments)[number]): string | null {
+    const refusal = whyNotDeletable({
+      payment,
+      entry: postingBySource.get(payment.id) ?? null,
+      bankMatchCount: matchCount.get(payment.id) ?? 0,
+      booksClosedThrough: company.booksClosedThrough,
+      userId: scope.userId,
+    });
+    if (refusal) return refusal;
+    return (postingCount.get(payment.id) ?? 0) > 1 ? MULTIPLE_POSTINGS : null;
+  }
 
   async function pay(formData: FormData) {
     "use server";
@@ -233,6 +299,35 @@ export default async function BillPaymentsPage({
     redirect("/bill-payments?saved=1");
   }
 
+  async function remove(formData: FormData) {
+    "use server";
+    const paymentId = String(formData.get("paymentId"));
+    const existing = await prisma.billPayment.findFirst({
+      where: { id: paymentId, companyId: scope.companyId },
+      include: { vendor: { select: { kind: true } } },
+    });
+    if (!existing) failTo("/bill-payments", "Payment not found");
+    const inner = await withSectionScope(
+      scope.userId,
+      scope.companyId,
+      existing!.vendor.kind === "CONSULTANT" ? "CONSULTANTS" : "VENDORS",
+    );
+    inner.requireRole("OWNER", "BOOKKEEPER");
+    try {
+      // Every rule is re-checked inside, against the row as it is now. The
+      // button only decides what to show; this decides what happens.
+      await deleteBillPayment({
+        companyId: inner.companyId,
+        billPaymentId: paymentId,
+        userId: inner.userId,
+      });
+    } catch (thrown) {
+      if (thrown instanceof PostingError) failTo("/bill-payments", thrown.message);
+      throw thrown;
+    }
+    redirect("/bill-payments?deleted=1");
+  }
+
   const scopeNote = !canSwitch
     ? seesConsultants
       ? "Consultants only — your access does not include regular vendors."
@@ -243,12 +338,58 @@ export default async function BillPaymentsPage({
     <>
       <PageHeader
         title="Bill payments"
-        description={`Money out to consultants and vendors. ${company.baseCurrency} books · reversal deletes nothing.`}
+        description={`Money out to consultants and vendors. ${company.baseCurrency} books · reversal keeps the record; delete is for a mistake caught the same day.`}
       />
 
       {params.error ? <Alert tone="error">{params.error}</Alert> : null}
       {params.saved ? <Alert tone="success">Saved.</Alert> : null}
+      {params.deleted ? (
+        <Alert tone="success">
+          Payment deleted. What it was is kept in the audit trail, and its
+          journal entry number stays unused.
+        </Alert>
+      ) : null}
       {scopeNote ? <Alert tone="info">{scopeNote}</Alert> : null}
+
+      {pendingDelete ? (
+        <Card>
+          <h2 className="mb-2 text-sm font-semibold text-red-700 dark:text-red-300">
+            Delete this payment for good?
+          </h2>
+          <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+            {formatMoney(
+              money(pendingDelete.amount).toFixed(2),
+              pendingDelete.currency,
+            )}{" "}
+            to {pendingDelete.vendor.name} on{" "}
+            {formatAccountingDate(pendingDelete.date)}, and its journal entry,
+            will be removed as if the payment had never been recorded.{" "}
+            {pendingDelete.applications.length === 1
+              ? "The document it settled goes back to unpaid."
+              : `The ${pendingDelete.applications.length} documents it settled go back to unpaid.`}{" "}
+            Only the audit trail will remember it. To keep the correction on the
+            record instead, reverse it.
+          </p>
+          <div className="flex items-center gap-2">
+            <form action={remove}>
+              <input
+                type="hidden"
+                name="paymentId"
+                value={pendingDelete.id}
+              />
+              <Button variant="danger" type="submit">
+                Delete permanently
+              </Button>
+            </form>
+            <Link
+              href="/bill-payments"
+              className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Cancel
+            </Link>
+          </div>
+        </Card>
+      ) : null}
 
       {canSwitch ? (
         <div className="mb-4 mt-4 flex flex-wrap gap-2">
@@ -345,16 +486,29 @@ export default async function BillPaymentsPage({
                     </td>
                     <td className="py-2 text-right">
                       {payment.reversedAt ? null : (
-                        <form action={reverse}>
-                          <input
-                            type="hidden"
-                            name="paymentId"
-                            value={payment.id}
-                          />
-                          <Button variant="ghost" type="submit">
-                            Reverse
-                          </Button>
-                        </form>
+                        <div className="flex items-center justify-end gap-1">
+                          <form action={reverse}>
+                            <input
+                              type="hidden"
+                              name="paymentId"
+                              value={payment.id}
+                            />
+                            <Button variant="ghost" type="submit">
+                              Reverse
+                            </Button>
+                          </form>
+                          {deleteRefusal(payment) === null ? (
+                            // A link, not a submit: deleting is irreversible,
+                            // so it takes a second screen that says what will
+                            // go rather than a button next to Reverse.
+                            <Link
+                              href={`/bill-payments?delete=${payment.id}`}
+                              className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950"
+                            >
+                              Delete
+                            </Link>
+                          ) : null}
+                        </div>
                       )}
                     </td>
                   </tr>

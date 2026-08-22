@@ -1071,3 +1071,46 @@ opening the runtime log.
 
 The logo upload and the bank-statement upload had no handling at all and would
 have hit the same wall on this deployment; both now report it on the screen.
+
+## Same-day delete for a payment entered by mistake
+
+SPEC §4.2 rule 3 makes posted entries immutable, and reversal is how a mistake
+is corrected. That is right for a mistake found later and wrong for one found a
+minute after it was typed: a vendor's history then carries two cancelling lines
+recording nothing but a typo, and the person who made it cannot see what they
+actually paid without reading past their own noise.
+
+So there is now exactly one exception, and it is narrow. A bill payment can be
+deleted outright — payment, applications and journal entry, with the documents
+it settled reopened — only when all of this holds:
+
+- it has not been reversed, and has exactly one posting;
+- the posting is under 24 hours old;
+- the person deleting it is the person who recorded it;
+- no bank line is matched to it;
+- its date is after `booksClosedThrough`.
+
+Otherwise the refusal names the rule and points at reversal. `whyNotDeletable`
+holds those rules; the list calls it to decide whether to offer the button and
+the action calls it again against the row as it stands, so the two cannot
+disagree — and the second call is the one that decides.
+
+**24 hours, not "today".** A calendar day has a boundary, and for a user eight
+hours off UTC that boundary lands mid-morning: record a payment at 8:05 and it
+is already undeletable. A rolling window has no cliff to be caught by.
+
+**The trigger still refuses everything else.** `journal_entry_immutable` now
+allows a delete when a transaction-local setting holds that entry's own id —
+scoped to one id rather than a boolean, so even inside the transaction that
+opened it nothing else can go. `set_config(..., true)` is transaction-local, so
+it cannot leak to the next transaction on a pooled connection. Every rule about
+*whether* a delete is allowed lives in the application, which can say why it
+refused; the trigger is the backstop that keeps other code paths honest.
+
+**What is genuinely lost.** Nothing afterwards shows the payment existed except
+the audit row, which carries the payment, its applications and every journal
+line verbatim, and the gap it leaves in the journal numbering — the number is
+consumed and never reissued. A missing entry number is the thread an auditor
+pulls, and that is the point. Deleting takes a second screen naming what will
+go, because a single click next to Reverse is not enough for something nothing
+brings back.

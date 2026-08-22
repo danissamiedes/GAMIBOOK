@@ -12,6 +12,12 @@ import {
 } from "@/lib/ledger/post";
 import { convertDocument, isBaseCurrency } from "@/lib/ledger/fx";
 import { amendPosting } from "@/lib/ledger/amend";
+import {
+  ERASE_ENTRY_INCLUDE,
+  eraseEntry,
+  snapshotEntry,
+  whyNotErasable,
+} from "@/lib/ledger/erase";
 
 /**
  * Customer invoices (SPEC §7.1) and their posting rules (SPEC §4.3).
@@ -416,5 +422,167 @@ export async function updateInvoice(input: {
       data: { baseTotal },
       include: { lines: { orderBy: { lineNumber: "asc" } } },
     });
+  });
+}
+
+/**
+ * Why an issued invoice cannot be deleted, or null if it can. Exported so the
+ * list decides with the same rule the delete enforces.
+ */
+export type InvoiceDeletableInput = {
+  invoice: {
+    status: InvoiceStatus;
+    voidedAt: Date | null;
+    createdAt: Date;
+    lastEmailedAt: Date | null;
+    applications: { payment: { reversedAt: Date | null } }[];
+  };
+  entry: {
+    postedAt: Date;
+    date: Date;
+    createdByUserId: string | null;
+    reversedByEntryId: string | null;
+  } | null;
+  postings: number;
+  bankMatchCount: number;
+  booksClosedThrough: Date | null;
+  userId: string;
+};
+
+export function whyNotDeletableInvoice(input: InvoiceDeletableInput): string | null {
+  const { invoice } = input;
+  // A draft is not an accounting record and goes through deleteDraftInvoice,
+  // which has none of these rules to apply.
+  if (invoice.status === "DRAFT") return "A draft invoice is deleted, not erased.";
+
+  const live = invoice.applications.filter((application) => !application.payment.reversedAt);
+  return whyNotErasable({
+    noun: "invoice",
+    document: invoice,
+    entry: input.entry,
+    postings: input.postings,
+    bankMatchCount: input.bankMatchCount,
+    booksClosedThrough: input.booksClosedThrough,
+    userId: input.userId,
+    dependency:
+      live.length > 0
+        ? "This invoice has payments applied. Reverse them first, or void the invoice instead of deleting it."
+        : invoice.lastEmailedAt
+          ? "This invoice has been emailed to the customer, so they are holding a document with this number on it. Void it instead — that leaves a record you can explain."
+          : null,
+  });
+}
+
+/**
+ * Erase an issued invoice recorded by mistake — the invoice, its lines and its
+ * journal entry — as if it had never been issued. Narrow on purpose; see
+ * `erase.ts`. A draft goes through `deleteDraftInvoice` instead.
+ */
+export async function deleteInvoice(input: {
+  companyId: string;
+  invoiceId: string;
+  userId: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.findFirst({
+      where: { id: input.invoiceId, companyId: input.companyId },
+      include: {
+        lines: { orderBy: { lineNumber: "asc" } },
+        applications: { include: { payment: { select: { reversedAt: true } } } },
+        customer: { select: { name: true } },
+      },
+    });
+    if (!invoice) throw new PostingError("Invoice not found in this company");
+
+    const entry = await tx.journalEntry.findFirst({
+      where: { companyId: input.companyId, sourceType: "INVOICE", sourceId: invoice.id },
+      orderBy: { postedAt: "asc" },
+      include: ERASE_ENTRY_INCLUDE,
+    });
+
+    const [postings, bankMatchCount, company] = await Promise.all([
+      tx.journalEntry.count({
+        where: { companyId: input.companyId, sourceType: "INVOICE", sourceId: invoice.id },
+      }),
+      entry
+        ? tx.bankTransaction.count({
+            where: { companyId: input.companyId, matchedJournalEntryId: entry.id },
+          })
+        : Promise.resolve(0),
+      tx.company.findUniqueOrThrow({
+        where: { id: input.companyId },
+        select: { booksClosedThrough: true },
+      }),
+    ]);
+
+    const refusal = whyNotDeletableInvoice({
+      invoice,
+      entry,
+      postings,
+      bankMatchCount,
+      booksClosedThrough: company.booksClosedThrough,
+      userId: input.userId,
+    });
+    if (refusal) throw new PostingError(refusal);
+
+    const snapshot = {
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        customerId: invoice.customerId,
+        customerName: invoice.customer.name,
+        issueDate: invoice.issueDate.toISOString().slice(0, 10),
+        dueDate: invoice.dueDate.toISOString().slice(0, 10),
+        currency: invoice.currency,
+        fxRate: money(invoice.fxRate).toString(),
+        memo: invoice.memo,
+        terms: invoice.terms,
+        total: money(invoice.total).toFixed(2),
+        salesOrderId: invoice.salesOrderId,
+        createdAt: invoice.createdAt.toISOString(),
+        lines: invoice.lines.map((line) => ({
+          lineNumber: line.lineNumber,
+          itemId: line.itemId,
+          description: line.description,
+          quantity: money(line.quantity).toString(),
+          rate: money(line.rate).toString(),
+          amount: money(line.amount).toFixed(2),
+          incomeAccountId: line.incomeAccountId,
+          taxRateId: line.taxRateId,
+        })),
+      },
+      entry: snapshotEntry(entry!),
+    };
+
+    // The order this invoice came from goes back to confirmed, or it is stuck
+    // marked INVOICED with no invoice to point at.
+    if (invoice.salesOrderId) {
+      await tx.salesOrder.update({
+        where: { id: invoice.salesOrderId },
+        data: { status: "CONFIRMED" },
+      });
+    }
+
+    await eraseEntry(tx, entry!.id);
+    // Lines cascade with the invoice.
+    await tx.invoice.delete({ where: { id: invoice.id } });
+
+    await tx.auditLog.create({
+      data: {
+        companyId: input.companyId,
+        userId: input.userId,
+        action: "invoice.deleted",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        summary: `Deleted invoice ${invoice.invoiceNumber ?? invoice.id} for ${money(
+          invoice.total,
+        ).toFixed(2)} ${invoice.currency} to ${invoice.customer.name}, entry ${
+          entry!.entryNumber
+        }`,
+        data: snapshot,
+      },
+    });
+
+    return snapshot;
   });
 }

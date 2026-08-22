@@ -1352,3 +1352,56 @@ A form added later is covered without anyone remembering to add it.
 Moving the date backwards is audited as `period.reopened` rather than
 `period.closed`, and the page shows the trail: reopening a month someone else
 closed should not read as a close in the history.
+
+## Delete on every document, under one rule
+
+Delete now sits beside Edit on all seven documents. The rules are not new: they
+are the ones the bill-payment delete already used, moved into
+`src/lib/ledger/erase.ts` so that every list deciding whether to offer the
+button and every action deciding whether to obey it are reading the same
+sentence — including the sentence itself, which is what the person who clicked
+is shown.
+
+A document can be erased when it is **yours**, **within 24 hours**, **nothing
+depends on it**, and **the period is open**. Outside that, reversal is the
+answer and Delete is not offered. The window is deliberately mean, because what
+a delete costs is real: nothing afterwards shows the document existed except
+the audit row, which carries the whole of it, and the gap it leaves in the
+journal numbering. Both are deliberate — a missing entry number is the thread
+an auditor pulls.
+
+"Nothing depends on it" is the one rule that differs per document:
+
+| Document | Also refused when |
+| --- | --- |
+| Bill | a payment is applied |
+| Invoice | a payment is applied, or it has been emailed to the customer |
+| Work order | a payment is applied, or it has been emailed to the consultant |
+| Sales order | it has become an invoice |
+| Payments | a bank line is matched (as before) |
+
+Emailing blocks it because the other party is holding a document with that
+number on it. Void leaves a record you can explain; a deletion leaves them
+holding a number the books have never heard of.
+
+Three restores happen on the way out, and each exists because the alternative
+is a row that lies:
+
+- a receipt approved into a deleted expense goes back to the inbox, not into
+  the bin — the photo is the evidence, and whoever mistyped the expense still
+  wants to enter it correctly;
+- invoices a deleted customer payment settled go back to unpaid, applications
+  removed first so the recompute counts live ones;
+- a sales order whose invoice is deleted goes back to CONFIRMED, or it is stuck
+  marked INVOICED with no invoice and no way back to either state.
+
+**Sales orders are the exception to all of it.** They post nothing, so there is
+no entry to erase, no 24-hour window to be inside, no period to be closed
+against them and no bank line that can point at them. The only rule is that
+nothing has been built on the order. Anyone may delete one at any time; what is
+lost is the order number, and the audit row keeps it.
+
+No migration was needed. The immutability trigger's escape hatch — a
+transaction-local setting holding the id of the single entry allowed to go —
+was already written generically, so the six new erasers open it the same way
+the payment delete does.

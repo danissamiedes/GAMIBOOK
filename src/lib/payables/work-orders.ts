@@ -1,4 +1,4 @@
-import type { Prisma, Role } from "@prisma/client";
+import type { PayableStatus, Prisma, Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { PostingError } from "@/lib/errors";
 import { money, sum, toCents } from "@/lib/money";
@@ -11,6 +11,12 @@ import {
   reverseJournalEntry,
 } from "@/lib/ledger/post";
 import { amendPosting } from "@/lib/ledger/amend";
+import {
+  ERASE_ENTRY_INCLUDE,
+  eraseEntry,
+  snapshotEntry,
+  whyNotErasable,
+} from "@/lib/ledger/erase";
 import { isBaseCurrency, toBase } from "@/lib/ledger/fx";
 
 /**
@@ -380,5 +386,158 @@ export async function updateWorkOrder(input: {
       data: { baseTotal },
       include: { lines: { orderBy: { lineNumber: "asc" } } },
     });
+  });
+}
+
+/**
+ * Why an approved work order cannot be deleted, or null if it can. Exported so
+ * the list decides with the same rule the delete enforces.
+ */
+export type WorkOrderDeletableInput = {
+  workOrder: {
+    status: PayableStatus;
+    voidedAt: Date | null;
+    createdAt: Date;
+    lastEmailedAt: Date | null;
+    applications: { billPayment: { reversedAt: Date | null } }[];
+  };
+  entry: {
+    postedAt: Date;
+    date: Date;
+    createdByUserId: string | null;
+    reversedByEntryId: string | null;
+  } | null;
+  postings: number;
+  bankMatchCount: number;
+  booksClosedThrough: Date | null;
+  userId: string;
+};
+
+export function whyNotDeletableWorkOrder(input: WorkOrderDeletableInput): string | null {
+  const { workOrder } = input;
+  if (workOrder.status === "DRAFT") return "A draft work order is deleted, not erased.";
+
+  const live = workOrder.applications.filter((a) => !a.billPayment.reversedAt);
+  return whyNotErasable({
+    noun: "work order",
+    document: workOrder,
+    entry: input.entry,
+    postings: input.postings,
+    bankMatchCount: input.bankMatchCount,
+    booksClosedThrough: input.booksClosedThrough,
+    userId: input.userId,
+    dependency:
+      live.length > 0
+        ? "This work order has payments applied. Reverse them first, or void the work order instead of deleting it."
+        : workOrder.lastEmailedAt
+          ? "This work order has been emailed to the consultant, so they are holding a document with this number on it. Void it instead — that leaves a record you can explain."
+          : null,
+  });
+}
+
+/**
+ * Erase an approved work order recorded by mistake — the order, its lines and
+ * its journal entry. Narrow on purpose; see `erase.ts`. A draft goes through
+ * `deleteDraftWorkOrder` instead.
+ */
+export async function deleteWorkOrder(input: {
+  companyId: string;
+  workOrderId: string;
+  userId: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const workOrder = await tx.workOrder.findFirst({
+      where: { id: input.workOrderId, companyId: input.companyId },
+      include: {
+        lines: { orderBy: { lineNumber: "asc" } },
+        applications: { include: { billPayment: { select: { reversedAt: true } } } },
+        vendor: { select: { name: true } },
+      },
+    });
+    if (!workOrder) throw new PostingError("Work order not found in this company");
+
+    const entry = await tx.journalEntry.findFirst({
+      where: { companyId: input.companyId, sourceType: "WORK_ORDER", sourceId: workOrder.id },
+      orderBy: { postedAt: "asc" },
+      include: ERASE_ENTRY_INCLUDE,
+    });
+
+    const [postings, bankMatchCount, company] = await Promise.all([
+      tx.journalEntry.count({
+        where: { companyId: input.companyId, sourceType: "WORK_ORDER", sourceId: workOrder.id },
+      }),
+      tx.bankTransaction.count({
+        where: {
+          companyId: input.companyId,
+          OR: [
+            { workOrderId: workOrder.id },
+            ...(entry ? [{ matchedJournalEntryId: entry.id }] : []),
+          ],
+        },
+      }),
+      tx.company.findUniqueOrThrow({
+        where: { id: input.companyId },
+        select: { booksClosedThrough: true },
+      }),
+    ]);
+
+    const refusal = whyNotDeletableWorkOrder({
+      workOrder,
+      entry,
+      postings,
+      bankMatchCount,
+      booksClosedThrough: company.booksClosedThrough,
+      userId: input.userId,
+    });
+    if (refusal) throw new PostingError(refusal);
+
+    const snapshot = {
+      workOrder: {
+        id: workOrder.id,
+        workOrderNumber: workOrder.workOrderNumber,
+        vendorId: workOrder.vendorId,
+        vendorName: workOrder.vendor.name,
+        issueDate: workOrder.issueDate.toISOString().slice(0, 10),
+        dueDate: workOrder.dueDate.toISOString().slice(0, 10),
+        approvedAt: workOrder.approvedAt ? workOrder.approvedAt.toISOString().slice(0, 10) : null,
+        currency: workOrder.currency,
+        fxRate: money(workOrder.fxRate).toString(),
+        memo: workOrder.memo,
+        total: money(workOrder.total).toFixed(2),
+        importBatchId: workOrder.importBatchId,
+        createdAt: workOrder.createdAt.toISOString(),
+        lines: workOrder.lines.map((line) => ({
+          lineNumber: line.lineNumber,
+          description: line.description,
+          quantity: money(line.quantity).toString(),
+          rate: money(line.rate).toString(),
+          amount: money(line.amount).toFixed(2),
+          accountId: line.accountId,
+        })),
+      },
+      entry: snapshotEntry(entry!),
+    };
+
+    await eraseEntry(tx, entry!.id);
+    // Lines cascade with the work order.
+    await tx.workOrder.delete({ where: { id: workOrder.id } });
+
+    await tx.auditLog.create({
+      data: {
+        companyId: input.companyId,
+        userId: input.userId,
+        action: "workOrder.deleted",
+        entityType: "WorkOrder",
+        entityId: workOrder.id,
+        summary: `Deleted work order ${workOrder.workOrderNumber ?? workOrder.id} for ${money(
+          workOrder.total,
+        ).toFixed(2)} ${workOrder.currency} to ${workOrder.vendor.name}, entry ${
+          entry!.entryNumber
+        }`,
+        data: snapshot,
+      },
+    });
+
+    return snapshot;
   });
 }

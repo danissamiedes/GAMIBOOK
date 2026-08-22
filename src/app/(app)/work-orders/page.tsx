@@ -39,6 +39,7 @@ export default async function WorkOrdersPage({
     consultant?: string;
     approved?: string;
     failed?: string;
+    deleted?: string;
     page?: string;
   }>;
 }) {
@@ -181,6 +182,11 @@ export default async function WorkOrdersPage({
       ) : null}
       {params.failed ? (
         <Alert tone="error">{decodeURIComponent(params.failed)}</Alert>
+      ) : null}
+      {params.deleted ? (
+        <Alert tone="success">
+          Deleted. What it was is kept in the audit trail, and its numbers stay unused.
+        </Alert>
       ) : null}
 
       {workOrders.length === 0 ? (

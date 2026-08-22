@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, SalesOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { PostingError } from "@/lib/errors";
 import { money, sum, toCents } from "@/lib/money";
@@ -211,5 +211,98 @@ export async function updateSalesOrder(input: {
       where: { id: order.id },
       include: { lines: { orderBy: { lineNumber: "asc" } } },
     });
+  });
+}
+
+/**
+ * Why a sales order cannot be deleted, or null if it can.
+ *
+ * The odd one out. A sales order posts nothing, so there is no journal entry
+ * to erase, no period to be closed against it and no bank line that can point
+ * at it — none of the rules in `erase.ts` apply. What has to hold is simply
+ * that nothing has been built on it: once it has become an invoice, the
+ * invoice is the record and the order is its history.
+ */
+export function whyNotDeletableSalesOrder(order: {
+  status: SalesOrderStatus;
+  invoice: { id: string } | null;
+}): string | null {
+  if (order.status === "INVOICED" || order.invoice) {
+    return "This order has been invoiced. Delete the invoice first, or void it — the invoice is the accounting record, not the order.";
+  }
+  return null;
+}
+
+/**
+ * Erase a sales order — draft, confirmed or cancelled alike — and its lines.
+ *
+ * Deliberately not gated on the 24-hour window the posted documents use. That
+ * window exists because deleting a posting destroys accounting history; a
+ * sales order has none to destroy. What it loses is the order number, and the
+ * audit row keeps that.
+ */
+export async function deleteSalesOrder(input: {
+  companyId: string;
+  salesOrderId: string;
+  userId: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const order = await tx.salesOrder.findFirst({
+      where: { id: input.salesOrderId, companyId: input.companyId },
+      include: {
+        lines: { orderBy: { lineNumber: "asc" } },
+        invoice: { select: { id: true } },
+        customer: { select: { name: true } },
+      },
+    });
+    if (!order) throw new PostingError("Sales order not found in this company");
+
+    const refusal = whyNotDeletableSalesOrder(order);
+    if (refusal) throw new PostingError(refusal);
+
+    const snapshot = {
+      salesOrder: {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        customerId: order.customerId,
+        customerName: order.customer.name,
+        orderDate: order.orderDate.toISOString().slice(0, 10),
+        expectedDate: order.expectedDate ? order.expectedDate.toISOString().slice(0, 10) : null,
+        currency: order.currency,
+        fxRate: money(order.fxRate).toString(),
+        status: order.status,
+        memo: order.memo,
+        total: money(order.total).toFixed(2),
+        createdAt: order.createdAt.toISOString(),
+        lines: order.lines.map((line) => ({
+          lineNumber: line.lineNumber,
+          itemId: line.itemId,
+          description: line.description,
+          quantity: money(line.quantity).toString(),
+          rate: money(line.rate).toString(),
+          amount: money(line.amount).toFixed(2),
+          incomeAccountId: line.incomeAccountId,
+        })),
+      },
+    };
+
+    // Lines cascade with the order.
+    await tx.salesOrder.delete({ where: { id: order.id } });
+
+    await tx.auditLog.create({
+      data: {
+        companyId: input.companyId,
+        userId: input.userId,
+        action: "salesOrder.deleted",
+        entityType: "SalesOrder",
+        entityId: order.id,
+        summary: `Deleted sales order ${order.orderNumber ?? order.id} for ${money(
+          order.total,
+        ).toFixed(2)} ${order.currency} to ${order.customer.name}`,
+        data: snapshot,
+      },
+    });
+
+    return snapshot;
   });
 }

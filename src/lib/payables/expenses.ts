@@ -6,6 +6,12 @@ import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { systemAccount } from "@/lib/ledger/chart";
 import { accountingDate, postJournalEntry, reverseJournalEntry } from "@/lib/ledger/post";
 import { amendPosting } from "@/lib/ledger/amend";
+import {
+  ERASE_ENTRY_INCLUDE,
+  eraseEntry,
+  snapshotEntry,
+  whyNotErasable,
+} from "@/lib/ledger/erase";
 import { isBaseCurrency, toBase } from "@/lib/ledger/fx";
 
 /**
@@ -351,5 +357,152 @@ export async function updateExpense(input: {
     );
 
     return { expense, entry: reposted };
+  });
+}
+
+/**
+ * Why this expense cannot be deleted, or null if it can. Exported so the list
+ * can decide whether to offer the button and say why when it does not.
+ */
+export type ExpenseDeletableInput = {
+  expense: {
+    kind: "DIRECT" | "BILL";
+    voidedAt: Date | null;
+    createdAt: Date;
+    applications: { billPayment: { reversedAt: Date | null } }[];
+  };
+  entry: {
+    postedAt: Date;
+    date: Date;
+    createdByUserId: string | null;
+    reversedByEntryId: string | null;
+  } | null;
+  postings: number;
+  bankMatchCount: number;
+  booksClosedThrough: Date | null;
+  userId: string;
+};
+
+export function whyNotDeletableExpense(input: ExpenseDeletableInput): string | null {
+  const noun = input.expense.kind === "BILL" ? "bill" : "expense";
+  const live = input.expense.applications.filter((a) => !a.billPayment.reversedAt);
+  return whyNotErasable({
+    noun,
+    document: input.expense,
+    entry: input.entry,
+    postings: input.postings,
+    bankMatchCount: input.bankMatchCount,
+    booksClosedThrough: input.booksClosedThrough,
+    userId: input.userId,
+    dependency:
+      live.length > 0
+        ? "This bill has payments applied. Reverse them first, or reverse the bill instead of deleting it."
+        : null,
+  });
+}
+
+/**
+ * Erase an expense recorded by mistake — the expense and its journal entry —
+ * as if it had never been recorded. Narrow on purpose; see `erase.ts`.
+ */
+export async function deleteExpense(input: {
+  companyId: string;
+  expenseId: string;
+  userId: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const expense = await tx.expense.findFirst({
+      where: { id: input.expenseId, companyId: input.companyId },
+      include: {
+        applications: { include: { billPayment: { select: { reversedAt: true } } } },
+        vendor: { select: { name: true } },
+        receipt: { select: { id: true } },
+      },
+    });
+    if (!expense) throw new PostingError("Expense not found in this company");
+
+    const entry = await tx.journalEntry.findFirst({
+      where: { companyId: input.companyId, sourceType: "EXPENSE", sourceId: expense.id },
+      orderBy: { postedAt: "asc" },
+      include: ERASE_ENTRY_INCLUDE,
+    });
+
+    const [postings, bankMatchCount, company] = await Promise.all([
+      tx.journalEntry.count({
+        where: { companyId: input.companyId, sourceType: "EXPENSE", sourceId: expense.id },
+      }),
+      entry
+        ? tx.bankTransaction.count({
+            where: { companyId: input.companyId, matchedJournalEntryId: entry.id },
+          })
+        : Promise.resolve(0),
+      tx.company.findUniqueOrThrow({
+        where: { id: input.companyId },
+        select: { booksClosedThrough: true },
+      }),
+    ]);
+
+    const refusal = whyNotDeletableExpense({
+      expense,
+      entry,
+      postings,
+      bankMatchCount,
+      booksClosedThrough: company.booksClosedThrough,
+      userId: input.userId,
+    });
+    if (refusal) throw new PostingError(refusal);
+
+    // A receipt that was approved into this expense goes back to the inbox
+    // rather than being destroyed with it: the photo is the evidence, and the
+    // person deleting a mistyped expense still wants to enter it correctly.
+    if (expense.receipt) {
+      await tx.receiptUpload.update({
+        where: { id: expense.receipt.id },
+        data: { status: "READY", expenseId: null },
+      });
+    }
+
+    const snapshot = {
+      expense: {
+        id: expense.id,
+        kind: expense.kind,
+        vendorId: expense.vendorId,
+        vendorName: expense.vendor?.name ?? null,
+        date: expense.date.toISOString().slice(0, 10),
+        amount: money(expense.amount).toFixed(2),
+        currency: expense.currency,
+        fxRate: money(expense.fxRate).toString(),
+        expenseAccountId: expense.expenseAccountId,
+        paymentAccountId: expense.paymentAccountId,
+        dueDate: expense.dueDate ? expense.dueDate.toISOString().slice(0, 10) : null,
+        description: expense.description,
+        reference: expense.reference,
+        receiptUrl: expense.receiptUrl,
+        receiptFileKey: expense.receiptFileKey,
+        isBillable: expense.isBillable,
+        customerId: expense.customerId,
+        createdAt: expense.createdAt.toISOString(),
+      },
+      entry: snapshotEntry(entry!),
+    };
+
+    await eraseEntry(tx, entry!.id);
+    await tx.expense.delete({ where: { id: expense.id } });
+
+    await tx.auditLog.create({
+      data: {
+        companyId: input.companyId,
+        userId: input.userId,
+        action: "expense.deleted",
+        entityType: "Expense",
+        entityId: expense.id,
+        summary: `Deleted ${expense.kind === "BILL" ? "bill" : "expense"} ${money(
+          expense.amount,
+        ).toFixed(2)} ${expense.currency} — ${expense.description}, entry ${entry!.entryNumber}`,
+        data: snapshot,
+      },
+    });
+
+    return snapshot;
   });
 }

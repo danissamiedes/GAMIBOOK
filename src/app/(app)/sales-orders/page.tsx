@@ -5,6 +5,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { formatAccountingDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import {
+  Alert,
   Button,
   Card,
   DataTable,
@@ -27,7 +28,7 @@ const STATUS_STYLES: Record<string, string> = {
 export default async function SalesOrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; deleted?: string }>;
 }) {
   const scope = await sectionScope("SALES");
 
@@ -62,6 +63,12 @@ export default async function SalesOrdersPage({
           <Button>New sales order</Button>
         </Link>
       </div>
+
+      {params.deleted ? (
+        <Alert tone="success">
+          Deleted. What it was is kept in the audit trail, and its numbers stay unused.
+        </Alert>
+      ) : null}
 
       {orders.length === 0 ? (
         <EmptyState title="No sales orders yet">

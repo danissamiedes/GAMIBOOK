@@ -4,7 +4,13 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
-import { issueInvoice, voidInvoice, deleteDraftInvoice } from "@/lib/invoices/service";
+import {
+  deleteDraftInvoice,
+  deleteInvoice,
+  issueInvoice,
+  voidInvoice,
+  whyNotDeletableInvoice,
+} from "@/lib/invoices/service";
 import { recordPayment, reversePayment } from "@/lib/invoices/payments";
 import { parseMoney, money } from "@/lib/money";
 import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
@@ -19,11 +25,12 @@ export default async function InvoicePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; delete?: string }>;
 }) {
   const scope = await sectionScope("SALES");
   const { id } = await params;
-  const { error } = await searchParams;
+  const params_ = await searchParams;
+  const { error } = params_;
 
   const invoice = await prisma.invoice.findFirst({
     where: { id, ...scope.where },
@@ -48,9 +55,34 @@ export default async function InvoicePage({
     prisma.journalEntry.findMany({
       where: { ...scope.where, sourceType: "INVOICE", sourceId: id },
       orderBy: { postedAt: "asc" },
-      select: { id: true, entryNumber: true, date: true },
+      select: {
+        id: true,
+        entryNumber: true,
+        date: true,
+        // The rest is what the delete gate reads.
+        postedAt: true,
+        createdByUserId: true,
+        reversedByEntryId: true,
+      },
     }),
   ]);
+
+  // Whether this invoice can still be erased outright, asked with the same
+  // function the delete itself asks, so the button and the action agree.
+  const bankMatchCount = entries.length
+    ? await prisma.bankTransaction.count({
+        where: { ...scope.where, matchedJournalEntryId: { in: entries.map((e) => e.id) } },
+      })
+    : 0;
+  const deleteRefusal = whyNotDeletableInvoice({
+    invoice,
+    entry: entries[0] ?? null,
+    postings: entries.length,
+    bankMatchCount,
+    booksClosedThrough: company.booksClosedThrough,
+    userId: scope.userId,
+  });
+  const pendingDelete = params_.delete === "1" && deleteRefusal === null;
 
   async function issue() {
     "use server";
@@ -87,6 +119,19 @@ export default async function InvoicePage({
       else throw thrown;
     }
     redirect("/invoices");
+  }
+
+  async function erase() {
+    "use server";
+    const inner = await sectionScope("SALES");
+    try {
+      // The service re-checks every rule; this form is not the guard.
+      await deleteInvoice({ companyId: inner.companyId, invoiceId: id, userId: inner.userId });
+    } catch (thrown) {
+      if (thrown instanceof PostingError) failTo(`/invoices/${id}`, thrown.message);
+      else throw thrown;
+    }
+    redirect("/invoices?deleted=1");
   }
 
   async function makeVoid(formData: FormData) {
@@ -234,6 +279,32 @@ export default async function InvoicePage({
       />
 
       {error ? <Alert tone="error">{error}</Alert> : null}
+
+      {pendingDelete ? (
+        <Card className="mb-4">
+          <h2 className="mb-2 text-sm font-semibold text-red-700 dark:text-red-300">
+            Delete invoice {invoice.invoiceNumber} for good?
+          </h2>
+          <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+            The invoice, its lines and its journal entry will be removed as if it had never been
+            issued. Number {invoice.invoiceNumber} stays unused. Only the audit trail will
+            remember it. To keep the correction on the record instead, void it.
+          </p>
+          <div className="flex items-center gap-2">
+            <form action={erase}>
+              <Button variant="danger" type="submit">
+                Delete permanently
+              </Button>
+            </form>
+            <Link
+              href={`/invoices/${id}`}
+              className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Cancel
+            </Link>
+          </div>
+        </Card>
+      ) : null}
       {isDraft ? (
         <Alert tone="warning">
           This is a draft. Nothing has posted to the ledger and it has no number yet — issuing does
@@ -430,6 +501,16 @@ export default async function InvoicePage({
                     Void invoice
                   </Button>
                 </form>
+              ) : null}
+              {deleteRefusal === null && !isDraft ? (
+                // A link, not a submit: deleting is irreversible, so it takes
+                // a second screen saying what will go.
+                <Link
+                  href={`/invoices/${id}?delete=1`}
+                  className="flex h-9 w-full items-center justify-center rounded-md text-sm font-medium text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950"
+                >
+                  Delete permanently
+                </Link>
               ) : null}
             </div>
           </Card>

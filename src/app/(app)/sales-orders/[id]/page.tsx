@@ -9,6 +9,8 @@ import {
   confirmSalesOrder,
   convertToInvoice,
   deleteDraftSalesOrder,
+  deleteSalesOrder,
+  whyNotDeletableSalesOrder,
 } from "@/lib/invoices/sales-orders";
 import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
@@ -20,11 +22,12 @@ export default async function SalesOrderPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; delete?: string }>;
 }) {
   const scope = await sectionScope("SALES");
   const { id } = await params;
-  const { error } = await searchParams;
+  const params_ = await searchParams;
+  const { error } = params_;
 
   const order = await prisma.salesOrder.findFirst({
     where: { id, ...scope.where },
@@ -35,6 +38,23 @@ export default async function SalesOrderPage({
     },
   });
   if (!order) notFound();
+
+  // A sales order posts nothing, so none of the same-day rules apply: what has
+  // to hold is only that nothing has been built on it.
+  const deleteRefusal = whyNotDeletableSalesOrder(order);
+  const pendingDelete = params_.delete === "1" && deleteRefusal === null;
+
+  async function erase() {
+    "use server";
+    const inner = await sectionScope("SALES");
+    try {
+      await deleteSalesOrder({ companyId: inner.companyId, salesOrderId: id, userId: inner.userId });
+    } catch (thrown) {
+      if (thrown instanceof PostingError) failTo(`/sales-orders/${id}`, thrown.message);
+      else throw thrown;
+    }
+    redirect("/sales-orders?deleted=1");
+  }
 
   async function confirm() {
     "use server";
@@ -113,6 +133,32 @@ export default async function SalesOrderPage({
       />
 
       {error ? <Alert tone="error">{error}</Alert> : null}
+
+      {pendingDelete ? (
+        <Card className="mb-4">
+          <h2 className="mb-2 text-sm font-semibold text-red-700 dark:text-red-300">
+            Delete this order for good?
+          </h2>
+          <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+            {order.orderNumber ? `Order ${order.orderNumber}` : "This draft"} and its lines will
+            be removed. Nothing was posted for it, so the ledger is untouched — what goes is the
+            order and its number. Only the audit trail will remember it.
+          </p>
+          <div className="flex items-center gap-2">
+            <form action={erase}>
+              <Button variant="danger" type="submit">
+                Delete permanently
+              </Button>
+            </form>
+            <Link
+              href={`/sales-orders/${id}`}
+              className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Cancel
+            </Link>
+          </div>
+        </Card>
+      ) : null}
       <Alert tone="info">
         A sales order posts nothing. Revenue appears only when the invoice it becomes is issued.
       </Alert>
@@ -216,6 +262,16 @@ export default async function SalesOrderPage({
             ) : null}
             {order.status === "CANCELLED" ? (
               <p className="text-sm text-slate-500">This order was cancelled.</p>
+            ) : null}
+            {deleteRefusal === null && order.status !== "DRAFT" ? (
+              // Drafts already have Discard, which is the same thing with a
+              // gentler name. This is for a confirmed or cancelled order.
+              <Link
+                href={`/sales-orders/${id}?delete=1`}
+                className="flex h-9 w-full items-center justify-center rounded-md text-sm font-medium text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950"
+              >
+                Delete permanently
+              </Link>
             ) : null}
           </div>
         </Card>

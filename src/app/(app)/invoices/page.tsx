@@ -6,6 +6,7 @@ import { formatAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money } from "@/lib/money";
 import {
+  Alert,
   Button,
   Card,
   DataTable,
@@ -29,7 +30,7 @@ const STATUS_STYLES: Record<string, string> = {
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; page?: string }>;
+  searchParams: Promise<{ status?: string; page?: string; deleted?: string }>;
 }) {
   const scope = await sectionScope("SALES");
   const params = await searchParams;
@@ -82,6 +83,12 @@ export default async function InvoicesPage({
           <Button>New invoice</Button>
         </Link>
       </div>
+
+      {params.deleted ? (
+        <Alert tone="success">
+          Deleted. What it was is kept in the audit trail, and its numbers stay unused.
+        </Alert>
+      ) : null}
 
       <div className="mb-4 flex flex-wrap gap-2">
         {["ALL", "DRAFT", "ISSUED", "PARTIALLY_PAID", "PAID", "VOID"].map(

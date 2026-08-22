@@ -4,7 +4,12 @@ import { failTo } from "@/lib/fail";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
-import { recordExpense, updateExpense } from "@/lib/payables/expenses";
+import {
+  deleteExpense,
+  recordExpense,
+  updateExpense,
+  whyNotDeletableExpense,
+} from "@/lib/payables/expenses";
 import Link from "next/link";
 import { recordBillPayment } from "@/lib/payables/bill-payments";
 import { money, parseMoney } from "@/lib/money";
@@ -34,7 +39,14 @@ export const metadata = { title: pageTitle("Expenses and bills") };
 export default async function ExpensesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; tab?: string; edit?: string; saved?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    tab?: string;
+    edit?: string;
+    saved?: string;
+    delete?: string;
+    deleted?: string;
+  }>;
 }) {
   const scope = await sectionScope("VENDORS");
   const params = await searchParams;
@@ -67,6 +79,65 @@ export default async function ExpensesPage({
       take: 100,
     }),
   ]);
+
+  /*
+   * Deletability for the whole list, worked out with the same rule the delete
+   * enforces so the button and the action never disagree. Two queries for the
+   * page rather than two per row, and only for rows that could still qualify —
+   * a voided expense is out before anything is looked up.
+   */
+  const liveIds = expenses.filter((expense) => !expense.voidedAt).map((expense) => expense.id);
+
+  const postings = liveIds.length
+    ? await prisma.journalEntry.findMany({
+        where: { ...scope.where, sourceType: "EXPENSE" as const, sourceId: { in: liveIds } },
+        select: {
+          id: true,
+          sourceId: true,
+          postedAt: true,
+          date: true,
+          createdByUserId: true,
+          reversedByEntryId: true,
+        },
+      })
+    : [];
+
+  // Two postings against one expense means something built on it, and the map
+  // below keeps only one — so count them separately and let the count decide.
+  const postingCount = new Map<string, number>();
+  for (const posting of postings) {
+    postingCount.set(posting.sourceId!, (postingCount.get(posting.sourceId!) ?? 0) + 1);
+  }
+  const postingBySource = new Map(postings.map((posting) => [posting.sourceId!, posting]));
+
+  // An expense has no matched-expense column: a bank line points at its entry.
+  const bankMatches = postings.length
+    ? await prisma.bankTransaction.findMany({
+        where: { ...scope.where, matchedJournalEntryId: { in: postings.map((p) => p.id) } },
+        select: { matchedJournalEntryId: true },
+      })
+    : [];
+  const matchedEntries = new Set(bankMatches.map((match) => match.matchedJournalEntryId));
+
+  function deleteRefusal(expense: (typeof expenses)[number]): string | null {
+    const entry = postingBySource.get(expense.id) ?? null;
+    return whyNotDeletableExpense({
+      expense,
+      entry,
+      postings: postingCount.get(expense.id) ?? 0,
+      bankMatchCount: entry && matchedEntries.has(entry.id) ? 1 : 0,
+      booksClosedThrough: company.booksClosedThrough,
+      userId: scope.userId,
+    });
+  }
+
+  // The row named by ?delete=, and only if it is genuinely deletable: a stale
+  // link or a guessed id gets no confirmation screen.
+  const pendingDelete = params.delete
+    ? (expenses.find(
+        (expense) => expense.id === params.delete && deleteRefusal(expense) === null,
+      ) ?? null)
+    : null;
 
   // The row named by ?edit=. Only an unpaid, unvoided one can be edited, and
   // the service checks that again before it changes anything.
@@ -159,6 +230,26 @@ export default async function ExpensesPage({
     redirect(`/expenses?tab=${tab}&saved=1`);
   }
 
+  async function remove(formData: FormData) {
+    "use server";
+    const inner = await sectionScope("VENDORS");
+    const expenseId = String(formData.get("expenseId"));
+    const back = `/expenses?tab=${tab}`;
+    try {
+      // The service re-checks every rule. This form is not the guard — the
+      // page that offered it may be minutes stale.
+      await deleteExpense({
+        companyId: inner.companyId,
+        expenseId,
+        userId: inner.userId,
+      });
+    } catch (caught) {
+      if (caught instanceof PostingError) failTo(back, caught.message);
+      throw caught;
+    }
+    redirect(`${back}&deleted=1`);
+  }
+
   async function payBill(formData: FormData) {
     "use server";
     const inner = await sectionScope("VENDORS");
@@ -209,6 +300,44 @@ export default async function ExpensesPage({
           Saved. The original entry was reversed and the corrected one posted in
           its place.
         </Alert>
+      ) : null}
+      {params.deleted ? (
+        <Alert tone="success">
+          Deleted. What it was is kept in the audit trail, and its journal entry
+          number stays unused.
+        </Alert>
+      ) : null}
+
+      {pendingDelete ? (
+        <Card className="mb-4">
+          <h2 className="mb-2 text-sm font-semibold text-red-700 dark:text-red-300">
+            Delete this {pendingDelete.kind === "BILL" ? "bill" : "expense"} for good?
+          </h2>
+          <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+            {formatMoney(pendingDelete.amount.toFixed(2), pendingDelete.currency)} —{" "}
+            {pendingDelete.description} on {formatAccountingDate(pendingDelete.date)}, and its
+            journal entry, will be removed as if it had never been recorded.{" "}
+            {pendingDelete.receipt
+              ? "The receipt photo goes back to the inbox. "
+              : ""}
+            Only the audit trail will remember it. To keep the correction on the record
+            instead, edit it — that reverses and reposts.
+          </p>
+          <div className="flex items-center gap-2">
+            <form action={remove}>
+              <input type="hidden" name="expenseId" value={pendingDelete.id} />
+              <Button variant="danger" type="submit">
+                Delete permanently
+              </Button>
+            </form>
+            <Link
+              href={`/expenses?tab=${tab}`}
+              className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Cancel
+            </Link>
+          </div>
+        </Card>
       ) : null}
 
       <div className="mb-4 flex gap-2">
@@ -286,14 +415,26 @@ export default async function ExpensesPage({
                       )}
                     </td>
                     <td className="py-2 text-right">
-                      {editable(expense) ? (
-                        <Link
-                          href={`/expenses?tab=${tab}&edit=${expense.id}`}
-                          className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                          Edit
-                        </Link>
-                      ) : null}
+                      <div className="flex items-center justify-end">
+                        {editable(expense) ? (
+                          <Link
+                            href={`/expenses?tab=${tab}&edit=${expense.id}`}
+                            className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                          >
+                            Edit
+                          </Link>
+                        ) : null}
+                        {deleteRefusal(expense) === null ? (
+                          // A link, not a submit: deleting is irreversible, so
+                          // it takes a second screen saying what will go.
+                          <Link
+                            href={`/expenses?tab=${tab}&delete=${expense.id}`}
+                            className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950"
+                          >
+                            Delete
+                          </Link>
+                        ) : null}
+                      </div>
                     </td>
                     {tab === "bill" ? (
                       <td className="py-2 text-right">

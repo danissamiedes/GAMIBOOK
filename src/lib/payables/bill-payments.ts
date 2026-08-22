@@ -1,13 +1,13 @@
 import type { PaymentMethod, Prisma, Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { PostingError } from "@/lib/errors";
-import { formatAccountingDate } from "@/lib/dates";
 import { money, sum, toCents } from "@/lib/money";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { systemAccount } from "@/lib/ledger/chart";
 import { accountingDate, postJournalEntry, reverseJournalEntry } from "@/lib/ledger/post";
 import { isBaseCurrency, relieveProRata, toBase } from "@/lib/ledger/fx";
 import { amendPosting } from "@/lib/ledger/amend";
+import { eraseEntry, snapshotEntry, whyNotErasable } from "@/lib/ledger/erase";
 import { recalculateWorkOrder } from "./work-orders";
 
 /**
@@ -510,13 +510,13 @@ export async function reverseBillPayment(input: {
 export const MULTIPLE_POSTINGS =
   "This payment has more than one posting against it. Reverse it instead.";
 
-/** How long after recording a payment it can still be deleted outright. */
-const DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
-
 /**
  * Why a payment cannot be deleted, or null if it can. Exported so the list can
  * decide whether to offer the button and say why when it does not — the same
  * rules the delete itself enforces, read from one place.
+ *
+ * The rules themselves are `whyNotErasable`, shared with the other six
+ * documents. This keeps the payment-shaped argument the list already builds.
  */
 export type DeletableInput = {
   payment: { reversedAt: Date | null; createdAt: Date };
@@ -527,30 +527,17 @@ export type DeletableInput = {
 };
 
 export function whyNotDeletable(input: DeletableInput): string | null {
-  const { payment, entry } = input;
-
-  if (payment.reversedAt) {
-    return "This payment has already been reversed. The reversal is the record of the correction — deleting it now would hide that anything happened.";
-  }
-  if (!entry) return "No posting was found for this payment, so there is nothing to unwind safely.";
-  if (entry.reversedByEntryId) return "This payment's posting has already been reversed.";
-
-  if (Date.now() - entry.postedAt.getTime() > DELETE_WINDOW_MS) {
-    return "A payment can only be deleted within 24 hours of being recorded. Reverse it instead, which keeps both the payment and the correction on the record.";
-  }
-  if (!entry.createdByUserId || entry.createdByUserId !== input.userId) {
-    return "Only the person who recorded a payment can delete it. Reverse it instead.";
-  }
-  if (input.bankMatchCount > 0) {
-    return "A bank line is matched to this payment. Unmatch it first, or reverse the payment instead.";
-  }
-  if (input.booksClosedThrough && entry.date <= input.booksClosedThrough) {
-    return `The books are closed through ${formatAccountingDate(
-      input.booksClosedThrough,
-    )}. A payment dated on or before that can only be reversed, never deleted.`;
-  }
-
-  return null;
+  return whyNotErasable({
+    noun: "payment",
+    document: input.payment,
+    entry: input.entry,
+    // The caller counts postings itself and reports MULTIPLE_POSTINGS, which
+    // predates the shared rules and reads the same.
+    postings: 1,
+    bankMatchCount: input.bankMatchCount,
+    booksClosedThrough: input.booksClosedThrough,
+    userId: input.userId,
+  });
 }
 
 /**
@@ -648,25 +635,7 @@ export async function deleteBillPayment(input: {
         expenseId: application.expenseId,
         amountApplied: money(application.amountApplied).toFixed(2),
       })),
-      entry: {
-        id: entry!.id,
-        entryNumber: entry!.entryNumber,
-        date: entry!.date.toISOString().slice(0, 10),
-        memo: entry!.memo,
-        postedAt: entry!.postedAt.toISOString(),
-        lines: entry!.lines.map((line) => ({
-          lineNumber: line.lineNumber,
-          accountId: line.accountId,
-          debit: money(line.debit).toFixed(2),
-          credit: money(line.credit).toFixed(2),
-          description: line.description,
-          customerId: line.customerId,
-          vendorId: line.vendorId,
-          currency: line.currency,
-          fxRate: line.fxRate ? money(line.fxRate).toString() : null,
-          foreignAmount: line.foreignAmount ? money(line.foreignAmount).toFixed(2) : null,
-        })),
-      },
+      entry: snapshotEntry(entry!),
     };
 
     // Take the payment out of the running before recomputing, for the same
@@ -674,11 +643,7 @@ export async function deleteBillPayment(input: {
     await tx.billPaymentApplication.deleteMany({ where: { billPaymentId: payment.id } });
     await restoreDocuments(tx, payment.applications);
 
-    // Open the hatch for this one entry, for the rest of this transaction only.
-    // The trigger refuses every other delete, including any that a later bug
-    // might attempt while this transaction is still open.
-    await tx.$executeRaw`SELECT set_config('ledger.allow_entry_delete', ${entry!.id}, true)`;
-    await tx.journalEntry.delete({ where: { id: entry!.id } });
+    await eraseEntry(tx, entry!.id);
     await tx.billPayment.delete({ where: { id: payment.id } });
 
     await tx.auditLog.create({

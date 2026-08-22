@@ -7,7 +7,9 @@ import { writeAudit } from "@/lib/audit";
 import {
   approveWorkOrder,
   deleteDraftWorkOrder,
+  deleteWorkOrder,
   voidWorkOrder,
+  whyNotDeletableWorkOrder,
 } from "@/lib/payables/work-orders";
 import { recordBillPayment, reverseBillPayment } from "@/lib/payables/bill-payments";
 import { money, parseMoney } from "@/lib/money";
@@ -23,11 +25,12 @@ export default async function WorkOrderPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; delete?: string }>;
 }) {
   const scope = await sectionScope("CONSULTANTS");
   const { id } = await params;
-  const { error } = await searchParams;
+  const params_ = await searchParams;
+  const { error } = params_;
 
   const workOrder = await prisma.workOrder.findFirst({
     where: { id, ...scope.where },
@@ -49,9 +52,38 @@ export default async function WorkOrderPage({
     prisma.journalEntry.findMany({
       where: { ...scope.where, sourceType: "WORK_ORDER", sourceId: id },
       orderBy: { postedAt: "asc" },
-      select: { id: true, entryNumber: true },
+      select: {
+        id: true,
+        entryNumber: true,
+        // The rest is what the delete gate reads.
+        postedAt: true,
+        date: true,
+        createdByUserId: true,
+        reversedByEntryId: true,
+      },
     }),
   ]);
+
+  // Whether this work order can still be erased outright, asked with the same
+  // function the delete itself asks, so the button and the action agree.
+  const bankMatchCount = await prisma.bankTransaction.count({
+    where: {
+      ...scope.where,
+      OR: [
+        { workOrderId: id },
+        ...(entries.length ? [{ matchedJournalEntryId: { in: entries.map((e) => e.id) } }] : []),
+      ],
+    },
+  });
+  const deleteRefusal = whyNotDeletableWorkOrder({
+    workOrder,
+    entry: entries[0] ?? null,
+    postings: entries.length,
+    bankMatchCount,
+    booksClosedThrough: company.booksClosedThrough,
+    userId: scope.userId,
+  });
+  const pendingDelete = params_.delete === "1" && deleteRefusal === null;
   const accountsById = new Map(accounts.map((account) => [account.id, account]));
 
   async function approve(formData: FormData) {
@@ -91,6 +123,19 @@ export default async function WorkOrderPage({
       else throw thrown;
     }
     redirect("/work-orders");
+  }
+
+  async function erase() {
+    "use server";
+    const inner = await sectionScope("CONSULTANTS");
+    try {
+      // The service re-checks every rule; this form is not the guard.
+      await deleteWorkOrder({ companyId: inner.companyId, workOrderId: id, userId: inner.userId });
+    } catch (thrown) {
+      if (thrown instanceof PostingError) failTo(`/work-orders/${id}`, thrown.message);
+      else throw thrown;
+    }
+    redirect("/work-orders?deleted=1");
   }
 
   async function makeVoid(formData: FormData) {
@@ -213,6 +258,32 @@ export default async function WorkOrderPage({
       />
 
       {error ? <Alert tone="error">{error}</Alert> : null}
+
+      {pendingDelete ? (
+        <Card className="mb-4">
+          <h2 className="mb-2 text-sm font-semibold text-red-700 dark:text-red-300">
+            Delete work order {workOrder.workOrderNumber} for good?
+          </h2>
+          <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+            The work order, its lines and its journal entry will be removed as if it had never
+            been approved. Number {workOrder.workOrderNumber} stays unused. Only the audit trail
+            will remember it. To keep the correction on the record instead, void it.
+          </p>
+          <div className="flex items-center gap-2">
+            <form action={erase}>
+              <Button variant="danger" type="submit">
+                Delete permanently
+              </Button>
+            </form>
+            <Link
+              href={`/work-orders/${id}`}
+              className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Cancel
+            </Link>
+          </div>
+        </Card>
+      ) : null}
       {isDraft ? (
         <Alert tone="warning">
           A draft. Nothing has posted and it has no number — approving does both, dated the work
@@ -397,14 +468,26 @@ export default async function WorkOrderPage({
                 </form>
               </div>
             ) : workOrder.status !== "VOID" ? (
-              <form action={makeVoid} className="space-y-2">
-                <Field label="Void date">
-                  <Input type="date" name="date" defaultValue={isoDate(today())} />
-                </Field>
-                <Button type="submit" variant="danger" className="w-full">
-                  Void work order
-                </Button>
-              </form>
+              <div className="space-y-2">
+                <form action={makeVoid} className="space-y-2">
+                  <Field label="Void date">
+                    <Input type="date" name="date" defaultValue={isoDate(today())} />
+                  </Field>
+                  <Button type="submit" variant="danger" className="w-full">
+                    Void work order
+                  </Button>
+                </form>
+                {deleteRefusal === null ? (
+                  // A link, not a submit: deleting is irreversible, so it
+                  // takes a second screen saying what will go.
+                  <Link
+                    href={`/work-orders/${id}?delete=1`}
+                    className="flex h-9 w-full items-center justify-center rounded-md text-sm font-medium text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950"
+                  >
+                    Delete permanently
+                  </Link>
+                ) : null}
+              </div>
             ) : (
               <p className="text-sm text-slate-500">This work order is void.</p>
             )}

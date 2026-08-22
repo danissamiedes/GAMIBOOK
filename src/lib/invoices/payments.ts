@@ -8,6 +8,12 @@ import { postJournalEntry, reverseJournalEntry, accountingDate } from "@/lib/led
 import { isBaseCurrency, relieveProRata, toBase } from "@/lib/ledger/fx";
 import { recalculateTotals } from "./service";
 import { amendPosting } from "@/lib/ledger/amend";
+import {
+  ERASE_ENTRY_INCLUDE,
+  eraseEntry,
+  snapshotEntry,
+  whyNotErasable,
+} from "@/lib/ledger/erase";
 
 /**
  * Payments received from clients (SPEC §7.1) and the settlement posting
@@ -477,5 +483,140 @@ export async function updatePayment(input: {
       include: { applications: true },
     });
     return { payment, entry: reposted };
+  });
+}
+
+/**
+ * Why a customer payment cannot be deleted, or null if it can. Exported so the
+ * list decides with the same rule the delete enforces.
+ */
+export type PaymentDeletableInput = {
+  payment: { reversedAt: Date | null; createdAt: Date };
+  entry: {
+    postedAt: Date;
+    date: Date;
+    createdByUserId: string | null;
+    reversedByEntryId: string | null;
+  } | null;
+  postings: number;
+  bankMatchCount: number;
+  booksClosedThrough: Date | null;
+  userId: string;
+};
+
+export function whyNotDeletablePayment(input: PaymentDeletableInput): string | null {
+  return whyNotErasable({
+    noun: "payment",
+    document: input.payment,
+    entry: input.entry,
+    postings: input.postings,
+    bankMatchCount: input.bankMatchCount,
+    booksClosedThrough: input.booksClosedThrough,
+    userId: input.userId,
+  });
+}
+
+/**
+ * Erase a customer payment recorded by mistake — the payment, its applications
+ * and its journal entry — and put the invoices it settled back to where they
+ * were. Narrow on purpose; see `erase.ts`.
+ */
+export async function deletePayment(input: {
+  companyId: string;
+  paymentId: string;
+  userId: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.findFirst({
+      where: { id: input.paymentId, companyId: input.companyId },
+      include: { applications: true, customer: { select: { name: true } } },
+    });
+    if (!payment) throw new PostingError("Payment not found in this company");
+
+    const entry = await tx.journalEntry.findFirst({
+      where: { companyId: input.companyId, sourceType: "INVOICE_PAYMENT", sourceId: payment.id },
+      orderBy: { postedAt: "asc" },
+      include: ERASE_ENTRY_INCLUDE,
+    });
+
+    const [postings, bankMatchCount, company] = await Promise.all([
+      tx.journalEntry.count({
+        where: { companyId: input.companyId, sourceType: "INVOICE_PAYMENT", sourceId: payment.id },
+      }),
+      tx.bankTransaction.count({
+        where: {
+          companyId: input.companyId,
+          OR: [
+            { matchedPaymentId: payment.id },
+            ...(entry ? [{ matchedJournalEntryId: entry.id }] : []),
+          ],
+        },
+      }),
+      tx.company.findUniqueOrThrow({
+        where: { id: input.companyId },
+        select: { booksClosedThrough: true },
+      }),
+    ]);
+
+    const refusal = whyNotDeletablePayment({
+      payment,
+      entry,
+      postings,
+      bankMatchCount,
+      booksClosedThrough: company.booksClosedThrough,
+      userId: input.userId,
+    });
+    if (refusal) throw new PostingError(refusal);
+
+    const snapshot = {
+      payment: {
+        id: payment.id,
+        customerId: payment.customerId,
+        customerName: payment.customer.name,
+        date: payment.date.toISOString().slice(0, 10),
+        amount: money(payment.amount).toFixed(2),
+        currency: payment.currency,
+        fxRate: money(payment.fxRate).toString(),
+        depositAccountId: payment.depositAccountId,
+        method: payment.method,
+        reference: payment.reference,
+        notes: payment.notes,
+        createdAt: payment.createdAt.toISOString(),
+      },
+      applications: payment.applications.map((application) => ({
+        invoiceId: application.invoiceId,
+        amountApplied: money(application.amountApplied).toFixed(2),
+      })),
+      entry: snapshotEntry(entry!),
+    };
+
+    // Take the payment out of the running before recomputing, for the same
+    // reason reversal does: the recompute counts live applications.
+    const applications = payment.applications;
+    await tx.paymentApplication.deleteMany({ where: { paymentId: payment.id } });
+    await restoreInvoices(tx, applications);
+
+    await eraseEntry(tx, entry!.id);
+    await tx.payment.delete({ where: { id: payment.id } });
+
+    for (const application of applications) {
+      await recalculateTotals(application.invoiceId, tx);
+    }
+
+    await tx.auditLog.create({
+      data: {
+        companyId: input.companyId,
+        userId: input.userId,
+        action: "payment.deleted",
+        entityType: "Payment",
+        entityId: payment.id,
+        summary: `Deleted payment of ${money(payment.amount).toFixed(2)} ${
+          payment.currency
+        } from ${payment.customer.name}, entry ${entry!.entryNumber}`,
+        data: snapshot,
+      },
+    });
+
+    return snapshot;
   });
 }

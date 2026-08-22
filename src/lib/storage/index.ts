@@ -114,4 +114,6 @@ export const storageKeys = {
     `companies/${companyId}/imports/${batchId}/${filename}`,
   documentPdf: (companyId: string, kind: string, id: string) =>
     `companies/${companyId}/pdf/${kind}/${id}.pdf`,
+  receiptInbox: (companyId: string, receiptId: string, filename: string) =>
+    `companies/${companyId}/inbox/${receiptId}/${filename.replace(/[^\w.\-]/g, "_")}`,
 };

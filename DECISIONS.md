@@ -1223,3 +1223,44 @@ internals should not be one you have to know to set.
 sentence naming the likely cause and the setting; a signature or access-denied
 error says the endpoint answered so it is the key pair. The driver's own words
 are kept on the end for whoever needs them.
+
+## Receipt inbox, and why it is not Messenger
+
+The ask was: someone drops a receipt photo in a Messenger group chat and it
+appears in GAMIBOOK. **Messenger has no API for that.** Meta's Messenger
+Platform covers messages sent *to a Facebook Page* — a person messaging a
+business one-to-one. Nothing, official or otherwise, reads a personal group
+chat. WhatsApp's Business Cloud API is the same shape: 1:1 with a business
+number, no groups. Telegram would work (a bot in a group receives every photo)
+and was offered; the choice was phone upload instead.
+
+So: **Files → Receipt inbox**, a mobile-friendly upload that offers the camera
+directly, several photos at a time.
+
+**The queue is not a draft expense, and that is deliberate.** `ReceiptUpload`
+is its own table rather than an `Expense` with `status = DRAFT`. A photo
+somebody snapped is not an accounting record and must never appear in a report,
+however incomplete — and the payables screens, the A/P aging and the trial
+balance all read `Expense`. A separate table cannot leak into any of them.
+
+**What the reader returns is a suggestion; what a person approves is the
+posting.** `approveReceipt` takes its figures from the submitted form, never
+from the stored reading — there is a test asserting exactly that with a
+deliberately misread total on the row. Every extracted field is nullable and
+the prompt says so plainly: a reader that invents a plausible date is worse
+than one that admits it could not tell, because the invented one is wrong in a
+way nobody notices. Confidence below 0.6 is flagged on the row.
+
+**Extraction failing is not the photo's fault.** A read error is written onto
+the row and the receipt stays approvable by hand; only a `ConfigurationError` —
+no `ANTHROPIC_API_KEY` — propagates, because that is the operator's to fix and
+should not be stamped on every row as though each image were unreadable.
+Uploads work with no key at all; the fields are simply blank.
+
+**Images are served through the app, not from a public URL.**
+`/receipts/[id]/image` applies the same section check the row does. A receipt
+carries a vendor, an amount and often a card's last four digits, and a
+guessable public link is a slow leak of precisely that.
+
+Effort is set to `low` on the extraction call. Reading one receipt is not hard
+reasoning, and this is a per-photo cost paid every day.

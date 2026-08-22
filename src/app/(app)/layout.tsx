@@ -116,6 +116,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       ]),
     },
     {
+      label: "Files",
+      items: only([
+        scope.hasSection("VENDORS") && { href: "/receipts", label: "Receipt inbox" },
+      ]),
+    },
+    {
       label: "Other",
       items: only([
         scope.hasSection("REPORTS") && { href: "/journal", label: "Journal" },

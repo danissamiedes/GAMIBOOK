@@ -312,6 +312,7 @@ model Company {
   expenses                  Expense[]
   billPayments              BillPayment[]
   recurringInvoiceTemplates RecurringInvoiceTemplate[]
+  receiptUploads            ReceiptUpload[]
 
   @@index([organizationId])
 }
@@ -332,6 +333,7 @@ model User {
   resetTokens PasswordResetToken[]
   auditLogs   AuditLog[]
   vendors     Vendor[]
+  receiptUploads ReceiptUpload[]
 }
 
 model Membership {
@@ -833,6 +835,7 @@ model Expense {
   company      Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   vendor       Vendor?                  @relation(fields: [vendorId], references: [id])
   applications BillPaymentApplication[]
+  receipt      ReceiptUpload?
 
   @@index([companyId, kind, status])
   @@index([companyId, kind, date])
@@ -1307,4 +1310,61 @@ model RateLimit {
   resetAt DateTime
 
   @@index([resetAt])
+}
+
+/// A receipt photo waiting to become an expense (SPEC §8.2 extension).
+///
+/// Deliberately its own table rather than a draft Expense: a photo somebody
+/// snapped is not an accounting record and must never appear in a report,
+/// however incomplete. It becomes one only when a person approves it.
+model ReceiptUpload {
+  id        String              @id @default(cuid())
+  companyId String
+  /// Where the image lives in object storage.
+  fileKey   String
+  filename  String
+  mimeType  String
+  byteSize  Int
+
+  status ReceiptStatus @default(PENDING)
+
+  /// What the reader made of the image. All nullable: extraction is a
+  /// suggestion, and a receipt it cannot read is still a receipt.
+  readDate        DateTime? @db.Date
+  readAmount      Decimal?  @db.Decimal(18, 2)
+  readCurrency    String?   @db.Char(3)
+  readDescription String?
+  readVendorName  String?
+  /// 0..1, the reader's own confidence. Low values are flagged on screen.
+  readConfidence  Decimal?  @db.Decimal(3, 2)
+  /// Why extraction failed, when it did.
+  readError       String?
+  readAt          DateTime?
+
+  /// Set once approved — the expense this became.
+  expenseId String?  @unique
+  /// Set when someone decides it is not an expense at all.
+  dismissedAt DateTime?
+  dismissedReason String?
+
+  uploadedByUserId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  uploadedBy User?    @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  expense    Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status, createdAt])
+}
+
+enum ReceiptStatus {
+  /// Uploaded, not yet read.
+  PENDING
+  /// Read, waiting for someone to approve or correct it.
+  READY
+  /// Turned into an expense.
+  APPROVED
+  /// Not an expense — kept, but out of the queue.
+  DISMISSED
 }

@@ -422,28 +422,34 @@ You need three accounts, all free tier: **Vercel**, **Supabase** (Postgres and
 file storage in one), and **GitHub** (the repository, and the scheduler).
 
 **1. Create the database.** In Supabase, make a project and open Project
-Settings → Database (or the **Connect** button). Copy the **session pooler**
-string — port **5432** — and use it for *both* variables:
+Settings → Database (or the **Connect** button). Copy **two** connection
+strings, both from the pooler host, differing in port:
 
 | Variable | Value |
 |---|---|
-| `DATABASE_URL` | session pooler, port 5432, plus `?connection_limit=1` |
-| `DIRECT_DATABASE_URL` | the same string, without `connection_limit` |
+| `DATABASE_URL` | **transaction pooler**, port 6543, `?pgbouncer=true&connection_limit=1` |
+| `DIRECT_DATABASE_URL` | **session pooler**, port 5432 |
 
-**Not the transaction pooler on 6543**, even though that is the usual advice for
-Next.js on serverless. This app writes through Prisma *interactive*
-transactions — `postJournalEntry` and everything that calls it, which is every
-posting path there is — and a transaction-mode pooler does not keep one server
-connection for the life of a transaction. Reads work fine; posting fails, and
-intermittently, which is the worst way for it to fail.
+Both parameters on the first one are required, and each prevents a different
+failure:
 
-`connection_limit=1` is what makes session mode safe here: each serverless
-instance holds one connection instead of a pool, so a burst of them does not
-exhaust the database.
+- `pgbouncer=true` stops Prisma using prepared statements, which a
+  transaction-mode pooler cannot keep across queries.
+- `connection_limit=1` holds each serverless instance to one connection instead
+  of Prisma's default pool of `(cpus × 2) + 1`. Without it a handful of
+  instances exhausts the database's client limit and *everything* stops — not
+  just writes, sign-in too.
 
-**Not the Direct connection** either: Supabase serves it over IPv6 only without
-the paid IPv4 add-on, and GitHub Actions runners have no IPv6, so the nightly
-backup could not connect.
+Transaction mode is right for the app despite every write here being an
+interactive transaction: a transaction is precisely the unit a transaction-mode
+pooler pins a server connection for, so `BEGIN…COMMIT` is held throughout. What
+it will not hold is a session *between* transactions, which is why migrations
+use the session pooler instead. Session mode for the app would work but caps you
+at 15 clients on the free tier, which a few concurrent page loads reach.
+
+**Not the Direct connection** for either: Supabase serves it over IPv6 only
+without the paid IPv4 add-on, and GitHub Actions runners have no IPv6, so the
+nightly backup could not connect.
 
 Both strings arrive containing a literal `[YOUR-PASSWORD]`. Replace it, brackets
 and all, with the database password you set when you created the project.
@@ -476,8 +482,8 @@ openssl rand -base64 32   # CRON_SECRET
 
 | Variable | Value |
 |---|---|
-| `DATABASE_URL` | Supabase **session pooler**, port 5432, `?connection_limit=1` |
-| `DIRECT_DATABASE_URL` | the same string without `connection_limit` |
+| `DATABASE_URL` | transaction pooler, 6543, `?pgbouncer=true&connection_limit=1` |
+| `DIRECT_DATABASE_URL` | session pooler, 5432 |
 | `AUTH_SECRET` | generated above |
 | `AUTH_URL` | `https://your-project.vercel.app` — update it if you add a domain |
 | `TOKEN_ENCRYPTION_KEY` | generated above |
@@ -623,7 +629,7 @@ knowing before you meet them:
 |---|---|---|
 | Storage | local disk volume | S3-compatible bucket, required |
 | Scheduler | in-process timers | `/api/cron` plus an external schedule |
-| Database | one direct connection | session pooler, `connection_limit=1` |
+| Database | one direct connection | transaction pooler to serve, session pooler to migrate |
 | Login throttling | same table | same table — it lives in Postgres, not memory |
 | Backups | `scripts/backup.sh` from cron | `.github/workflows/backup.yml` nightly |
 | Upload size | 10 MB | 4 MB, capped by the platform |

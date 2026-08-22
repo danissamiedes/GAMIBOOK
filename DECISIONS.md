@@ -935,6 +935,36 @@ plainly that nothing was saved and that this is a fault in the app, and prints
 the Next.js error digest so a report can be matched to the stack trace in the
 server log.
 
+## Transaction pooling, and a lockout caused by getting that wrong — 2026-08-22
+
+Diagnosing the P2028 timeout, the first theory here was that Prisma interactive
+transactions cannot run through a transaction-mode pooler, and `DATABASE_URL`
+was moved to the session pooler on that basis. Both halves were wrong, and the
+second half took the deployment down.
+
+The reasoning was wrong: a transaction is exactly the unit a transaction-mode
+pooler pins a server connection for, so `BEGIN…COMMIT` is held throughout.
+Interactive transactions are fine there. What such a pooler will not hold is a
+session *between* transactions — which is why prepared statements need
+`pgbouncer=true`, and why migrations use the session pooler.
+
+The consequence was worse than the theory. Supabase's session mode allows 15
+clients on the free tier, and Prisma opens `(cpus × 2) + 1` per instance by
+default. A few serverless instances exhausted it, and because the login rate
+limiter is a database query, `EMAXCONNSESSION` locked everyone out of the app
+entirely — not just writes.
+
+The settled configuration: transaction pooler on 6543 with
+`pgbouncer=true&connection_limit=1` for the app, session pooler on 5432 for
+migrations. `connection_limit=1` is not optional on serverless; it is what keeps
+instance count from multiplying into connection count.
+
+Two things worth keeping from this. The actual bug was the 5-second transaction
+timeout, found in one line of the runtime log after three local reproductions
+had proved only that the code was fine — the log should have come first. And a
+config change made on an unverified theory reached production before the theory
+was tested; the theory was cheap to check and the outage was not.
+
 ## Deviations from the spec
 
 None yet. Anything built differently from SPEC.md gets a dated entry here

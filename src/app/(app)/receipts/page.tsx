@@ -425,12 +425,15 @@ export default async function ReceiptsPage({
                             <Field label={`Exchange rate (${company.baseCurrency} per unit)`}>
                               <Input name="fxRate" inputMode="decimal" defaultValue="1" />
                             </Field>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button type="submit">Record it</Button>
-                            <span className="text-xs text-slate-500">
-                              The photo is attached to the expense.
-                            </span>
+                            {/* Last cell of the right column, so the button
+                                lands under the figures it commits rather than
+                                under the whole form. */}
+                            <div className="flex flex-col items-end sm:col-start-2">
+                              <Button type="submit">Save</Button>
+                              <p className="mt-1 text-xs text-slate-500">
+                                The photo is attached to the expense.
+                              </p>
+                            </div>
                           </div>
                         </form>
 

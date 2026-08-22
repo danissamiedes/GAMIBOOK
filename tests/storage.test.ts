@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { ConfigurationError } from "@/lib/errors";
-import { LocalDiskAdapter, resetStorage, storage, storageKeys } from "@/lib/storage";
+import { ConfigurationError, StorageUnavailableError } from "@/lib/errors";
+import { LocalDiskAdapter, resetStorage, storage, storageKeys, withStorage } from "@/lib/storage";
 
 describe("local disk storage adapter", () => {
   let root: string;
@@ -95,5 +95,33 @@ describe("choosing a driver", () => {
     resetStorage();
     expect(() => storage()).toThrow(ConfigurationError);
     expect(() => storage()).toThrow(/S3_BUCKET/);
+  });
+});
+
+describe("withStorage", () => {
+  it("returns the value when the call succeeds", async () => {
+    expect(await withStorage("upload", async () => "done")).toBe("done");
+  });
+
+  it("re-labels a driver failure so the message names the settings to check", async () => {
+    const thrown = await withStorage("upload", async () => {
+      throw new Error("The specified bucket does not exist");
+    }).catch((error: unknown) => error);
+
+    expect(thrown).toBeInstanceOf(StorageUnavailableError);
+    expect(thrown).toBeInstanceOf(ConfigurationError);
+    const message = (thrown as Error).message;
+    expect(message).toContain("rejected the upload");
+    expect(message).toContain("S3_BUCKET");
+    expect(message).toContain("The specified bucket does not exist");
+  });
+
+  it("passes a ConfigurationError through untouched", async () => {
+    const original = new ConfigurationError("STORAGE_DRIVER=s3 requires S3_BUCKET to be set.");
+    const thrown = await withStorage("upload", async () => {
+      throw original;
+    }).catch((error: unknown) => error);
+
+    expect(thrown).toBe(original);
   });
 });

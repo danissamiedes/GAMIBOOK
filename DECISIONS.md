@@ -1053,3 +1053,21 @@ the one thing it had wrong.
 
 None yet. Anything built differently from SPEC.md gets a dated entry here
 explaining what and why.
+
+## A storage failure names the settings to check
+
+The download route already turned a `ConfigurationError` into a 503 with the
+message. That only covered one case: `STORAGE_DRIVER=local` on a serverless
+host. A deployment with `STORAGE_DRIVER=s3` and a wrong bucket, endpoint or key
+pair got past the factory and failed inside the driver, which is a bare 500
+again — the same dead end, one step later.
+
+`withStorage()` wraps every storage call in the PDF path and the two upload
+screens and re-labels a driver failure as `StorageUnavailableError`, a
+`ConfigurationError` carrying what the driver said. The existing catch sites
+pick it up unchanged, so the operator reads "File storage rejected the upload …
+The storage service said: The specified bucket does not exist" instead of
+opening the runtime log.
+
+The logo upload and the bank-statement upload had no handling at all and would
+have hit the same wall on this deployment; both now report it on the screen.

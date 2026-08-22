@@ -1,7 +1,7 @@
 import { createElement, type ReactElement } from "react";
 import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
 import { prisma } from "@/lib/db";
-import { storage, storageKeys } from "@/lib/storage";
+import { storage, storageKeys, withStorage } from "@/lib/storage";
 import { formatMoney } from "@/lib/currency";
 import { formatAccountingDate } from "@/lib/dates";
 import { money } from "@/lib/money";
@@ -268,10 +268,16 @@ export async function cachedPdf(
 ): Promise<RenderedPdf> {
   const key = storageKeys.documentPdf(companyId, kind, id);
 
-  if (!options.force && (await storage().exists(key))) {
-    const bytes = await storage().get(key);
+  // Every storage call is wrapped: a driver that rejects the request is an
+  // operator's setting to fix, and the driver's own message is the part that
+  // says which one. Unwrapped, it arrives as a bare 500.
+  const cachedBytes = await withStorage("cache lookup", async () => {
+    if (options.force || !(await storage().exists(key))) return null;
+    return storage().get(key);
+  });
+  if (cachedBytes) {
     const filename = await filenameFor(companyId, kind, id);
-    return { filename, bytes };
+    return { filename, bytes: cachedBytes };
   }
 
   const rendered =
@@ -281,7 +287,7 @@ export async function cachedPdf(
         ? await renderWorkOrderPdf(companyId, id)
         : await renderReceiptPdf(companyId, id);
 
-  await storage().put(key, rendered.bytes, "application/pdf");
+  await withStorage("upload", () => storage().put(key, rendered.bytes, "application/pdf"));
   return rendered;
 }
 

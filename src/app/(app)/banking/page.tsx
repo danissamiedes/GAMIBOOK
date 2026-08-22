@@ -5,7 +5,8 @@ import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { failTo } from "@/lib/fail";
-import { storage, storageKeys } from "@/lib/storage";
+import { ConfigurationError } from "@/lib/errors";
+import { storage, storageKeys, withStorage } from "@/lib/storage";
 import { maxImportBytes, maxImportLabel, ImportParseError } from "@/lib/imports/parse";
 import {
   Alert,
@@ -134,7 +135,7 @@ export default async function BankingPage({
         batch.id,
         upload.name,
       );
-      await storage().put(fileKey, bytes);
+      await withStorage("upload", () => storage().put(fileKey, bytes));
       await prisma.importBatch.update({
         where: { id: batch.id },
         data: { fileKey, sheetName: bankAccountId },
@@ -142,6 +143,7 @@ export default async function BankingPage({
     } catch (error) {
       await prisma.importBatch.delete({ where: { id: batch.id } });
       if (error instanceof ImportParseError) failTo("/banking", error.message);
+      if (error instanceof ConfigurationError) failTo("/banking", error.message);
       throw error;
     }
 

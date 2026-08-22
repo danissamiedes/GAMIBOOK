@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { ConfigurationError } from "@/lib/errors";
 
 /**
  * Send the user back to a screen with an error on it.
@@ -15,4 +16,18 @@ import { redirect } from "next/navigation";
  */
 export function failTo(path: string, message: string): never {
   redirect(`${path}${path.includes("?") ? "&" : "?"}error=${encodeURIComponent(message)}`);
+}
+
+/**
+ * Runs part of a server action and puts a `ConfigurationError` on the screen
+ * instead of letting it become a 500. The deployment is missing a setting, the
+ * message names it, and nobody should have to read a server log to find out.
+ */
+export async function failToOnMisconfiguration<T>(path: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (thrown) {
+    if (thrown instanceof ConfigurationError) failTo(path, thrown.message);
+    throw thrown;
+  }
 }

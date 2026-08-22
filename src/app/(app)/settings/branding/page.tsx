@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
-import { storage, storageKeys } from "@/lib/storage";
+import { storage, storageKeys, withStorage } from "@/lib/storage";
+import { failToOnMisconfiguration } from "@/lib/fail";
 import { invalidatePdf } from "@/lib/pdf/render";
 import { Alert, Button, Card, Field, Input, PageHeader } from "@/components/ui";
 
@@ -34,7 +35,10 @@ export default async function BrandingPage({
       if (!extension) redirect("/settings/branding?error=Logo%20must%20be%20a%20PNG%20or%20JPEG");
 
       logoFileKey = storageKeys.companyLogo(inner.companyId, `logo.${extension}`);
-      await storage().put(logoFileKey, Buffer.from(await logo.arrayBuffer()), logo.type);
+      const logoBytes = Buffer.from(await logo.arrayBuffer());
+      await failToOnMisconfiguration("/settings/branding", () =>
+        withStorage("upload", () => storage().put(logoFileKey!, logoBytes, logo.type)),
+      );
     }
 
     await prisma.company.update({

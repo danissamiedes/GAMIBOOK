@@ -1,4 +1,4 @@
-import { ConfigurationError } from "@/lib/errors";
+import { ConfigurationError, StorageUnavailableError } from "@/lib/errors";
 import { LocalDiskAdapter } from "./local";
 import { S3Adapter } from "./s3";
 import type { StorageAdapter } from "./types";
@@ -58,6 +58,20 @@ export function storage(): StorageAdapter {
 
   cached = new LocalDiskAdapter(process.env.STORAGE_LOCAL_PATH ?? "./storage");
   return cached;
+}
+
+/**
+ * Runs a storage call and re-labels anything the driver throws, so a rejected
+ * bucket or key pair arrives as something an operator can act on rather than a
+ * bare 500. A `ConfigurationError` already names its setting and passes through.
+ */
+export async function withStorage<T>(operation: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (thrown) {
+    if (thrown instanceof ConfigurationError) throw thrown;
+    throw new StorageUnavailableError(operation, thrown);
+  }
 }
 
 /** Test seam only. */

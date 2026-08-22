@@ -61,3 +61,24 @@ export class ConfigurationError extends Error {
     this.name = "ConfigurationError";
   }
 }
+
+/**
+ * A storage call reached the driver and the driver failed — a bucket that does
+ * not exist, a key pair that is not accepted, an endpoint pointing nowhere.
+ *
+ * A `ConfigurationError` because the answer is the same: an operator changes a
+ * setting. Distinguished from the plain kind only so the message can carry what
+ * the driver actually said, which is the part that names the mistake.
+ */
+export class StorageUnavailableError extends ConfigurationError {
+  constructor(operation: string, cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(
+      `File storage rejected the ${operation}. Check S3_BUCKET, S3_ENDPOINT, S3_REGION ` +
+        `and the access key pair in the deployment's settings, then redeploy. ` +
+        `The storage service said: ${detail}`,
+    );
+    this.name = "StorageUnavailableError";
+    this.cause = cause;
+  }
+}

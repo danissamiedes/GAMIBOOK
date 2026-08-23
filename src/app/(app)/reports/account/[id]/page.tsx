@@ -60,6 +60,10 @@ export default async function AccountDetailPage({
           { label: "Profit & Loss", href: "/reports/profit-loss" },
           { label: "Balance Sheet", href: "/reports/balance-sheet" },
         ]}
+        // The period travels with the link, so the file is what is on screen.
+        excelHref={`/reports/account/${account.id}/export?to=${isoDate(to)}${
+          from ? `&from=${isoDate(from)}` : ""
+        }`}
       >
         <DateField label="From" name="from" value={from ? isoDate(from) : ""} />
         <DateField label="To" name="to" value={isoDate(to)} />

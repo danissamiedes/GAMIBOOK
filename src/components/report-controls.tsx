@@ -11,11 +11,13 @@ export function ReportControls({
   children,
   csvHref,
   pdfHref,
+  excelHref,
 }: {
   presets: { label: string; href: string }[];
   children: ReactNode;
   csvHref?: string;
   pdfHref?: string;
+  excelHref?: string;
 }) {
   return (
     <Card className="mb-4 print:hidden">
@@ -26,6 +28,13 @@ export function ReportControls({
           <a href={csvHref}>
             <Button variant="secondary" type="button">
               Export CSV
+            </Button>
+          </a>
+        ) : null}
+        {excelHref ? (
+          <a href={excelHref}>
+            <Button variant="secondary" type="button">
+              Export to Excel
             </Button>
           </a>
         ) : null}

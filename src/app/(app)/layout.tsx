@@ -94,6 +94,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       items: only([
         vendors && { href: "/vendors", label: "Vendors" },
         vendors && { href: "/expenses", label: "Expenses" },
+        vendors && { href: "/expenses/recurring", label: "Recurring bills" },
         // A consultant's work order and a supplier's bill are settled the same
         // way, so these belong to whoever holds either section (SPEC §6).
         payables && { href: "/bill-payments", label: "Bill payments" },

@@ -1,10 +1,11 @@
 import { autoCloseStaleEntries } from "@/lib/time/clock";
 import { runRecurringInvoices } from "@/lib/invoices/recurring";
+import { runRecurringBills } from "@/lib/payables/recurring-bills";
 import { pruneRateLimits } from "@/lib/rate-limit";
 
 /**
- * In-process scheduler (SPEC §7.2, §9): the stale-shift auto-close and the
- * recurring invoice run.
+ * In-process scheduler (SPEC §7.2, §8.2a, §9): the stale-shift auto-close and
+ * the two recurring runs, invoices out and bills in.
  *
  * The jobs themselves are plain functions that take no scheduler state, so
  * moving this to a queue later means replacing this file and nothing else.
@@ -32,6 +33,14 @@ export const JOBS: Job[] = [
     name: "recurring-invoices",
     everyMinutes: 60,
     run: () => runRecurringInvoices(),
+  },
+  {
+    // Same reasoning as the invoice run above, and separate from it on purpose:
+    // a failure recording one company's rent must not stop anyone's invoices
+    // going out, and the cron route reports each job's outcome by name.
+    name: "recurring-bills",
+    everyMinutes: 60,
+    run: () => runRecurringBills(),
   },
   {
     // Housekeeping. Nothing depends on it — an expired window is ignored

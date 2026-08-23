@@ -1405,3 +1405,51 @@ No migration was needed. The immutability trigger's escape hatch — a
 transaction-local setting holding the id of the single entry allowed to go —
 was already written generically, so the six new erasers open it the same way
 the payment delete does.
+
+## Recurring bills post; recurring invoices leave a draft
+
+Both features exist and they behave differently on purpose.
+
+A recurring invoice creates a **draft** (SPEC §7.2). Auto-sending a document
+that books revenue and lands in a customer's inbox without anyone reading it is
+a mistake you apologise for. A recurring bill **records and posts** on its date.
+It goes to nobody; it records what the business already owes. Leaving it for
+approval would mean A/P Aging is out of date exactly as long as nobody looks,
+which is the problem the feature was asked to solve.
+
+The schedule arithmetic is imported from `invoices/recurring`, not copied. It is
+where this kind of feature goes wrong — "the 31st" in February, a fortnightly
+cadence that must keep its own rhythm rather than drifting to the nearest month
+— and one implementation means one place to be right and one set of tests
+proving it.
+
+Idempotency is the `(templateId, scheduledDate)` unique row, claimed before
+anything else happens. Not a check-then-write: two schedulers run against this
+deployment on purpose (see "Two schedulers, deliberately"), so two overlapping
+runs are the expected case and both would pass a check. There is a test that
+fires two generators concurrently and asserts exactly one bill.
+
+**Claim, then post — in that order, and not in one transaction.** `recordExpense`
+opens its own transaction, because it is the single posting path and stays that
+way (SPEC §4.2 rule 5), so it cannot be nested inside the claim. The schedule is
+advanced inside the claim, so a crash between the two steps cannot leave the
+template due for the same date twice. The cost is that a post which fails after
+a successful claim leaves a run row carrying the reason and no expense, with the
+schedule already moved on. That is the better trade: the alternative is retrying
+a bill that cannot post, every hour, forever. The reason is shown on the screen.
+
+Two consequences worth knowing:
+
+- **The scheduler is not a person**, so what it records has no
+  `createdByUserId`. Same-day delete needs the author to match, so a generated
+  bill can only be reverse-and-reposted — right for something that will be back
+  next month, and it also means a `RecurringBillRun` can never be left pointing
+  at an expense that was erased.
+- **A closed period stops it**, because the job is not an owner. The run row
+  says so rather than the bill vanishing into a 06:00 log.
+
+Templates cover direct expenses as well as bills, which the ledger treats very
+differently — one credits the bank on the day, the other credits A/P. The kind
+is therefore fixed after creation, exactly as it is on a one-off expense:
+switching it silently would move money between two accounts that mean different
+things.

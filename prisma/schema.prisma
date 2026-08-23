@@ -312,6 +312,7 @@ model Company {
   expenses                  Expense[]
   billPayments              BillPayment[]
   recurringInvoiceTemplates RecurringInvoiceTemplate[]
+  recurringBillTemplates    RecurringBillTemplate[]
   receiptUploads            ReceiptUpload[]
 
   @@index([organizationId])
@@ -328,11 +329,11 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  memberships Membership[]
-  invitesSent Invitation[]         @relation("InvitedBy")
-  resetTokens PasswordResetToken[]
-  auditLogs   AuditLog[]
-  vendors     Vendor[]
+  memberships    Membership[]
+  invitesSent    Invitation[]         @relation("InvitedBy")
+  resetTokens    PasswordResetToken[]
+  auditLogs      AuditLog[]
+  vendors        Vendor[]
   receiptUploads ReceiptUpload[]
 }
 
@@ -447,6 +448,9 @@ model Account {
   children     Account[]     @relation("AccountTree")
   lines        JournalLine[]
   bankAccounts BankAccount[]
+
+  recurringBillExpenseFor RecurringBillTemplate[] @relation("RecurringBillExpenseAccount")
+  recurringBillPaymentFor RecurringBillTemplate[] @relation("RecurringBillPaymentAccount")
 
   @@unique([companyId, code])
   @@unique([companyId, systemKey])
@@ -727,11 +731,12 @@ model Vendor {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user         User?         @relation(fields: [userId], references: [id])
+  company      Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user         User?                   @relation(fields: [userId], references: [id])
   workOrders   WorkOrder[]
   expenses     Expense[]
   billPayments BillPayment[]
+  recurring    RecurringBillTemplate[]
   journalLines JournalLine[]
   timeEntries  TimeEntry[]
 
@@ -840,6 +845,8 @@ model Expense {
   vendor       Vendor?                  @relation(fields: [vendorId], references: [id])
   applications BillPaymentApplication[]
   receipt      ReceiptUpload?
+  /// Set when this expense was recorded by a recurring template (SPEC §8.2a).
+  recurringRun RecurringBillRun?
 
   @@index([companyId, kind, status])
   @@index([companyId, kind, date])
@@ -1219,6 +1226,91 @@ model RecurringInvoiceRun {
   @@unique([templateId, scheduledDate])
 }
 
+/// A bill or direct expense the business owes on a schedule — rent, a retainer,
+/// a utility (SPEC §8.2a). The payables mirror of RecurringInvoiceTemplate, and
+/// it shares that model's schedule fields exactly so the same date maths serves
+/// both.
+///
+/// One difference, deliberate: a recurring invoice defaults to producing a
+/// draft, because auto-sending a document to a customer is consequential and
+/// reversible only by apology. A bill goes to nobody — it posts what is owed —
+/// so it records straight away, which is what makes A/P Aging true without
+/// anyone remembering to type it in.
+model RecurringBillTemplate {
+  id        String  @id @default(cuid())
+  companyId String
+  /// Null is allowed for a DIRECT expense, required for a BILL: a bill is owed
+  /// to someone, and recordExpense refuses one without a vendor.
+  vendorId  String?
+  /// Names the template in lists — "Office rent", not a document number.
+  name      String
+
+  /// BILL credits A/P and is cleared by a bill payment; DIRECT credits the
+  /// bank on the day. Fixed after creation for the same reason an expense's
+  /// kind is: switching moves money between two very different accounts.
+  kind ExpenseKind
+
+  frequency   RecurringFrequency
+  /// 1-31 for MONTHLY/QUARTERLY/ANNUALLY. Clamped to the month's last day, so
+  /// "the 31st" still falls on 28 February.
+  dayOfMonth  Int?
+  /// 1 = Monday .. 7 = Sunday, for WEEKLY/BIWEEKLY.
+  dayOfWeek   Int?
+  /// For ANNUALLY: which month, 1-12.
+  monthOfYear Int?
+
+  startDate       DateTime  @db.Date
+  endDate         DateTime? @db.Date
+  occurrenceLimit Int?
+  /// The next date an expense is due to be recorded for. Advanced by the job.
+  nextRunDate     DateTime  @db.Date
+  lastRunDate     DateTime? @db.Date
+  occurrenceCount Int       @default(0)
+
+  isPaused Boolean @default(false)
+
+  /// The expense this template writes.
+  currency         String  @db.Char(3)
+  fxRate           Decimal @default(1) @db.Decimal(18, 8)
+  amount           Decimal @db.Decimal(18, 2)
+  expenseAccountId String
+  /// Required when kind = DIRECT: which account the money leaves.
+  paymentAccountId String?
+  /// Days from the bill date to its due date. Ignored for DIRECT.
+  paymentTermsDays Int     @default(30)
+  description      String
+  reference        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company        Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor         Vendor?            @relation(fields: [vendorId], references: [id])
+  expenseAccount Account            @relation("RecurringBillExpenseAccount", fields: [expenseAccountId], references: [id])
+  paymentAccount Account?           @relation("RecurringBillPaymentAccount", fields: [paymentAccountId], references: [id])
+  runs           RecurringBillRun[]
+
+  @@index([companyId, nextRunDate])
+}
+
+/// One firing of a template. The (templateId, scheduledDate) unique row is the
+/// guard: the generator claims it before doing anything, so two overlapping
+/// schedulers cannot record the same month's rent twice.
+model RecurringBillRun {
+  id            String   @id @default(cuid())
+  templateId    String
+  scheduledDate DateTime @db.Date
+  expenseId     String?  @unique
+  /// Set when the run produced nothing, with the reason.
+  skippedReason String?
+  createdAt     DateTime @default(now())
+
+  template RecurringBillTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  expense  Expense?              @relation(fields: [expenseId], references: [id])
+
+  @@unique([templateId, scheduledDate])
+}
+
 /// SPEC §8.4. A real bank account, tied to the GL account its money lands in.
 model BankAccount {
   id        String  @id @default(cuid())
@@ -1322,7 +1414,7 @@ model RateLimit {
 /// snapped is not an accounting record and must never appear in a report,
 /// however incomplete. It becomes one only when a person approves it.
 model ReceiptUpload {
-  id        String              @id @default(cuid())
+  id        String @id @default(cuid())
   companyId String
   /// Where the image lives in object storage.
   fileKey   String
@@ -1346,9 +1438,9 @@ model ReceiptUpload {
   readAt          DateTime?
 
   /// Set once approved — the expense this became.
-  expenseId String?  @unique
+  expenseId       String?   @unique
   /// Set when someone decides it is not an expense at all.
-  dismissedAt DateTime?
+  dismissedAt     DateTime?
   dismissedReason String?
 
   uploadedByUserId String?

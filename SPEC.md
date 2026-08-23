@@ -648,6 +648,42 @@ be two entry forms sharing one model, not one form with a confusing toggle.
 
 Receipt attachment: store the uploaded file, show a thumbnail, no OCR.
 
+### 8.2a Recurring bills
+
+`RecurringBillTemplate`: a `RecurringBillTemplate` carries everything §8.2 needs
+to record one expense — `kind`, `vendorId?`, `amount`, `currency`, `fxRate`,
+`expenseAccountId`, `paymentAccountId?`, `paymentTermsDays`, `description`,
+`reference?` — plus the same schedule fields as a recurring invoice (§7.2):
+`frequency`, `dayOfMonth?`, `dayOfWeek?`, `monthOfYear?`, `startDate`,
+`endDate?`, `occurrenceLimit?`, `nextRunDate`, `lastRunDate?`,
+`occurrenceCount`, `isPaused`.
+
+Rent, a retainer, a utility. The daily job records each due occurrence as a
+§8.2 expense of the template's kind, through the same `recordExpense` service
+every other expense goes through.
+
+Three rules, and they matter:
+
+1. **It posts.** Unlike a recurring invoice, which leaves a draft (§7.2),
+   a recurring bill records and posts on its date. A bill goes to nobody — it
+   records what is owed — and the point of the feature is that A/P Aging is
+   true on the first of the month without anyone typing the rent in. A wrong
+   one is reversed and reposted like any other bill (§4.2 rule 3).
+2. **Once per period.** A unique `(templateId, scheduledDate)` row on
+   `RecurringBillRun` is claimed before anything else happens, so the job MUST
+   be safe to run twice — which it will be, since two schedulers run against
+   this deployment on purpose.
+3. **Catch up, do not collapse.** A template that has not run for months
+   records one expense per missed period. Each period was genuinely owed.
+
+The schedule arithmetic is shared with §7.2 rather than reimplemented: one
+place to be right about "the 31st" in February and about a fortnightly cadence
+that must not drift.
+
+A run that cannot post — a closed period, a template missing its vendor —
+records the reason on its `RecurringBillRun` and shows it on the screen. A
+scheduled job that fails silently at 06:00 is worse than one that fails loudly.
+
 ### 8.3 Bulk work order creation from an Excel file
 
 The user prepares consultant work in a spreadsheet and needs to turn it into

@@ -23,8 +23,19 @@ import { operatingToday } from "@/lib/invoices/recurring";
 import { isoDate } from "@/lib/dates";
 import { periodParams, periodWhere, resolvePeriod } from "@/lib/reports/date-filter";
 import { PeriodFilter } from "@/components/period-filter";
+import { FilterSelect } from "@/components/filter-select";
 
 export const metadata = { title: pageTitle("Work orders") };
+
+/** The status filter's options, in the order the document moves through them. */
+const STATUS_OPTIONS = [
+  { value: "ALL", label: "All statuses" },
+  { value: "DRAFT", label: "Draft" },
+  { value: "APPROVED", label: "Approved" },
+  { value: "PARTIALLY_PAID", label: "Partially paid" },
+  { value: "PAID", label: "Paid" },
+  { value: "VOID", label: "Void" },
+];
 
 const STATUS_STYLES: Record<string, string> = {
   DRAFT: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
@@ -195,38 +206,23 @@ export default async function WorkOrdersPage({
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {["ALL", "DRAFT", "APPROVED", "PARTIALLY_PAID", "PAID", "VOID"].map(
-          (value) => (
-            <Link
-              key={value}
-              // Carrying the rest: picking a status used to silently clear the
-              // period and the consultant a person had already chosen.
-              href={`/work-orders${withFilters({ status: value === "ALL" ? "" : value })}`}
-            >
-              <Button
-                variant={
-                  (params.status ?? "ALL") === value ? "primary" : "secondary"
-                }
-              >
-                {value.replace("_", " ").toLowerCase()}
-              </Button>
-            </Link>
-          ),
-        )}
-      </div>
-
       <Card className="mb-4">
         <PeriodFilter
           label="Work order date"
           value={period.key}
           from={period.from ? isoDate(period.from) : ""}
           to={period.to ? isoDate(period.to) : ""}
-          carry={{
-            ...(params.status && params.status !== "ALL" ? { status: params.status } : {}),
-            ...(params.consultant ? { consultant: params.consultant } : {}),
-          }}
-        />
+          // Status is a field in this form now, not a carried param, so it is
+          // not also passed as a hidden input.
+          carry={{ ...(params.consultant ? { consultant: params.consultant } : {}) }}
+        >
+          <FilterSelect
+            name="status"
+            label="Status"
+            value={params.status ?? "ALL"}
+            options={STATUS_OPTIONS}
+          />
+        </PeriodFilter>
         {period.active ? (
           <p className="mt-3 text-xs text-slate-500">
             Showing {period.label.toLowerCase()}.{" "}

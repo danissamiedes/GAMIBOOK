@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button, Field, Input, Select } from "@/components/ui";
 import { PERIOD_OPTIONS, type PeriodKey } from "@/lib/reports/date-filter";
 
@@ -19,6 +19,11 @@ import { PERIOD_OPTIONS, type PeriodKey } from "@/lib/reports/date-filter";
  * `carry` holds the other filters already on the page. Without it, changing the
  * period would silently clear the status and consultant a person had chosen,
  * which reads as the app losing their place.
+ *
+ * `children` are other filter controls sharing this form — a status dropdown,
+ * say. They belong in the same form so that applying one keeps the rest, which
+ * is the whole reason the filters live together rather than as separate
+ * button rows scattered up the page.
  */
 export function PeriodFilter({
   value,
@@ -26,6 +31,7 @@ export function PeriodFilter({
   to,
   carry = {},
   label = "Period",
+  children,
 }: {
   value: PeriodKey;
   /** yyyy-mm-dd, as an `<input type="date">` requires. */
@@ -33,6 +39,7 @@ export function PeriodFilter({
   to: string;
   carry?: Record<string, string | undefined>;
   label?: string;
+  children?: ReactNode;
 }) {
   const [key, setKey] = useState<PeriodKey>(value);
 
@@ -41,6 +48,8 @@ export function PeriodFilter({
       {Object.entries(carry).map(([name, carried]) =>
         carried ? <input key={name} type="hidden" name={name} value={carried} /> : null,
       )}
+
+      {children}
 
       <Field label={label}>
         <Select

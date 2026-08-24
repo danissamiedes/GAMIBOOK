@@ -137,6 +137,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         scope.hasSection("SETTINGS") && { href: "/settings/company", label: "Company" },
         { href: "/email-log", label: "Email log" },
         scope.role === "OWNER" && { href: "/settings/users", label: "Users" },
+        // Creating one is a grant of access — the creator becomes its owner —
+        // so it sits with the other owner-only entries.
+        scope.role === "OWNER" && { href: "/companies/new", label: "New company" },
         // Owners only, like Users: the page refuses anyone else, and a link
         // that leads to a refusal is worse than no link.
         scope.role === "OWNER" && { href: "/close-period", label: "Close Period" },

@@ -1499,3 +1499,49 @@ Three smaller decisions:
 The unique index on `BankReconciliationLine("journalLineId")` is the guarantee
 underneath all of it: a line clears on at most one statement, so the same cash
 can never be signed off twice.
+
+## Creating a company, and what was already there
+
+Multi-company was built in from the start and needed nothing: the switcher in
+the top bar, `companyId` on every model, `scope.where` on every query, and a
+`Membership` per (user, company) so the user list is already per company. Two
+businesses on one deployment share the login and nothing else.
+
+What was missing was a way to make the second one. Companies came from the seed
+only; the setup wizard at `/setup` configures the first company on a fresh
+deployment, it does not create one. So `/companies/new` is the missing half of
+"switch between companies".
+
+Four things happen in one transaction, because a company missing any of them is
+worse than no company at all — a half-built one is reachable from the switcher
+and fails at the first posting:
+
+1. the `Company` row;
+2. its document sequences, or the first invoice cannot be numbered;
+3. its chart of accounts, or nothing can be posted;
+4. an `OWNER` membership for the creator, or nobody can reach it.
+
+Owner-only, because creating one is a grant of access: the creator becomes the
+new company's owner, and someone who cannot manage users where they are
+standing should not be able to mint a company where they can.
+
+Two smaller choices. A person cannot have two companies with the same name —
+not a database constraint, since two genuinely separate organisations may share
+one, but a switcher with two identical entries is unreadable. And creating one
+switches you into it, because creating a company and then having to find it in
+the switcher is a step that exists for no reason.
+
+## Filters as dropdowns, in one form
+
+The work orders list had a row of status buttons above a separate date filter.
+They are now two dropdowns in the same GET form.
+
+The row was not just wider than it needed to be: each button linked to
+`?status=X` and so silently cleared every other filter. Putting both controls in
+one form makes keeping them the default rather than something each link has to
+remember. Choosing from either submits immediately, since every option is a
+complete answer on its own; only "Custom…" holds off, because submitting before
+the dates are typed would filter by nothing.
+
+`FilterSelect` and `PeriodFilter`'s `children` slot are general, so the next
+list that wants the same pair gets it without new components.

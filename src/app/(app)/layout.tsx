@@ -106,6 +106,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       items: only([
         scope.hasSection("BANKING") && { href: "/banking", label: "Banking" },
         scope.hasSection("BANKING") && { href: "/banking/match", label: "Match" },
+        scope.hasSection("BANKING") && { href: "/banking/reconcile", label: "Reconcile" },
       ]),
     },
     {

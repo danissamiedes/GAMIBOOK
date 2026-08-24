@@ -1453,3 +1453,49 @@ differently — one credits the bank on the day, the other credits A/P. The kind
 is therefore fixed after creation, exactly as it is on a one-off expense:
 switching it silently would move money between two accounts that mean different
 things.
+
+## Bank reconciliation, which SPEC deferred
+
+SPEC §8.4 ends "Reconciliation (statement-balance-to-book-balance sign-off) is
+**not** in the MVP. Import and match only." It was asked for, so it is built,
+and §8.4a now describes it. This note records the deviation and the two choices
+inside it.
+
+**It works over journal lines, not statement rows.** Matching already answers
+"what does this statement line correspond to". Reconciliation answers the harder
+question — do the two sides agree, and if not, which entries account for the
+gap — and the entries that matter are the ones the statement does *not* mention.
+A cheque written last week and not yet cashed is invisible to a statement-row
+view, and is precisely what reconciliation exists to surface. So the unit is the
+journal line against the bank's GL account, and the outstanding total is the
+number the feature produces.
+
+**Completing locks what it cleared.** A signed-off statement whose lines can
+still be edited or deleted afterwards proves nothing. The lock lives in
+`amendPosting` and `eraseEntry` — the two functions every edit and every delete
+pass through — rather than in the six delete services, for the same reason the
+closed-period gate lives in `postJournalEntry`: one place to be right.
+
+Reversing forward is still allowed, and is the correct correction. It posts on a
+later date, stays unreconciled, and turns up on the next statement where it
+belongs. Amending is not, because the reversal half of an amend is dated back to
+the original (see the note in `amend.ts`) and would change the balance of a
+statement someone has already agreed to — the reconciliation would go on
+claiming to balance while no longer doing so.
+
+Three smaller decisions:
+
+- **Zero or nothing.** Completion is refused unless the difference is exactly
+  zero. A tolerance is how a reconciliation stops being evidence of anything.
+- **One in progress per account.** A second person starting one joins the
+  first's work. Two people ticking different copies of the same statement is
+  not a state worth modelling. Its date and closing balance stay editable while
+  open, because a mistyped closing balance is the commonest reason a difference
+  will not close, and there has to be a way back.
+- **Reopening is owner-only and most-recent-first.** A later reconciliation
+  opened from this one's ending balance, so undoing an earlier statement would
+  leave every one after it resting on a figure nobody has agreed to.
+
+The unique index on `BankReconciliationLine("journalLineId")` is the guarantee
+underneath all of it: a line clears on at most one statement, so the same cash
+can never be signed off twice.

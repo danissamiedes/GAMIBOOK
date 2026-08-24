@@ -643,7 +643,7 @@ export async function deleteBillPayment(input: {
     await tx.billPaymentApplication.deleteMany({ where: { billPaymentId: payment.id } });
     await restoreDocuments(tx, payment.applications);
 
-    await eraseEntry(tx, entry!.id);
+    await eraseEntry(tx, entry!.id, input.companyId);
     await tx.billPayment.delete({ where: { id: payment.id } });
 
     await tx.auditLog.create({

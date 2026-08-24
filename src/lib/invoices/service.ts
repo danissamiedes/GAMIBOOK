@@ -563,7 +563,7 @@ export async function deleteInvoice(input: {
       });
     }
 
-    await eraseEntry(tx, entry!.id);
+    await eraseEntry(tx, entry!.id, input.companyId);
     // Lines cascade with the invoice.
     await tx.invoice.delete({ where: { id: invoice.id } });
 

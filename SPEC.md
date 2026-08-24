@@ -1334,3 +1334,50 @@ before it.
    goes out with its own PDF to that consultant's configured recipients. The
    "combine into one email per consultant" toggle (§10.1) is still built and
    available, just not the default.
+
+### 8.4a Bank reconciliation
+
+`BankReconciliation`: `companyId`, `bankAccountId`, `statementDate`,
+`statementEndingBalance`, `openingBalance`, `status`
+(`IN_PROGRESS` | `COMPLETED`), `completedAt?`, `reopenedAt?`,
+`startedByUserId?`, `completedByUserId?`. `BankReconciliationLine` links it to
+each cleared `JournalLine`, with `journalLineId` **unique** across the table.
+
+Statement-to-book sign-off, per account. This is a different question from
+matching (§8.4): matching asks what a statement line corresponds to,
+reconciliation asks whether the two sides agree and — when they do not — which
+entries account for the gap.
+
+So it works over **journal lines against the bank's GL account**, not over
+imported statement rows. A payment recorded in the app that never reached the
+statement — an uncashed cheque — is invisible to a statement-row view, and is
+exactly what reconciliation exists to surface.
+
+The arithmetic is the feature:
+
+    cleared balance = opening balance + Σ(cleared lines)
+    difference      = statement ending balance − cleared balance
+
+Rules:
+
+1. **Zero or nothing.** A reconciliation MUST NOT complete while the difference
+   is non-zero. "Near enough" is how a reconciliation stops being evidence.
+2. **Once only.** `journalLineId` is unique on `BankReconciliationLine`, so a
+   line can clear on at most one statement and the same cash can never be
+   signed off twice.
+3. **Completing locks.** Entries cleared by a completed reconciliation cannot
+   be edited or deleted — only reversed forward, which posts on a later date
+   and lands on the next statement where it belongs. Enforced in `amendPosting`
+   and `eraseEntry`, the two functions every edit and delete pass through.
+4. **The opening balance carries.** A new reconciliation starts from the
+   previous completed one's ending balance, stored rather than recomputed so
+   history cannot drift under a later edit.
+5. **Reopening is owner-only and last-first.** Only the most recent
+   reconciliation for an account can be reopened, because a later one opened
+   from its balance.
+
+One in-progress reconciliation per account: a second person starting one joins
+the first's work rather than opening a rival copy. Its statement date and
+closing balance stay editable while it is open — a mistyped closing balance is
+the commonest reason a difference will not close.
+

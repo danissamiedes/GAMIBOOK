@@ -1,6 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { money } from "@/lib/money";
 import { formatAccountingDate } from "@/lib/dates";
+import { PostingError } from "@/lib/errors";
+import { reconciliationLock } from "@/lib/bank/reconcile";
 
 /**
  * Same-day delete, shared by every document that can be erased (SPEC §4.2
@@ -167,7 +169,17 @@ export function snapshotEntry(entry: ErasableEntry) {
  * transaction is still open. `set_config(..., true)` is local, so it cannot
  * leak to the next transaction on a pooled connection.
  */
-export async function eraseEntry(tx: Prisma.TransactionClient, entryId: string) {
+export async function eraseEntry(
+  tx: Prisma.TransactionClient,
+  entryId: string,
+  companyId: string,
+) {
+  // Checked here rather than in each of the six delete services, because this
+  // is the one function that destroys an entry. A signed-off statement whose
+  // lines can still be deleted afterwards proves nothing (SPEC §8.4a).
+  const reconciled = await reconciliationLock(companyId, entryId, tx);
+  if (reconciled) throw new PostingError(reconciled);
+
   await tx.$executeRaw`SELECT set_config('ledger.allow_entry_delete', ${entryId}, true)`;
   await tx.journalEntry.delete({ where: { id: entryId } });
 }

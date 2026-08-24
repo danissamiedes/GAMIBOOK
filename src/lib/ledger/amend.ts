@@ -1,6 +1,7 @@
 import type { JournalSourceType, Prisma, Role } from "@prisma/client";
 import { PostingError } from "@/lib/errors";
 import { accountingDate, postJournalEntry, reverseJournalEntry, type PostLineInput } from "./post";
+import { reconciliationLock } from "@/lib/bank/reconcile";
 
 /**
  * Correcting a document that has already posted (SPEC §4.2 rule 3).
@@ -38,6 +39,19 @@ export async function amendPosting(
   tx: Prisma.TransactionClient,
 ) {
   const original = await liveEntryFor(input.companyId, input.sourceType, input.sourceId, tx);
+
+  /*
+   * A reconciled entry cannot be amended (SPEC §8.4a). The reversal above is
+   * dated back to the original, so amending one would change the balance of a
+   * statement someone has already signed off — the reconciliation would still
+   * claim to balance while no longer doing so.
+   *
+   * Reversing it forward is still allowed, and is the right correction: that
+   * posts on a later date, stays unreconciled, and turns up on the next
+   * statement where it belongs.
+   */
+  const reconciled = await reconciliationLock(input.companyId, original.id, tx);
+  if (reconciled) throw new PostingError(reconciled);
 
   const reversal = await reverseJournalEntry(
     {

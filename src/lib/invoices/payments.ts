@@ -596,7 +596,7 @@ export async function deletePayment(input: {
     await tx.paymentApplication.deleteMany({ where: { paymentId: payment.id } });
     await restoreInvoices(tx, applications);
 
-    await eraseEntry(tx, entry!.id);
+    await eraseEntry(tx, entry!.id, input.companyId);
     await tx.payment.delete({ where: { id: payment.id } });
 
     for (const application of applications) {

@@ -184,6 +184,12 @@ enum SalesOrderStatus {
 
 /// SPEC §8.4. A bank line is unmatched until it points at exactly one journal
 /// entry, whether it created that entry or found one already there.
+/// SPEC §8.4a.
+enum ReconciliationStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
 enum BankTransactionStatus {
   UNMATCHED
   MATCHED
@@ -313,6 +319,7 @@ model Company {
   billPayments              BillPayment[]
   recurringInvoiceTemplates RecurringInvoiceTemplate[]
   recurringBillTemplates    RecurringBillTemplate[]
+  bankReconciliations       BankReconciliation[]
   receiptUploads            ReceiptUpload[]
 
   @@index([organizationId])
@@ -506,10 +513,12 @@ model JournalLine {
   fxRate        Decimal? @db.Decimal(18, 8)
   foreignAmount Decimal? @db.Decimal(18, 2)
 
-  entry    JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
-  account  Account      @relation(fields: [accountId], references: [id])
-  customer Customer?    @relation(fields: [customerId], references: [id])
-  vendor   Vendor?      @relation(fields: [vendorId], references: [id])
+  entry      JournalEntry            @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account    Account                 @relation(fields: [accountId], references: [id])
+  customer   Customer?               @relation(fields: [customerId], references: [id])
+  vendor     Vendor?                 @relation(fields: [vendorId], references: [id])
+  /// Set once this line has been ticked on a bank statement (SPEC §8.4a).
+  reconciled BankReconciliationLine?
 
   @@unique([journalEntryId, lineNumber])
   @@index([accountId])
@@ -1312,6 +1321,61 @@ model RecurringBillRun {
 }
 
 /// SPEC §8.4. A real bank account, tied to the GL account its money lands in.
+/// Statement-to-book sign-off for one bank account (SPEC §8.4a).
+///
+/// Reconciliation asks a question import and matching cannot: does what the
+/// bank says agree with what the books say, and if not, exactly which entries
+/// account for the gap? So it works over **journal lines against the bank's GL
+/// account**, not over imported statement rows. A payment recorded in the app
+/// that never reached the statement — an uncashed cheque — is invisible to a
+/// statement-row view and is precisely what reconciliation exists to surface.
+model BankReconciliation {
+  id                     String   @id @default(cuid())
+  companyId              String
+  bankAccountId          String
+  /// The statement's closing date. Only lines on or before it can clear.
+  statementDate          DateTime @db.Date
+  /// What the bank says the account held on that date.
+  statementEndingBalance Decimal  @db.Decimal(18, 2)
+  /// The book balance carried in from the previous completed reconciliation,
+  /// stored rather than recomputed so history cannot drift under a later edit.
+  openingBalance         Decimal  @default(0) @db.Decimal(18, 2)
+
+  status      ReconciliationStatus @default(IN_PROGRESS)
+  completedAt DateTime?
+  /// Set when a completed reconciliation is reopened, so the trail shows it.
+  reopenedAt  DateTime?
+
+  startedByUserId   String?
+  completedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  bankAccount BankAccount              @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  lines       BankReconciliationLine[]
+
+  /// One in-progress reconciliation per account at a time — two people ticking
+  /// different copies of the same statement is not a state worth modelling.
+  @@index([companyId, bankAccountId, statementDate])
+}
+
+/// One journal line ticked as appearing on the statement.
+model BankReconciliationLine {
+  id               String @id @default(cuid())
+  reconciliationId String
+  journalLineId    String
+
+  reconciliation BankReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  journalLine    JournalLine        @relation(fields: [journalLineId], references: [id], onDelete: Cascade)
+
+  /// A line belongs to at most one reconciliation: clearing it twice would
+  /// count the same cash on two statements.
+  @@unique([journalLineId])
+  @@index([reconciliationId])
+}
+
 model BankAccount {
   id        String  @id @default(cuid())
   companyId String
@@ -1334,6 +1398,8 @@ model BankAccount {
   /// A date-fns pattern, e.g. dd/MM/yyyy. Banks disagree, and guessing is how
   /// a statement silently lands in the wrong month.
   dateFormat        String?
+
+  reconciliations BankReconciliation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

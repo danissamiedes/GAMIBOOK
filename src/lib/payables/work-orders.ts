@@ -518,7 +518,7 @@ export async function deleteWorkOrder(input: {
       entry: snapshotEntry(entry!),
     };
 
-    await eraseEntry(tx, entry!.id);
+    await eraseEntry(tx, entry!.id, input.companyId);
     // Lines cascade with the work order.
     await tx.workOrder.delete({ where: { id: workOrder.id } });
 

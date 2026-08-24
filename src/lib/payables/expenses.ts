@@ -486,7 +486,7 @@ export async function deleteExpense(input: {
       entry: snapshotEntry(entry!),
     };
 
-    await eraseEntry(tx, entry!.id);
+    await eraseEntry(tx, entry!.id, input.companyId);
     await tx.expense.delete({ where: { id: expense.id } });
 
     await tx.auditLog.create({

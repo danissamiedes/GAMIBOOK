@@ -19,6 +19,10 @@ import {
   Pagination,
 } from "@/components/ui";
 import { pageHref, pageSummary, readPage } from "@/lib/pagination";
+import { operatingToday } from "@/lib/invoices/recurring";
+import { isoDate } from "@/lib/dates";
+import { periodParams, periodWhere, resolvePeriod } from "@/lib/reports/date-filter";
+import { PeriodFilter } from "@/components/period-filter";
 
 export const metadata = { title: pageTitle("Work orders") };
 
@@ -41,6 +45,9 @@ export default async function WorkOrdersPage({
     failed?: string;
     deleted?: string;
     page?: string;
+    period?: string;
+    from?: string;
+    to?: string;
   }>;
 }) {
   const scope = await sectionScope("CONSULTANTS");
@@ -97,9 +104,18 @@ export default async function WorkOrdersPage({
     );
   }
 
+  const company = await prisma.company.findFirstOrThrow({
+    where: { id: scope.companyId },
+    select: { operatingTimeZone: true },
+  });
+  // The company's own today, not UTC and not the viewer's: a Manila business
+  // at nine in the evening is still on today's date.
+  const period = resolvePeriod(params, operatingToday(new Date(), company.operatingTimeZone));
+
   const page = readPage(params);
   const workOrderWhere = {
     ...scope.where,
+    ...periodWhere(period, "issueDate"),
     ...(params.status && params.status !== "ALL"
       ? {
           status: params.status as
@@ -130,7 +146,7 @@ export default async function WorkOrdersPage({
   // An empty screen means one of two different things, and only one of them is
   // "you have not started yet". Asked only when it can change the answer.
   const filtering = Boolean(
-    (params.status && params.status !== "ALL") || params.consultant,
+    (params.status && params.status !== "ALL") || params.consultant || period.active,
   );
   const hiddenByFilter =
     workOrders.length === 0 &&
@@ -138,6 +154,20 @@ export default async function WorkOrdersPage({
     (await prisma.workOrder.count({ where: scope.where })) > 0;
 
   const now = today();
+
+  // Everything a link must carry so that changing one filter does not silently
+  // drop the others — which reads as the app losing your place.
+  const carried = {
+    ...(params.status && params.status !== "ALL" ? { status: params.status } : {}),
+    ...(params.consultant ? { consultant: params.consultant } : {}),
+    ...periodParams(period),
+  };
+  const withFilters = (over: Record<string, string>) => {
+    const query = new URLSearchParams({ ...carried, ...over });
+    for (const [key, value] of [...query.entries()]) if (!value) query.delete(key);
+    const search = query.toString();
+    return search ? `?${search}` : "";
+  };
 
   return (
     <>
@@ -153,6 +183,12 @@ export default async function WorkOrdersPage({
           <Link href="/work-orders/import">
             <Button variant="secondary">Import from spreadsheet</Button>
           </Link>
+          {/* The filters travel with the link, so the file is what is on
+              screen — and unpaginated, because a spreadsheet exists precisely
+              so someone can have the lot. */}
+          <a href={`/work-orders/export${withFilters({})}`}>
+            <Button variant="secondary">Export to Excel</Button>
+          </a>
           <Link href="/work-orders/new">
             <Button>New work order</Button>
           </Link>
@@ -162,7 +198,12 @@ export default async function WorkOrdersPage({
       <div className="mb-4 flex flex-wrap gap-2">
         {["ALL", "DRAFT", "APPROVED", "PARTIALLY_PAID", "PAID", "VOID"].map(
           (value) => (
-            <Link key={value} href={`/work-orders?status=${value}`}>
+            <Link
+              key={value}
+              // Carrying the rest: picking a status used to silently clear the
+              // period and the consultant a person had already chosen.
+              href={`/work-orders${withFilters({ status: value === "ALL" ? "" : value })}`}
+            >
               <Button
                 variant={
                   (params.status ?? "ALL") === value ? "primary" : "secondary"
@@ -174,6 +215,27 @@ export default async function WorkOrdersPage({
           ),
         )}
       </div>
+
+      <Card className="mb-4">
+        <PeriodFilter
+          label="Work order date"
+          value={period.key}
+          from={period.from ? isoDate(period.from) : ""}
+          to={period.to ? isoDate(period.to) : ""}
+          carry={{
+            ...(params.status && params.status !== "ALL" ? { status: params.status } : {}),
+            ...(params.consultant ? { consultant: params.consultant } : {}),
+          }}
+        />
+        {period.active ? (
+          <p className="mt-3 text-xs text-slate-500">
+            Showing {period.label.toLowerCase()}.{" "}
+            <Link className="underline" href={`/work-orders${withFilters({ period: "", from: "", to: "" })}`}>
+              Clear the date filter
+            </Link>
+          </p>
+        ) : null}
+      </Card>
 
       {params.approved ? (
         <Alert tone="success">
@@ -195,7 +257,7 @@ export default async function WorkOrdersPage({
             title="No work orders match these filters"
             action={{ href: "/work-orders", label: "Show all work orders" }}
           >
-            Others exist — the status or consultant filter is hiding them.
+            Others exist — the status, consultant or date filter is hiding them.
           </EmptyState>
         ) : (
           <EmptyState

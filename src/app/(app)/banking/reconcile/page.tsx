@@ -17,6 +17,7 @@ import {
   setAllCleared,
   setLineCleared,
 } from "@/lib/bank/reconcile";
+import { SubmitCheckbox } from "@/components/submit-checkbox";
 import {
   Alert,
   Button,
@@ -433,14 +434,21 @@ export default async function ReconcilePage({
                               />
                               <input type="hidden" name="bankAccountId" value={selected.id} />
                               <input type="hidden" name="journalLineId" value={line.lineId} />
+                              {/* The value is here rather than on the checkbox:
+                                  an unchecked box submits nothing at all, so a
+                                  form reading its own name could tick but never
+                                  untick. */}
                               <input
                                 type="hidden"
                                 name="cleared"
                                 value={line.cleared ? "0" : "1"}
                               />
-                              <Button variant="ghost" type="submit">
-                                {line.cleared ? "✓ cleared" : "— outstanding"}
-                              </Button>
+                              <SubmitCheckbox
+                                checked={line.cleared}
+                                label={`On statement: entry ${line.entryNumber}, ${
+                                  line.description ?? line.memo ?? "no description"
+                                }, ${amount(line.amount)}`}
+                              />
                             </form>
                           </td>
                           <td className="py-1.5 pr-4 tabular-nums">

@@ -1545,3 +1545,30 @@ the dates are typed would filter by nothing.
 
 `FilterSelect` and `PeriodFilter`'s `children` slot are general, so the next
 list that wants the same pair gets it without new components.
+
+## Installing pg_dump 17 was not the same as using it
+
+The nightly backup had never run. It failed on its own guard — `Set
+SUPABASE_DB_URL.` — because the six repository secrets were never added, which
+is the workflow behaving correctly: a backup job that no-ops quietly is worse
+than one that goes red, since the thing it protects is invisible until the day
+you need it.
+
+The log was worth reading past that line, though. The step above it installs
+`postgresql-client-17` and then prints `pg_dump --version`, and the print said
+**16.15**. `/usr/bin/pg_dump` is postgresql-common's wrapper, and it resolves to
+the version of the cluster it finds running — the runner image's PostgreSQL 16 —
+not the newest client on the machine. So `apt-get install postgresql-client-17`
+put the binary on disk and changed nothing about which one ran.
+
+That is exactly the failure the step exists to prevent: `pg_dump` refuses to
+dump a server newer than itself, so the first run with the secrets in place
+would have died against the live database at 02:20 with a version error, and
+`pg_restore --list` in the step after would have failed the same way on a 17
+archive. `/usr/lib/postgresql/17/bin` now goes on `$GITHUB_PATH` ahead of the
+wrapper, and the step asserts the major version rather than only printing it —
+a check whose output nobody reads is not a check.
+
+The general shape is worth keeping: the guard that fired first hid a second bug
+behind it, and both were in the same twenty lines. Reading only the annotation
+would have found one of them.

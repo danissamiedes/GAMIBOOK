@@ -50,7 +50,24 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17
+
+          # Installing 17 is not the same as using it. /usr/bin/pg_dump is
+          # postgresql-common's wrapper, and it resolves to the version of the
+          # cluster it finds running — the image's PostgreSQL 16 — rather than
+          # the newest client on the machine. The versioned directory has to go
+          # on PATH ahead of it.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/17/bin:${PATH}"
+
+          # Assert it here, because the failure this step exists to prevent is
+          # otherwise silent: an older client only refuses at dump time, against
+          # the live database, at 02:20.
           pg_dump --version
+          MAJOR=$(pg_dump --version | awk '{print $3}' | cut -d. -f1)
+          if [ "${MAJOR}" -lt 17 ]; then
+            echo "::error::pg_dump is version ${MAJOR}, not 17 — PATH did not take."
+            exit 1
+          fi
 
       - name: Dump the database
         env:

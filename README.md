@@ -612,6 +612,12 @@ empty one.
 | `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY` | the S3 access key pair |
 | `BACKUP_BUCKET` | `ledger-backups` |
 
+Add them under **Settings → Secrets and variables → Actions**. Until they are
+there the workflow fails on its first step with `Set SUPABASE_DB_URL.`, which is
+deliberate — nothing is being backed up, and it should be loud about it. Once
+they are set, run it by hand from the Actions tab rather than waiting for the
+schedule, and check the dump's size in the log.
+
 The dump and the database live in the same Supabase project, which is better
 than nothing and is not real off-site backup. Download a dump to your own
 machine now and then, and take the **full data export** from Settings → Company

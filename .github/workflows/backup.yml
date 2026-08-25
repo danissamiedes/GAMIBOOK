@@ -37,6 +37,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Check the secrets are set
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_S3_ENDPOINT: ${{ secrets.SUPABASE_S3_ENDPOINT }}
+          SUPABASE_S3_REGION: ${{ secrets.SUPABASE_S3_REGION }}
+          SUPABASE_S3_ACCESS_KEY_ID: ${{ secrets.SUPABASE_S3_ACCESS_KEY_ID }}
+          SUPABASE_S3_SECRET_ACCESS_KEY: ${{ secrets.SUPABASE_S3_SECRET_ACCESS_KEY }}
+          BACKUP_BUCKET: ${{ secrets.BACKUP_BUCKET }}
+        run: |
+          set -euo pipefail
+          # All six up front, before the job spends a minute installing a
+          # client and dumping the database only to find it has nowhere to put
+          # the result. A missing secret is one line to fix; it should not
+          # cost a round trip through the database to learn which one.
+          MISSING=""
+          for NAME in SUPABASE_DB_URL SUPABASE_S3_ENDPOINT SUPABASE_S3_REGION \
+                      SUPABASE_S3_ACCESS_KEY_ID SUPABASE_S3_SECRET_ACCESS_KEY \
+                      BACKUP_BUCKET; do
+            [ -n "${!NAME:-}" ] || MISSING="${MISSING} ${NAME}"
+          done
+          if [ -n "${MISSING}" ]; then
+            echo "::error::Missing repository secrets:${MISSING} — Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+          # Caught here rather than as a confusing dump failure: the
+          # transaction pooler cannot hold the session pg_dump needs.
+          case "${SUPABASE_DB_URL}" in
+            *:6543/*) echo "::error::That is the transaction pooler. Use the session pooler on port 5432."; exit 1 ;;
+          esac
+
+          echo "All six secrets are set."
+
       - name: Install a matching pg_dump
         run: |
           set -euo pipefail
@@ -74,14 +107,7 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           set -euo pipefail
-          [ -n "${SUPABASE_DB_URL:-}" ] || { echo "::error::Set SUPABASE_DB_URL."; exit 1; }
-
-          # Caught early rather than as a confusing dump failure: the
-          # transaction pooler cannot hold the session pg_dump needs.
-          case "${SUPABASE_DB_URL}" in
-            *:6543/*) echo "::error::That is the transaction pooler. Use the session pooler on port 5432."; exit 1 ;;
-          esac
-
+          # Both this and the pooler port were checked in the first step.
           STAMP=$(date -u +%F)
           echo "STAMP=${STAMP}" >> "$GITHUB_ENV"
 

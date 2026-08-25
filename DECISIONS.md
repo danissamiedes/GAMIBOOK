@@ -1572,3 +1572,21 @@ a check whose output nobody reads is not a check.
 The general shape is worth keeping: the guard that fired first hid a second bug
 behind it, and both were in the same twenty lines. Reading only the annotation
 would have found one of them.
+
+## The backup checks all six secrets before it dumps anything
+
+The first run with secrets in place got as far as the upload and died on
+`Invalid bucket name ""` — five of the six were set, `BACKUP_BUCKET` was not.
+By then it had installed a Postgres client, dumped 387 KB out of the live
+database and verified the archive, all of which it then threw away.
+
+The workflow already had a guard for `SUPABASE_DB_URL`, written when that was
+the only secret whose absence produced a baffling error. The lesson generalises,
+and now does: one first step names every missing secret at once, before any
+work, so a run that cannot possibly succeed costs four seconds instead of forty
+and tells you the whole list rather than the first item on it. The pooler-port
+check moved up with it, since it is the same kind of check.
+
+Naming *all* of them matters more than failing fast. Fixing one secret per run,
+each discovered a minute apart, is how a five-minute configuration job becomes
+an afternoon.

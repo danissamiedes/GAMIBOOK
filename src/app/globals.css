@@ -51,6 +51,117 @@
   }
 }
 
+/**
+ * Per-company accents (SPEC §3).
+ *
+ * One login can hold several sets of books, and reading the switcher is a
+ * slower way to know which one is open than seeing it. So the accent moves with
+ * the company: the shell carries `data-company-theme`, and these blocks
+ * rescope the same `brand` variables the whole app already draws from. No
+ * component changes colour classes; `bg-brand-600` simply resolves differently
+ * inside the shell.
+ *
+ * Two things stay put. Structural greys, because the layout should not shift
+ * character between companies. And the meaning colours — red for overdue and
+ * negative, amber for a warning, green for money coming in — because those are
+ * not decoration, and recolouring them would take meaning out of the figures.
+ *
+ * The scales are not the vendor palettes verbatim. `brand-600` is the primary
+ * button's ground and carries white text, so each accent is shifted until it
+ * clears 4.5:1 there: blue-600 passes as it stands, green-600 (3.3:1) and
+ * pink-600 (4.4:1) do not, so those map one step darker.
+ *
+ * `--link` is set again per theme rather than left to :root. A custom property
+ * whose value is a `var()` is resolved where it is *declared*, so a `--link`
+ * defined at :root has already frozen the blue and would not follow.
+ */
+[data-company-theme="green"] {
+  --color-brand-50: #f0fdf4;
+  --color-brand-100: #dcfce7;
+  --color-brand-200: #bbf7d0;
+  --color-brand-400: #4ade80;
+  --color-brand-500: #22c55e;
+  /* green-700, not green-600: white on green-600 is 3.3:1. */
+  --color-brand-600: #15803d;
+  --color-brand-700: #166534;
+  --color-brand-800: #14532d;
+  --color-brand-950: #052e16;
+  --link: var(--color-brand-700);
+  --link-hover: var(--color-brand-800);
+}
+
+[data-company-theme="pink"] {
+  --color-brand-50: #fdf2f8;
+  --color-brand-100: #fce7f3;
+  --color-brand-200: #fbcfe8;
+  --color-brand-400: #f472b6;
+  --color-brand-500: #ec4899;
+  /* pink-700, not pink-600: white on pink-600 is 4.4:1. */
+  --color-brand-600: #be185d;
+  --color-brand-700: #9d174d;
+  --color-brand-800: #831843;
+  --color-brand-950: #500724;
+  --link: var(--color-brand-700);
+  --link-hover: var(--color-brand-800);
+}
+
+[data-company-theme="violet"] {
+  --color-brand-50: #f5f3ff;
+  --color-brand-100: #ede9fe;
+  --color-brand-200: #ddd6fe;
+  --color-brand-400: #a78bfa;
+  --color-brand-500: #8b5cf6;
+  --color-brand-600: #7c3aed;
+  --color-brand-700: #6d28d9;
+  --color-brand-800: #5b21b6;
+  --color-brand-950: #2e1065;
+  --link: var(--color-brand-700);
+  --link-hover: var(--color-brand-800);
+}
+
+[data-company-theme="teal"] {
+  --color-brand-50: #f0fdfa;
+  --color-brand-100: #ccfbf1;
+  --color-brand-200: #99f6e4;
+  --color-brand-400: #2dd4bf;
+  --color-brand-500: #14b8a6;
+  /* teal-700, for the same contrast reason as green. */
+  --color-brand-600: #0f766e;
+  --color-brand-700: #115e59;
+  --color-brand-800: #134e4a;
+  --color-brand-950: #042f2e;
+  --link: var(--color-brand-700);
+  --link-hover: var(--color-brand-800);
+}
+
+[data-company-theme="amber"] {
+  --color-brand-50: #fffbeb;
+  --color-brand-100: #fef3c7;
+  --color-brand-200: #fde68a;
+  --color-brand-400: #fbbf24;
+  --color-brand-500: #f59e0b;
+  /* amber-700: the lighter ambers cannot carry white text at all. */
+  --color-brand-600: #b45309;
+  --color-brand-700: #92400e;
+  --color-brand-800: #78350f;
+  --color-brand-950: #451a03;
+  --link: var(--color-brand-700);
+  --link-hover: var(--color-brand-800);
+}
+
+/* Dark mode wants the light end of each scale for text on a dark ground, the
+   mirror of what :root does for blue. */
+@media (prefers-color-scheme: dark) {
+  [data-company-theme="green"],
+  [data-company-theme="pink"],
+  [data-company-theme="violet"],
+  [data-company-theme="teal"],
+  [data-company-theme="amber"] {
+    --link: var(--color-brand-400);
+    --link-hover: var(--color-brand-200);
+  }
+}
+
 /* Every link in the app is a bare `underline`, inheriting body colour — which
    made them read as emphasis rather than as somewhere to go. */
 a.underline {

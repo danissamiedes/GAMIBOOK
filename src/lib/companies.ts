@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/audit";
 import { createDefaultChartOfAccounts } from "@/lib/ledger/chart";
 import { isSupportedCurrency } from "@/lib/currency";
 import { ALL_SECTIONS } from "@/lib/company-scope";
+import { nextAvailableTheme } from "@/lib/company-theme";
 
 /**
  * Creating a company (SPEC §3).
@@ -92,6 +93,14 @@ export async function createCompany(input: NewCompanyInput) {
 
     const organizationId = input.organizationId ?? (await organisationFor(input.userId, name, tx));
 
+    // A distinct accent by default (SPEC §3): a second company that looks like
+    // the first teaches nobody which one is open.
+    const mine = await tx.membership.findMany({
+      where: { userId: input.userId },
+      select: { company: { select: { theme: true } } },
+    });
+    const theme = nextAvailableTheme(mine.map((m) => m.company.theme));
+
     const company = await tx.company.create({
       data: {
         organizationId,
@@ -100,6 +109,7 @@ export async function createCompany(input: NewCompanyInput) {
         fiscalYearStartMonth: input.fiscalYearStartMonth,
         timeClockTimeZone: input.timeClockTimeZone,
         operatingTimeZone: input.operatingTimeZone,
+        theme,
         // Created through this form rather than the setup wizard, which exists
         // for the very first company on a fresh deployment.
         setupCompletedAt: new Date(),
@@ -130,8 +140,9 @@ export async function createCompany(input: NewCompanyInput) {
         action: "company.created",
         entityType: "Company",
         entityId: company.id,
-        summary: `Created ${name} — ${baseCurrency}, fiscal year from month ${input.fiscalYearStartMonth}`,
+        summary: `Created ${name} — ${baseCurrency}, fiscal year from month ${input.fiscalYearStartMonth}, ${theme.toLowerCase()} accent`,
         data: {
+          theme,
           baseCurrency,
           fiscalYearStartMonth: input.fiscalYearStartMonth,
           timeClockTimeZone: input.timeClockTimeZone,

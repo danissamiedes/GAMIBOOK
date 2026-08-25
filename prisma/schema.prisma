@@ -184,6 +184,18 @@ enum SalesOrderStatus {
 
 /// SPEC §8.4. A bank line is unmatched until it points at exactly one journal
 /// entry, whether it created that entry or found one already there.
+/// The accent a company's screens wear (SPEC §3). Structural greys and the
+/// meaning colours — red for overdue, amber for warnings, green for money in —
+/// are the same everywhere; only the accent moves.
+enum CompanyTheme {
+  BLUE
+  GREEN
+  PINK
+  VIOLET
+  TEAL
+  AMBER
+}
+
 /// SPEC §8.4a.
 enum ReconciliationStatus {
   IN_PROGRESS
@@ -262,15 +274,18 @@ model Company {
   name                 String
   legalName            String?
   /// ISO 4217. Cannot be changed once anything is posted (SPEC §5).
-  baseCurrency         String    @db.Char(3)
+  baseCurrency         String       @db.Char(3)
   /// 1 = January (SPEC §12, default January).
-  fiscalYearStartMonth Int       @default(1)
+  fiscalYearStartMonth Int          @default(1)
   /// Governs the time clock: display, day grouping, totals (SPEC §9).
-  timeClockTimeZone    String    @default("Asia/Manila")
+  timeClockTimeZone    String       @default("Asia/Manila")
   /// Governs scheduled jobs such as recurring invoicing (SPEC §7.2, §9).
-  operatingTimeZone    String    @default("Asia/Manila")
+  operatingTimeZone    String       @default("Asia/Manila")
   /// Posting on or before this date is rejected for everyone but OWNER (SPEC §4.2 rule 4).
-  booksClosedThrough   DateTime? @db.Date
+  booksClosedThrough   DateTime?    @db.Date
+  /// The accent colour this company's screens wear, so a glance says whose
+  /// books are open when one login holds several (SPEC §3).
+  theme                CompanyTheme @default(BLUE)
 
   /// Branding (SPEC §11) — populated in Phase 7, nullable until then.
   addressLine1 String?

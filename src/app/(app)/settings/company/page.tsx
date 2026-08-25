@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { sectionScope } from "@/lib/session-scope";
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
@@ -12,6 +13,7 @@ import {
   Select,
 } from "@/components/ui";
 import { COMMON_TIME_ZONES, MONTHS } from "@/lib/currency";
+import { COMPANY_THEMES, isCompanyTheme } from "@/lib/company-theme";
 
 export default async function CompanySettingsPage({
   searchParams,
@@ -32,6 +34,11 @@ export default async function CompanySettingsPage({
     const fiscalYearStartMonth = Number(formData.get("fiscalYearStartMonth"));
     const timeClockTimeZone = String(formData.get("timeClockTimeZone"));
     const operatingTimeZone = String(formData.get("operatingTimeZone"));
+    const requestedTheme = String(formData.get("theme") || "");
+    // An unknown value leaves the accent alone rather than throwing: it can
+    // only come from a hand-edited form, and losing a colour is not worth a
+    // stack trace.
+    const theme = isCompanyTheme(requestedTheme) ? requestedTheme : undefined;
 
     if (!name) redirect("/settings/company");
     if (
@@ -50,6 +57,7 @@ export default async function CompanySettingsPage({
         fiscalYearStartMonth,
         timeClockTimeZone,
         operatingTimeZone,
+        ...(theme ? { theme } : {}),
       },
     });
     await writeAudit({
@@ -63,8 +71,13 @@ export default async function CompanySettingsPage({
         fiscalYearStartMonth,
         timeClockTimeZone,
         operatingTimeZone,
+        theme: theme ?? null,
       },
     });
+    // The accent lives on the app shell, and a layout is not re-rendered by a
+    // redirect within its own segment — so without this, changing the colour
+    // saves and appears to do nothing until a hard reload.
+    revalidatePath("/", "layout");
     redirect("/settings/company?saved=1");
   }
 
@@ -128,6 +141,32 @@ export default async function CompanySettingsPage({
               ))}
             </Select>
           </Field>
+          <Field
+            label="Accent colour"
+            hint="Shown across this company's screens, so a glance says whose books are open. Only the accent moves — red still means overdue and green still means money in."
+          >
+            <Select name="theme" defaultValue={company.theme}>
+              {COMPANY_THEMES.map((theme) => (
+                <option key={theme.value} value={theme.value}>
+                  {theme.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <div className="flex flex-wrap gap-2" aria-hidden="true">
+            {COMPANY_THEMES.map((theme) => (
+              <span
+                key={theme.value}
+                title={theme.label}
+                className={`h-6 w-10 rounded border ${
+                  company.theme === theme.value
+                    ? "border-slate-900 dark:border-slate-100"
+                    : "border-slate-200 dark:border-slate-700"
+                }`}
+                style={{ background: theme.swatch }}
+              />
+            ))}
+          </div>
           <Button type="submit">Save changes</Button>
         </form>
       </Card>

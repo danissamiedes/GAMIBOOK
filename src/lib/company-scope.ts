@@ -146,7 +146,16 @@ export async function listUserCompanies(userId: string) {
     where: { userId, user: { isActive: true } },
     select: {
       role: true,
-      company: { select: { id: true, name: true, baseCurrency: true, setupCompletedAt: true } },
+      company: {
+        select: {
+          id: true,
+          name: true,
+          baseCurrency: true,
+          setupCompletedAt: true,
+          // The shell paints itself in the active company's accent (SPEC §3).
+          theme: true,
+        },
+      },
     },
     orderBy: { company: { name: "asc" } },
   });

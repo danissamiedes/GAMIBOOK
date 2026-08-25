@@ -9,6 +9,7 @@ import { CompanySwitcher } from "@/components/company-switcher";
 import { Button } from "@/components/ui";
 import { NavMenu, type NavGroup } from "@/components/nav-menu";
 import { ClosedPeriodNotice } from "@/components/closed-period-notice";
+import { themeAttribute } from "@/lib/company-theme";
 
 /**
  * The accounting shell. Everything under it is OWNER/BOOKKEEPER territory:
@@ -148,7 +149,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   ]).filter((group) => group.items.length > 0 || group.href);
 
   return (
-    <div className="min-h-dvh">
+    // The accent for whichever company is open. It scopes the `brand` variables
+    // the whole app draws from, so no component knows this happened — see the
+    // per-company blocks in globals.css.
+    <div className="min-h-dvh" data-company-theme={active ? themeAttribute(active.theme) : undefined}>
       {/*
         Two rows, because they answer two different questions. The top one says
         *whose books these are* — the one thing that must never be in doubt when

@@ -149,32 +149,45 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh">
-      {/* A light grey band so the chrome reads as chrome: the page below it
-          is white, and the boundary is the ground changing rather than a rule
-          doing all the work. */}
-      <header className="border-b border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-900">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3">
-          <Link
-            href="/dashboard"
-            className="text-sm font-semibold tracking-tight text-brand-700 dark:text-brand-400"
-          >
-            {APP_NAME}
-          </Link>
-          <CompanySwitcher
-            companies={companies.map((c) => ({
-              id: c.id,
-              name: c.name,
-              baseCurrency: c.baseCurrency,
-            }))}
-            activeId={activeCompanyId}
-            action={switchCompany}
-          />
-          <NavMenu groups={groups} />
-          <form action={endSession}>
-            <Button variant="ghost" type="submit">
-              Sign out
-            </Button>
-          </form>
+      {/*
+        Two rows, because they answer two different questions. The top one says
+        *whose books these are* — the one thing that must never be in doubt when
+        the same login holds several companies, and the reason the switcher sits
+        at the far right where the eye ends rather than tucked beside the brand.
+        The bottom one is navigation.
+
+        The band is white with a rule under it rather than a grey ground: at two
+        rows tall a filled band reads as a slab, and the boundary carries well
+        enough on its own.
+      */}
+      <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+        <div className="mx-auto max-w-6xl px-4">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-3">
+            <Link
+              href="/dashboard"
+              className="text-base font-bold tracking-tight text-brand-700 dark:text-brand-400"
+            >
+              {APP_NAME}
+            </Link>
+            <CompanySwitcher
+              companies={companies.map((c) => ({
+                id: c.id,
+                name: c.name,
+                baseCurrency: c.baseCurrency,
+              }))}
+              activeId={activeCompanyId}
+              action={switchCompany}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pb-2 pt-1">
+            {/* NavMenu carries flex-1, so Sign out lands hard right. */}
+            <NavMenu groups={groups} />
+            <form action={endSession}>
+              <Button variant="ghost" type="submit">
+                Sign out
+              </Button>
+            </form>
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-8">

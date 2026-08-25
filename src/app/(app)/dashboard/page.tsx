@@ -4,7 +4,7 @@ import { financialScope } from "@/lib/session-scope";
 import { prisma } from "@/lib/db";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { formatMoney } from "@/lib/currency";
-import { today } from "@/lib/dates";
+import { formatAccountingDate, today } from "@/lib/dates";
 import { dashboard, type TrendMonth } from "@/lib/reports/dashboard";
 import { formatDateTimeInZone, formatDuration } from "@/lib/time/zone";
 import type { Money } from "@/lib/money";
@@ -36,7 +36,7 @@ export default async function DashboardPage() {
     <>
       <PageHeader
         title={company.name}
-        description={`As at ${asOf.toISOString().slice(0, 10)} · books in ${company.baseCurrency}`}
+        description={`As at ${formatAccountingDate(asOf)} · books in ${company.baseCurrency}`}
       />
 
       {view.empty ? (
@@ -145,7 +145,7 @@ export default async function DashboardPage() {
             ) : (
               <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
                 {view.bank.oldest
-                  ? `Oldest is ${view.bank.oldest.toISOString().slice(0, 10)}.`
+                  ? `Oldest is ${formatAccountingDate(view.bank.oldest)}.`
                   : null}{" "}
                 Reconciling is what keeps the ledger and the bank agreeing.
               </p>

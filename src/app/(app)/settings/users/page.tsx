@@ -12,6 +12,7 @@ import {
 } from "@/lib/company-scope";
 import { resolveActiveCompanyId } from "@/lib/active-company";
 import { prisma } from "@/lib/db";
+import { formatAccountingDate } from "@/lib/dates";
 import { generateToken, hashToken, inviteExpiry } from "@/lib/tokens";
 import { writeAudit } from "@/lib/audit";
 import { requestOrigin } from "@/lib/request-origin";
@@ -276,7 +277,7 @@ export default async function UsersPage({
                       {invitation.email}{" "}
                       <span className="text-slate-500">
                         · {invitation.role.toLowerCase()} · expires{" "}
-                        {invitation.expiresAt.toISOString().slice(0, 10)}
+                        {formatAccountingDate(invitation.expiresAt)}
                       </span>
                     </span>
                     <form action={revoke}>

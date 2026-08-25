@@ -156,11 +156,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         at the far right where the eye ends rather than tucked beside the brand.
         The bottom one is navigation.
 
-        The band is white with a rule under it rather than a grey ground: at two
-        rows tall a filled band reads as a slab, and the boundary carries well
-        enough on its own.
+        A light grey band so the chrome reads as chrome: the page below it is
+        white, and the boundary is the ground changing rather than a rule doing
+        all the work.
       */}
-      <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+      <header className="border-b border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-900">
         <div className="mx-auto max-w-6xl px-4">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pt-3">
             <Link

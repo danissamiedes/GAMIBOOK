@@ -1074,6 +1074,10 @@ have hit the same wall on this deployment; both now report it on the screen.
 
 ## Same-day delete for a payment entered by mistake
 
+> **Superseded** — the 24-hour window and the author rule were both removed
+> later; see *The close is the only clock on delete*. The rest of this entry
+> still holds.
+
 SPEC §4.2 rule 3 makes posted entries immutable, and reversal is how a mistake
 is corrected. That is right for a mistake found later and wrong for one found a
 minute after it was typed: a vendor's history then carries two cancelling lines
@@ -1363,12 +1367,12 @@ sentence — including the sentence itself, which is what the person who clicked
 is shown.
 
 A document can be erased when it is **yours**, **within 24 hours**, **nothing
-depends on it**, and **the period is open**. Outside that, reversal is the
-answer and Delete is not offered. The window is deliberately mean, because what
-a delete costs is real: nothing afterwards shows the document existed except
-the audit row, which carries the whole of it, and the gap it leaves in the
-journal numbering. Both are deliberate — a missing entry number is the thread
-an auditor pulls.
+depends on it**, and **the period is open**. (The first two of those were
+dropped later — see *The close is the only clock on delete*.) Outside that,
+reversal is the answer and Delete is not offered, because what a delete costs
+is real: nothing afterwards shows the document existed except the audit row,
+which carries the whole of it, and the gap it leaves in the journal numbering.
+Both are deliberate — a missing entry number is the thread an auditor pulls.
 
 "Nothing depends on it" is the one rule that differs per document:
 
@@ -1441,10 +1445,9 @@ a bill that cannot post, every hour, forever. The reason is shown on the screen.
 Two consequences worth knowing:
 
 - **The scheduler is not a person**, so what it records has no
-  `createdByUserId`. Same-day delete needs the author to match, so a generated
-  bill can only be reverse-and-reposted — right for something that will be back
-  next month, and it also means a `RecurringBillRun` can never be left pointing
-  at an expense that was erased.
+  `createdByUserId`. That once made a generated bill undeletable; since delete
+  is gated on the period rather than on authorship, a wrong template's output
+  can be cleared up while the month is open.
 - **A closed period stops it**, because the job is not an owner. The run row
   says so rather than the bill vanishing into a 06:00 log.
 
@@ -1590,3 +1593,44 @@ check moved up with it, since it is the same kind of check.
 Naming *all* of them matters more than failing fast. Fixing one secret per run,
 each discovered a minute apart, is how a five-minute configuration job becomes
 an afternoon.
+
+## The close is the only clock on delete
+
+Delete used to need four things at once: your own document, under 24 hours old,
+nothing depending on it, period open. The first two are gone. What remains is
+the period, and the dependencies.
+
+The window was defended as "a mistake caught the same day", and that turned out
+to be a guess about how the books get kept rather than an observation of it.
+Errors surface when someone looks — reconciling a bank statement, reviewing the
+month before closing it, answering a question from the accountant. All of those
+happen days after the entry, and all of them found a transaction that should
+never have been recorded and could no longer be removed. A reversal pair is the
+right record of a real transaction later corrected. It is a poor record of a
+line that was pure mistyping, and it is worse when the ledger fills with them.
+
+The close is the boundary that already means something. An open period is still
+being written; a closed one has been signed off and reported from, and the
+owner is the only person who can move that line. Hanging delete on it needs no
+second rule and no explaining: what you can still change is what has not yet
+been closed.
+
+**Authorship went with it.** The author rule only ever made sense as part of
+"caught it yourself, minutes ago". Over a month it stops describing anything
+useful — an owner tidying up last week's entry is usually not the person who
+typed it — and it had a side effect nobody chose: the recurring-bill scheduler
+records with no `createdByUserId`, so a bill generated from a wrong template
+could never be deleted at all, only reversed, every month, forever.
+
+**What did not move** is everything that is not about time: a bill with a
+payment applied, an invoice already emailed, a bank line matched, a line
+counted by a completed reconciliation, more than one posting. Those refusals
+exist because erasing the document would leave the ledger holding something
+that depended on it, and they still say "reverse it instead". `eraseEntry`
+still checks the reconciliation lock, and the immutability trigger still
+refuses every delete except the one entry id handed to it.
+
+The cost is a real widening: a bookkeeper can now erase a two-month-old
+transaction outright, and nothing afterwards shows it existed except the audit
+row and the gap in the journal numbering. That is the trade the close is there
+to bound — and it is bounded by an owner's decision rather than by a clock.

@@ -109,7 +109,6 @@ export default async function PaymentsPage({
       postings: postingCount.get(payment.id) ?? 0,
       bankMatchCount: matchCount.get(payment.id) ?? 0,
       booksClosedThrough: company.booksClosedThrough,
-      userId: scope.userId,
     });
   }
 

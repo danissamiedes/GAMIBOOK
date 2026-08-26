@@ -399,7 +399,7 @@ export async function recordBillPayment(input: {
 
 /**
  * Put the documents a payment settled back the way they were. Shared by
- * reversal and by same-day delete: what happens to the ledger differs between
+ * reversal and by delete: what happens to the ledger differs between
  * the two, what happens to the documents does not.
  *
  * Callers must have taken the payment out of the running first — a payment
@@ -520,10 +520,9 @@ export const MULTIPLE_POSTINGS =
  */
 export type DeletableInput = {
   payment: { reversedAt: Date | null; createdAt: Date };
-  entry: { postedAt: Date; date: Date; createdByUserId: string | null; reversedByEntryId: string | null } | null;
+  entry: { date: Date; reversedByEntryId: string | null } | null;
   bankMatchCount: number;
   booksClosedThrough: Date | null;
-  userId: string;
 };
 
 export function whyNotDeletable(input: DeletableInput): string | null {
@@ -536,7 +535,6 @@ export function whyNotDeletable(input: DeletableInput): string | null {
     postings: 1,
     bankMatchCount: input.bankMatchCount,
     booksClosedThrough: input.booksClosedThrough,
-    userId: input.userId,
   });
 }
 
@@ -544,10 +542,11 @@ export function whyNotDeletable(input: DeletableInput): string | null {
  * Erase a payment recorded by mistake — the payment, its applications and its
  * journal entry — and put the documents it settled back the way they were.
  *
- * This is the one place in the app that destroys a posting, and it is narrow on
- * purpose: your own payment, within a day, before a bank line or a period close
- * has come to depend on it. Outside that, reversal is the answer and the answer
- * is not negotiable.
+ * This is the one place in the app that destroys a posting. What it needs is a
+ * payment in an open period that nothing has come to depend on — no bank line
+ * matched, no reconciled statement counting it. Once the period is closed, or
+ * something is leaning on it, reversal is the answer and the answer is not
+ * negotiable.
  *
  * What is lost is real: nothing afterwards shows that the payment ever existed
  * except the audit row written here, which carries the whole of it, and the gap
@@ -600,7 +599,6 @@ export async function deleteBillPayment(input: {
       entry,
       bankMatchCount,
       booksClosedThrough: company.booksClosedThrough,
-      userId: input.userId,
     });
     if (refusal) throw new PostingError(refusal);
 

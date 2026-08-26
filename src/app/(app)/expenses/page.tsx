@@ -127,7 +127,6 @@ export default async function ExpensesPage({
       postings: postingCount.get(expense.id) ?? 0,
       bankMatchCount: entry && matchedEntries.has(entry.id) ? 1 : 0,
       booksClosedThrough: company.booksClosedThrough,
-      userId: scope.userId,
     });
   }
 

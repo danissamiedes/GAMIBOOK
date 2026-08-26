@@ -372,15 +372,12 @@ export type ExpenseDeletableInput = {
     applications: { billPayment: { reversedAt: Date | null } }[];
   };
   entry: {
-    postedAt: Date;
     date: Date;
-    createdByUserId: string | null;
     reversedByEntryId: string | null;
   } | null;
   postings: number;
   bankMatchCount: number;
   booksClosedThrough: Date | null;
-  userId: string;
 };
 
 export function whyNotDeletableExpense(input: ExpenseDeletableInput): string | null {
@@ -393,7 +390,6 @@ export function whyNotDeletableExpense(input: ExpenseDeletableInput): string | n
     postings: input.postings,
     bankMatchCount: input.bankMatchCount,
     booksClosedThrough: input.booksClosedThrough,
-    userId: input.userId,
     dependency:
       live.length > 0
         ? "This bill has payments applied. Reverse them first, or reverse the bill instead of deleting it."
@@ -448,7 +444,6 @@ export async function deleteExpense(input: {
       postings,
       bankMatchCount,
       booksClosedThrough: company.booksClosedThrough,
-      userId: input.userId,
     });
     if (refusal) throw new PostingError(refusal);
 

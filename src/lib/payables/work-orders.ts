@@ -402,15 +402,12 @@ export type WorkOrderDeletableInput = {
     applications: { billPayment: { reversedAt: Date | null } }[];
   };
   entry: {
-    postedAt: Date;
     date: Date;
-    createdByUserId: string | null;
     reversedByEntryId: string | null;
   } | null;
   postings: number;
   bankMatchCount: number;
   booksClosedThrough: Date | null;
-  userId: string;
 };
 
 export function whyNotDeletableWorkOrder(input: WorkOrderDeletableInput): string | null {
@@ -425,7 +422,6 @@ export function whyNotDeletableWorkOrder(input: WorkOrderDeletableInput): string
     postings: input.postings,
     bankMatchCount: input.bankMatchCount,
     booksClosedThrough: input.booksClosedThrough,
-    userId: input.userId,
     dependency:
       live.length > 0
         ? "This work order has payments applied. Reverse them first, or void the work order instead of deleting it."
@@ -487,7 +483,6 @@ export async function deleteWorkOrder(input: {
       postings,
       bankMatchCount,
       booksClosedThrough: company.booksClosedThrough,
-      userId: input.userId,
     });
     if (refusal) throw new PostingError(refusal);
 

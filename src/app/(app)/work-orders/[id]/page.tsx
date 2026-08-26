@@ -81,7 +81,6 @@ export default async function WorkOrderPage({
     postings: entries.length,
     bankMatchCount,
     booksClosedThrough: company.booksClosedThrough,
-    userId: scope.userId,
   });
   const pendingDelete = params_.delete === "1" && deleteRefusal === null;
   const accountsById = new Map(accounts.map((account) => [account.id, account]));

@@ -30,7 +30,7 @@ const DATE = new Date(Date.UTC(2026, 7, 15));
 const AS_OF = new Date(Date.UTC(2026, 11, 31));
 
 /**
- * Same-day delete across the documents that post (SPEC §4.2 rule 3 and its one
+ * Delete across the documents that post (SPEC §4.2 rule 3 and its one
  * exception). Every case checks the ledger lands back where it started, not
  * just that a row went away.
  */
@@ -181,11 +181,14 @@ describe("deleting posted documents recorded by mistake", () => {
       ).rejects.toThrow(/has payments applied/);
     });
 
-    it("refuses someone else's", async () => {
+    it("lets a colleague delete it, not only whoever issued it", async () => {
       const { invoice } = await issuedInvoice();
-      await expect(
-        deleteInvoice({ companyId: fixture.company.id, invoiceId: invoice.id, userId: other.id }),
-      ).rejects.toThrow(/Only the person who recorded an invoice/);
+      await deleteInvoice({
+        companyId: fixture.company.id,
+        invoiceId: invoice.id,
+        userId: other.id,
+      });
+      expect(await prisma.invoice.count()).toBe(0);
     });
 
     it("sends a draft to deleteDraftInvoice rather than erasing it", async () => {
@@ -210,7 +213,6 @@ describe("deleting posted documents recorded by mistake", () => {
           postings: 0,
           bankMatchCount: 0,
           booksClosedThrough: null,
-          userId: owner.id,
         }),
       ).toMatch(/draft invoice is deleted/);
     });
@@ -321,15 +323,14 @@ describe("deleting posted documents recorded by mistake", () => {
       expect(data.applications).toEqual([{ invoiceId: invoice.id, amountApplied: "2000.00" }]);
     });
 
-    it("refuses someone else's", async () => {
+    it("lets a colleague delete it, not only whoever recorded it", async () => {
       const { payment } = await paidInvoice();
-      await expect(
-        deletePayment({
-          companyId: fixture.company.id,
-          paymentId: payment.payment.id,
-          userId: other.id,
-        }),
-      ).rejects.toThrow(/Only the person who recorded a payment/);
+      await deletePayment({
+        companyId: fixture.company.id,
+        paymentId: payment.payment.id,
+        userId: other.id,
+      });
+      expect(await prisma.payment.count()).toBe(0);
     });
   });
 
@@ -366,15 +367,14 @@ describe("deleting posted documents recorded by mistake", () => {
       ).rejects.toThrow(/emailed to the consultant/);
     });
 
-    it("refuses someone else's", async () => {
+    it("lets a colleague delete it, not only whoever approved it", async () => {
       const { workOrder } = await approvedWorkOrder();
-      await expect(
-        deleteWorkOrder({
-          companyId: fixture.company.id,
-          workOrderId: workOrder.id,
-          userId: other.id,
-        }),
-      ).rejects.toThrow(/Only the person who recorded a work order/);
+      await deleteWorkOrder({
+        companyId: fixture.company.id,
+        workOrderId: workOrder.id,
+        userId: other.id,
+      });
+      expect(await prisma.workOrder.count()).toBe(0);
     });
   });
 

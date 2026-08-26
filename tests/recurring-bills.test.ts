@@ -7,6 +7,7 @@ import {
   upcomingBills,
   whyTemplateCannotRun,
 } from "@/lib/payables/recurring-bills";
+import { whyNotDeletableExpense } from "@/lib/payables/expenses";
 import { closeBooksThrough } from "@/lib/periods/close";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { accountBalance } from "@/lib/ledger/reports";
@@ -254,18 +255,30 @@ describe("recurring bills", () => {
       expect(result.reason).toMatch(/needs a vendor/);
     });
 
-    it("leaves what it records undeletable, because no person recorded it", async () => {
+    it("records with no author, and is still deletable while the period is open", async () => {
       const rent = await template();
       await generateBillOccurrence({
         templateId: rent.id,
         scheduledDate: new Date(Date.UTC(2026, 7, 1)),
       });
 
-      // Same-day delete needs an author to match, and the scheduler is not a
-      // person. So a generated bill is corrected by reverse-and-repost, which
-      // is right for something that will be back next month.
+      // The scheduler is not a person, so nothing is recorded as its author.
+      // That used to make a generated bill permanently undeletable; delete is
+      // gated on the period now, so a wrong template's output can be cleared
+      // up rather than only reversed.
       const entry = await prisma.journalEntry.findFirstOrThrow();
       expect(entry.createdByUserId).toBeNull();
+
+      const expense = await prisma.expense.findFirstOrThrow();
+      expect(
+        whyNotDeletableExpense({
+          expense: { ...expense, applications: [] },
+          entry,
+          postings: 1,
+          bankMatchCount: 0,
+          booksClosedThrough: null,
+        }),
+      ).toBeNull();
     });
   });
 

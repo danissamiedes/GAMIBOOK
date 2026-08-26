@@ -180,9 +180,10 @@ export async function generateBillOccurrence(options: {
           : null,
       description: template.description,
       reference: template.reference,
-      // No userId: the scheduler is not a person. That also means nobody can
-      // same-day delete what it records — reverse-and-repost is the path, which
-      // is right for something that will be there again next month.
+      // No userId: the scheduler is not a person, so nothing is recorded as
+      // the author. Delete is gated on the period rather than on authorship,
+      // so a wrong template's output can still be cleared up while the month
+      // is open.
       userId: null,
       role: null,
     });

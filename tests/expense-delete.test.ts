@@ -16,7 +16,7 @@ const DATE = new Date(Date.UTC(2026, 7, 15));
 const AS_OF = new Date(Date.UTC(2026, 11, 31));
 
 /**
- * SPEC §4.2 rule 3: posted entries are immutable, and same-day delete is the
+ * SPEC §4.2 rule 3: posted entries are immutable, and delete is the
  * one narrow exception. These tests care as much about what it refuses as
  * about what it does — and about the ledger landing back where it started.
  */
@@ -137,11 +137,12 @@ describe("deleting an expense recorded by mistake", () => {
     expect(await prisma.expense.count()).toBe(1);
   });
 
-  it("refuses someone else's expense", async () => {
+  it("lets a colleague delete it, not only whoever recorded it", async () => {
+    // Delete is gated on the period, not on authorship. Someone correcting
+    // last week's entry is usually not the person who typed it.
     const { expense } = await record("DIRECT");
-    await expect(remove(expense.id, other.id)).rejects.toThrow(
-      /Only the person who recorded an? expense/,
-    );
+    await remove(expense.id, other.id);
+    expect(await prisma.expense.count()).toBe(0);
   });
 
   it("refuses an expense in a closed period", async () => {
@@ -156,24 +157,28 @@ describe("deleting an expense recorded by mistake", () => {
   });
 
   /*
-   * The 24-hour rule cannot be staged by ageing a posting: the immutability
-   * trigger refuses that UPDATE, which is itself the right answer. So the
-   * window is tested on the gate the delete asks — the same function the list
-   * asks before it offers the button.
+   * Age is no longer a reason to refuse, and the gate is where that has to be
+   * proved: an old posting cannot be staged in the database, because the
+   * immutability trigger refuses the UPDATE that would age it — which is
+   * itself the right answer. So this asks the same function the list asks
+   * before it offers the button.
    */
-  it("closes the window after 24 hours", () => {
-    const gate = (postedAt: Date) =>
+  it("still offers the button on an old posting, while the period is open", () => {
+    const gate = (postedAt: Date, booksClosedThrough: Date | null = null) =>
       whyNotDeletableExpense({
         expense: { kind: "DIRECT", voidedAt: null, createdAt: postedAt, applications: [] },
-        entry: { postedAt, date: DATE, createdByUserId: "user-1", reversedByEntryId: null },
+        entry: { date: DATE, reversedByEntryId: null },
         postings: 1,
         bankMatchCount: 0,
-        booksClosedThrough: null,
-        userId: "user-1",
+        booksClosedThrough,
       });
 
+    const lastYear = new Date(Date.UTC(2025, 0, 2));
     expect(gate(new Date())).toBeNull();
-    expect(gate(new Date(Date.now() - 25 * 60 * 60 * 1000))).toMatch(/within 24 hours/);
+    expect(gate(lastYear)).toBeNull();
+
+    // The close is the one thing that ends it — and permanently.
+    expect(gate(lastYear, new Date(Date.UTC(2026, 7, 31)))).toMatch(/books are closed through/);
   });
 
   it("calls a bill a bill when it refuses one", () => {
@@ -183,7 +188,6 @@ describe("deleting an expense recorded by mistake", () => {
       postings: 0,
       bankMatchCount: 0,
       booksClosedThrough: null,
-      userId: "user-1",
     });
     expect(refusal).toMatch(/No posting was found for this bill/);
   });

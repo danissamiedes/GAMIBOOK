@@ -14,7 +14,7 @@ import { makeCompanyWithChart, makeUser, makeVendor, prisma, resetDatabase } fro
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
 /**
- * SPEC §4.2 rule 3 says posted entries are immutable. Same-day delete is the
+ * SPEC §4.2 rule 3 says posted entries are immutable. Delete is the
  * one exception, so these tests care as much about what it refuses as about
  * what it does.
  */
@@ -151,20 +151,20 @@ describe("deleting a bill payment recorded by mistake", () => {
     expect(next.entryNumber).toBeGreaterThan(entry.entryNumber);
   });
 
-  it("refuses a payment recorded by someone else", async () => {
+  it("lets the owner delete a payment a bookkeeper recorded", async () => {
+    // Authorship is not a gate. Whoever finds the mistake can clear it up,
+    // for as long as the period holding it is open.
     const other = await makeUser("BOOKKEEPER", fixture.company.id);
     const workOrder = await payableWorkOrder("9000.00");
     const { payment } = await pay(workOrder.id, "4000.00", other.id);
 
-    await expect(
-      deleteBillPayment({
-        companyId: fixture.company.id,
-        billPaymentId: payment.id,
-        userId: owner.id,
-      }),
-    ).rejects.toThrow(/Only the person who recorded a payment/);
+    await deleteBillPayment({
+      companyId: fixture.company.id,
+      billPaymentId: payment.id,
+      userId: owner.id,
+    });
 
-    expect(await prisma.billPayment.findUnique({ where: { id: payment.id } })).not.toBeNull();
+    expect(await prisma.billPayment.findUnique({ where: { id: payment.id } })).toBeNull();
   });
 
   it("refuses a payment that has already been reversed", async () => {
@@ -280,31 +280,26 @@ describe("whyNotDeletable", () => {
   const base = {
     payment: { reversedAt: null, createdAt: new Date() },
     entry: {
-      postedAt: new Date(),
       date: new Date(Date.UTC(2026, 7, 1)),
-      createdByUserId: "user-1",
       reversedByEntryId: null,
     },
     bankMatchCount: 0,
     booksClosedThrough: null,
-    userId: "user-1",
   };
 
-  it("allows a fresh payment its own author is deleting", () => {
+  it("allows a payment in an open period", () => {
     expect(whyNotDeletable(base)).toBeNull();
   });
 
-  it("closes the window after 24 hours", () => {
-    const stale = {
-      ...base,
-      entry: { ...base.entry, postedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
-    };
-    expect(whyNotDeletable(stale)).toMatch(/within 24 hours/);
+  it("does not care how long ago it was recorded", () => {
+    // Age is not a reason. The close is.
+    const old = { ...base, payment: { reversedAt: null, createdAt: new Date(Date.UTC(2025, 0, 2)) } };
+    expect(whyNotDeletable(old)).toBeNull();
   });
 
-  it("refuses when the posting has no recorded author", () => {
-    const anonymous = { ...base, entry: { ...base.entry, createdByUserId: null } };
-    expect(whyNotDeletable(anonymous)).toMatch(/Only the person who recorded/);
+  it("refuses once the period holding it is closed", () => {
+    const closed = { ...base, booksClosedThrough: new Date(Date.UTC(2026, 7, 31)) };
+    expect(whyNotDeletable(closed)).toMatch(/books are closed through 08\/31\/2026/);
   });
 
   it("refuses when there is no posting at all", () => {

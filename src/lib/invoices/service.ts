@@ -438,15 +438,12 @@ export type InvoiceDeletableInput = {
     applications: { payment: { reversedAt: Date | null } }[];
   };
   entry: {
-    postedAt: Date;
     date: Date;
-    createdByUserId: string | null;
     reversedByEntryId: string | null;
   } | null;
   postings: number;
   bankMatchCount: number;
   booksClosedThrough: Date | null;
-  userId: string;
 };
 
 export function whyNotDeletableInvoice(input: InvoiceDeletableInput): string | null {
@@ -463,7 +460,6 @@ export function whyNotDeletableInvoice(input: InvoiceDeletableInput): string | n
     postings: input.postings,
     bankMatchCount: input.bankMatchCount,
     booksClosedThrough: input.booksClosedThrough,
-    userId: input.userId,
     dependency:
       live.length > 0
         ? "This invoice has payments applied. Reverse them first, or void the invoice instead of deleting it."
@@ -521,7 +517,6 @@ export async function deleteInvoice(input: {
       postings,
       bankMatchCount,
       booksClosedThrough: company.booksClosedThrough,
-      userId: input.userId,
     });
     if (refusal) throw new PostingError(refusal);
 

@@ -39,7 +39,7 @@ export default async function SalesOrderPage({
   });
   if (!order) notFound();
 
-  // A sales order posts nothing, so none of the same-day rules apply: what has
+  // A sales order posts nothing, so none of the posting rules apply: what has
   // to hold is only that nothing has been built on it.
   const deleteRefusal = whyNotDeletableSalesOrder(order);
   const pendingDelete = params_.delete === "1" && deleteRefusal === null;

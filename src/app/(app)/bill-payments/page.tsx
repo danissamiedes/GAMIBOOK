@@ -177,7 +177,6 @@ export default async function BillPaymentsPage({
       entry: postingBySource.get(payment.id) ?? null,
       bankMatchCount: matchCount.get(payment.id) ?? 0,
       booksClosedThrough: company.booksClosedThrough,
-      userId: scope.userId,
     });
     if (refusal) return refusal;
     return (postingCount.get(payment.id) ?? 0) > 1 ? MULTIPLE_POSTINGS : null;
@@ -338,7 +337,7 @@ export default async function BillPaymentsPage({
     <>
       <PageHeader
         title="Bill payments"
-        description={`Money out to consultants and vendors. ${company.baseCurrency} books · reversal keeps the record; delete is for a mistake caught the same day.`}
+        description={`Money out to consultants and vendors. ${company.baseCurrency} books · reversal keeps the record; delete is for a mistake, until the period is closed.`}
       />
 
       {params.error ? <Alert tone="error">{params.error}</Alert> : null}

@@ -5,29 +5,37 @@ import { PostingError } from "@/lib/errors";
 import { reconciliationLock } from "@/lib/bank/reconcile";
 
 /**
- * Same-day delete, shared by every document that can be erased (SPEC §4.2
- * rule 3 and its one exception).
+ * Delete, shared by every document that can be erased (SPEC §4.2 rule 3 and
+ * its one exception).
  *
  * Posted entries are immutable. Editing reverses and reposts; that is the rule
- * and it does not bend. What this is for is the narrower thing: a document
- * recorded by mistake minutes ago, where a reversal pair on a vendor's history
- * is a worse record than no record at all.
+ * and it does not bend. Delete is the other thing: a document recorded by
+ * mistake, where a reversal pair on a vendor's history is a worse record than
+ * no record at all.
  *
- * The window is deliberately mean — your own document, within a day, that
- * nothing has come to depend on, in an open period. Everything outside it
- * reverses. What a delete costs is real: nothing afterwards shows the document
- * existed except the audit row written at the time, which carries the whole of
- * it, and the gap it leaves in the journal numbering. Both are deliberate. A
- * missing entry number is the thread an auditor pulls.
+ * **The close is the boundary.** A mistake stays deletable for as long as the
+ * period it sits in is open — there is no clock, and it does not matter who
+ * recorded it. Once the owner closes the month, everything dated on or before
+ * that reverses instead, permanently. That is the line that means something:
+ * an open period is still being written, a closed one has been signed off and
+ * reported from.
+ *
+ * The rest of the refusals here are not about time at all. They are the cases
+ * where erasing one document would leave the ledger holding something that
+ * depended on it — a payment applied to the bill, a bank line matched to it, a
+ * reconciled statement that counted it. Those say "reverse it instead" because
+ * unwinding them properly is what reversal is for.
+ *
+ * What a delete costs is real: nothing afterwards shows the document existed
+ * except the audit row written at the time, which carries the whole of it, and
+ * the gap it leaves in the journal numbering. Both are deliberate. A missing
+ * entry number is the thread an auditor pulls.
  *
  * The rules live here rather than in each service so that the list deciding
  * whether to offer the button and the action deciding whether to obey it are
  * reading the same sentence — including the sentence itself, which is shown to
  * the person who clicked.
  */
-
-/** How long after recording a document it can still be deleted outright. */
-export const DELETE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export type ErasableEntry = {
   id: string;
@@ -64,13 +72,12 @@ export type ErasableInput = {
    * The document's posting, or null when it has none. A document that never
    * posted — a draft — is not erased through here; it is simply deleted.
    */
-  entry: Pick<ErasableEntry, "postedAt" | "date" | "createdByUserId" | "reversedByEntryId"> | null;
+  entry: Pick<ErasableEntry, "date" | "reversedByEntryId"> | null;
   /** How many entries exist for this document. More than one means something built on it. */
   postings: number;
   /** Bank lines pointing at this document or its entry. */
   bankMatchCount: number;
   booksClosedThrough: Date | null;
-  userId: string;
   /**
    * The one rule that differs per document: a bill with a payment applied, an
    * invoice with a payment against it, a sales order already invoiced. Checked
@@ -83,8 +90,8 @@ export type ErasableInput = {
  * Why this document cannot be deleted, or null if it can.
  *
  * The order is the order the reasons are worth hearing. "Already reversed"
- * beats "too old", because a reversed document is usually also old and the
- * reversal is the thing the reader has forgotten about.
+ * comes before the rest, because a document that was reversed is one whose
+ * correction the reader has usually forgotten about.
  */
 /** "an invoice", "a payment" — so the refusals read like sentences. */
 function an(noun: string, capital = false): string {
@@ -108,19 +115,15 @@ export function whyNotErasable(input: ErasableInput): string | null {
   }
   if (entry.reversedByEntryId) return `This ${noun}'s posting has already been reversed.`;
 
-  if (Date.now() - entry.postedAt.getTime() > DELETE_WINDOW_MS) {
-    return `${an(noun, true)} can only be deleted within 24 hours of being recorded. Reverse it instead, which keeps both the ${noun} and the correction on the record.`;
-  }
-  if (!entry.createdByUserId || entry.createdByUserId !== input.userId) {
-    return `Only the person who recorded ${an(noun)} can delete it. Reverse it instead.`;
-  }
-  if (input.bankMatchCount > 0) {
-    return `A bank line is matched to this ${noun}. Unmatch it first, or reverse the ${noun} instead.`;
-  }
+  // The only rule about when. Everything below is about what would be left
+  // behind, not about how long ago this was recorded.
   if (input.booksClosedThrough && entry.date <= input.booksClosedThrough) {
     return `The books are closed through ${formatAccountingDate(
       input.booksClosedThrough,
     )}. ${an(noun, true)} dated on or before that can only be reversed, never deleted.`;
+  }
+  if (input.bankMatchCount > 0) {
+    return `A bank line is matched to this ${noun}. Unmatch it first, or reverse the ${noun} instead.`;
   }
   // Last, because a reversed document also has two postings and "already
   // reversed" is the more useful thing to say. More than one posting otherwise

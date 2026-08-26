@@ -493,15 +493,12 @@ export async function updatePayment(input: {
 export type PaymentDeletableInput = {
   payment: { reversedAt: Date | null; createdAt: Date };
   entry: {
-    postedAt: Date;
     date: Date;
-    createdByUserId: string | null;
     reversedByEntryId: string | null;
   } | null;
   postings: number;
   bankMatchCount: number;
   booksClosedThrough: Date | null;
-  userId: string;
 };
 
 export function whyNotDeletablePayment(input: PaymentDeletableInput): string | null {
@@ -512,7 +509,6 @@ export function whyNotDeletablePayment(input: PaymentDeletableInput): string | n
     postings: input.postings,
     bankMatchCount: input.bankMatchCount,
     booksClosedThrough: input.booksClosedThrough,
-    userId: input.userId,
   });
 }
 
@@ -564,7 +560,6 @@ export async function deletePayment(input: {
       postings,
       bankMatchCount,
       booksClosedThrough: company.booksClosedThrough,
-      userId: input.userId,
     });
     if (refusal) throw new PostingError(refusal);
 

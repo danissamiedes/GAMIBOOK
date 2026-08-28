@@ -1671,3 +1671,40 @@ The budget is a parameter rather than a constant so a test can spend it, which
 is how the stall is exercised — a hand-made database state proved the fixture,
 not the mechanism, and the first version of the test hid a double-send behind
 its own setup.
+
+## Paying work orders in bulk is many payments, not one
+
+Settling eighteen work orders one screen at a time is the same eighteen
+decisions typed eighteen times, so there is now one screen for it under
+Consultants. The interesting part is what it does *not* do.
+
+**One payment per consultant.** A `BillPayment` names a single vendor, and that
+is not an implementation detail to route around. You do not write one cheque to
+eighteen people, and a payment carrying several creditors would put the wrong
+party on the A/P lines — the control account would still net to zero and the
+aging total would still tie, while per consultant the ledger was wrong in both
+directions. So a run groups the selection by consultant and records one payment
+each, sharing the date, the account and the reference. That is what a
+disbursement run actually is.
+
+**Not one transaction.** Each consultant's payment stands alone. Wrapping the
+run in a single transaction would mean the eighteenth failing silently unwinds
+the seventeen that were right, and a payment run half-recorded is much easier to
+finish than one that vanished. Failures are collected and named — "Jocelyn
+Superable — a foreign-currency payment needs an exchange rate" — rather than
+raised as one error that says nothing about who.
+
+**Refusals are decided before posting, not during.** A consultant holding work
+orders in two currencies cannot be settled in one payment, and an amount larger
+than the balance is a typo rather than an instruction. Both are found while
+planning and shown on the confirmation screen as a list of who was left out and
+why. The confirm step exists for exactly this: it is where a selection of
+documents becomes a list of payments, and seeing that before posting is the
+difference between a run you can check and eighteen postings you have to unpick.
+
+Amounts default to the whole balance and can be edited down, so a part payment
+does not send anyone back to the single-payment screen. Ids and amounts are
+matched by position, because an unticked row still submits its amount box.
+
+Nothing new posts here: it is `recordBillPayment` per consultant, the same
+function the single-payment screen calls. The bulk part is the selecting.

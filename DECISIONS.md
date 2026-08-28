@@ -1634,3 +1634,40 @@ The cost is a real widening: a bookkeeper can now erase a two-month-old
 transaction outright, and nothing afterwards shows it existed except the audit
 row and the gap in the journal numbering. That is the trade the close is there
 to bound — and it is bounded by an owner's decision rather than by a clock.
+
+## A bulk send stops itself, and a stalled batch can be found again
+
+Eighteen work orders went out as nine. The function was killed at its
+`maxDuration` mid-loop: nine messages sent and recorded, nine left QUEUED, the
+batch never finalised, and the person shown a generic error page.
+
+The per-message design held. Each item succeeds or fails on its own and
+`lastEmailedAt` is stamped only on a real send, so the nine that went were
+recorded correctly and the nine that did not were untouched. Nothing was lost
+and nothing could be sent twice. The two things that failed were both about the
+edges of the request, not the sending.
+
+**A pass now stops before the platform stops it.** 45 seconds, checked *before*
+each message rather than after — stopping with an upload half-done is the thing
+the budget exists to avoid. It finalises and returns, leaving the remainder
+queued. At roughly seven seconds a message — render the PDF, upload to Gmail,
+throttle — one pass gets through six or seven, which means a large batch takes
+more than one press. That is the trade: a bounded pass that always lands
+somewhere recoverable, against one long request that works until the day the
+batch is one message too long.
+
+**A batch that stopped early is now reachable.** This was the real damage. The
+only link to a batch's page was the redirect *after* processing — the exact
+line a killed function never reaches. The queue survived in the database with
+no way for a person to get back to it, and the "Continue sending" button that
+already existed sat on a page nobody could navigate to. The send screen now
+lists any batch with messages still waiting, with the count and a link.
+
+The lesson generalises past this screen: work that survives a crash is only
+half the job. If the way back to it was on the code path that crashed, the user
+cannot tell the difference between "queued, resumable" and "lost".
+
+The budget is a parameter rather than a constant so a test can spend it, which
+is how the stall is exercised — a hand-made database state proved the fixture,
+not the mechanism, and the first version of the test hid a double-send behind
+its own setup.

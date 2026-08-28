@@ -9,6 +9,7 @@ import {
   processBatch,
   queueBulkSend,
   retryFailed,
+  unfinishedBatches,
 } from "@/lib/email/bulk-send";
 import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { resetStorage } from "@/lib/storage";
@@ -328,6 +329,85 @@ describe("bulk work order send", () => {
     ).rejects.toThrow(/None of the selected work orders can be emailed/);
 
     expect(MAX_BATCH_EMAILS).toBe(200);
+  });
+
+  /*
+   * A pass that runs out of time must leave the batch in a state a person can
+   * finish. This is the failure that stranded nine of eighteen messages: the
+   * function was killed mid-loop, so the batch never finalised and the only
+   * link to it — the redirect after processing — was never reached.
+   */
+  describe("a pass that does not get through the whole queue", () => {
+    /** Queue `count`, then let one pass send only what a tiny budget allows. */
+    const stall = async (count: number) => {
+      const ids: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const person = await consultant(`Consultant ${i}`);
+        ids.push((await workOrder(person.id)).id);
+      }
+      const { batchId } = await queueBulkSend({
+        companyId: fixture.company.id,
+        workOrderIds: ids,
+        groupByConsultant: false,
+      });
+      // A 1 ms budget is spent by the first message, so the pass stops after
+      // it — the real mechanism, not a hand-made database state.
+      await processBatch(fixture.company.id, batchId, { budgetMs: 1 });
+      return batchId;
+    };
+
+    it("stops on its own rather than being cut off", async () => {
+      const batchId = await stall(4);
+
+      const batch = await prisma.emailBatch.findFirstOrThrow({ where: { id: batchId } });
+      expect(batch.sentCount).toBeLessThan(4);
+      expect(batch.status).toBe("SENDING");
+      // Finalised, not abandoned: the counts are written down before it returns.
+      expect(batch.completedAt).toBeNull();
+    });
+
+    it("is findable afterwards, with what is left to do", async () => {
+      const batchId = await stall(4);
+
+      const open = await unfinishedBatches(fixture.company.id);
+      expect(open).toHaveLength(1);
+      expect(open[0].batch.id).toBe(batchId);
+      expect(open[0].remaining).toBe(open[0].batch.totalCount - open[0].batch.sentCount);
+      expect(open[0].remaining).toBeGreaterThan(0);
+    });
+
+    it("finishes when it is carried on, and sends nothing twice", async () => {
+      const batchId = await stall(4);
+
+      await processBatch(fixture.company.id, batchId);
+
+      const batch = await prisma.emailBatch.findFirstOrThrow({ where: { id: batchId } });
+      expect(batch.status).toBe("COMPLETED");
+      expect(batch.sentCount).toBe(4);
+      expect(await prisma.emailBatchItem.count({ where: { emailBatchId: batchId, status: "QUEUED" } })).toBe(0);
+
+      // One log row per message, not one per attempt at the batch.
+      expect(await prisma.emailLog.count({ where: { emailBatchId: batchId } })).toBe(4);
+      expect(await unfinishedBatches(fixture.company.id)).toHaveLength(0);
+    });
+
+    it("does not offer another company's stalled batch", async () => {
+      await stall(4);
+      const other = await makeCompanyWithChart("Elsewhere", "PHP");
+      expect(await unfinishedBatches(other.company.id)).toHaveLength(0);
+    });
+
+    it("leaves a finished batch out of the unfinished list", async () => {
+      const abigail = await consultant("Abigail Bautista");
+      const { batchId } = await queueBulkSend({
+        companyId: fixture.company.id,
+        workOrderIds: [(await workOrder(abigail.id)).id],
+        groupByConsultant: false,
+      });
+      await processBatch(fixture.company.id, batchId);
+
+      expect(await unfinishedBatches(fixture.company.id)).toHaveLength(0);
+    });
   });
 
   it("keeps one company's batch out of another's", async () => {

@@ -3,7 +3,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
-import { planBulkSend, queueBulkSend, processBatch, MAX_BATCH_EMAILS } from "@/lib/email/bulk-send";
+import {
+  planBulkSend,
+  queueBulkSend,
+  processBatch,
+  unfinishedBatches,
+  MAX_BATCH_EMAILS,
+} from "@/lib/email/bulk-send";
 import { dryRun } from "@/lib/email/gmail";
 import { PostingError } from "@/lib/errors";
 import { formatAccountingDate } from "@/lib/dates";
@@ -54,7 +60,7 @@ export default async function BulkSendPage({
       ? [params.selected]
       : [];
 
-  const [company, consultants, importBatches] = await Promise.all([
+  const [company, consultants, importBatches, stalled] = await Promise.all([
     prisma.company.findFirstOrThrow({ where: { id: scope.companyId } }),
     prisma.vendor.findMany({
       where: { ...scope.where, kind: "CONSULTANT" },
@@ -65,6 +71,7 @@ export default async function BulkSendPage({
       orderBy: { uploadedAt: "desc" },
       take: 10,
     }),
+    unfinishedBatches(scope.companyId),
   ]);
 
   const statusFilter = params.status ?? "APPROVED";
@@ -118,8 +125,9 @@ export default async function BulkSendPage({
       throw error;
     }
 
-    // Work through the queue, then land on the results. Long batches are
-    // throttled, so this is deliberately the slow part of the flow.
+    // One pass, bounded by its own budget rather than by the function being
+    // killed. Whatever it does not reach stays queued, and the results page
+    // says so and offers to carry on — so this always redirects.
     await processBatch(inner.companyId, batchId);
     redirect(`/work-orders/send/${batchId}`);
   }
@@ -149,6 +157,21 @@ export default async function BulkSendPage({
       />
 
       {params.error ? <Alert tone="error">{decodeURIComponent(params.error)}</Alert> : null}
+
+      {stalled.map(({ batch, remaining }) => (
+        <Alert key={batch.id} tone="warning">
+          <strong>
+            A send from {formatAccountingDate(batch.createdAt)} has {remaining} message
+            {remaining === 1 ? "" : "s"} still to go.
+          </strong>{" "}
+          {batch.sentCount} of {batch.totalCount} went out. Nothing is sent twice — carrying on
+          picks up exactly where it stopped.{" "}
+          <Link className="underline" href={`/work-orders/send/${batch.id}`}>
+            Open that batch
+          </Link>
+          .
+        </Alert>
+      ))}
       {dryRun() ? (
         <Alert tone="warning">
           <strong>Dry run is on.</strong> Everything will be composed and logged, and nothing will

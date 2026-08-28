@@ -27,6 +27,7 @@ export default async function BulkSendResultPage({
   if (!detail) notFound();
 
   const { batch, items } = detail;
+  const remaining = items.filter((item) => item.status === "QUEUED").length;
 
   async function retry() {
     "use server";
@@ -71,6 +72,12 @@ export default async function BulkSendResultPage({
             {batch.sentCount} sent, <strong>{batch.failedCount} failed</strong>. Retrying re-sends
             only the failures.
           </>
+        ) : remaining > 0 ? (
+          <>
+            {batch.sentCount} of {batch.totalCount} sent, <strong>{remaining} still to go</strong>.
+            A send stops itself before the server would cut it off, so the rest are still queued —
+            press Continue sending. Nothing already sent goes out twice.
+          </>
         ) : (
           <>This batch is still working through its queue.</>
         )}
@@ -85,11 +92,11 @@ export default async function BulkSendResultPage({
             <Button type="submit">Retry failed only</Button>
           </form>
         ) : null}
-        {batch.status === "SENDING" || batch.status === "QUEUED" ? (
+        {remaining > 0 ? (
           <form action={resume}>
-            <Button variant="secondary" type="submit">
-              Continue sending
-            </Button>
+            {/* Primary when it is the thing left to do: a batch that stopped
+                early is unfinished work, not a footnote. */}
+            <Button type="submit">Continue sending — {remaining} left</Button>
           </form>
         ) : null}
         <Link href="/work-orders/send">

@@ -25,6 +25,22 @@ import type { Attachment } from "./mime";
 export const MAX_BATCH_EMAILS = 200;
 /** Gmail is not a bulk sender; a small gap keeps well inside its limits. */
 const THROTTLE_MS = 400;
+/**
+ * How long one pass may spend sending before it stops and leaves the rest
+ * queued.
+ *
+ * A serverless function is killed at its `maxDuration` with no warning and no
+ * chance to write anything down. A batch of eighteen at roughly seven seconds
+ * each — render the PDF, upload it to Gmail, throttle — runs well past the 60s
+ * the app segment declares, and the kill lands mid-loop: the messages already
+ * sent are recorded, the rest stay QUEUED, the batch never finalises, and the
+ * person sees a generic error page instead of the batch.
+ *
+ * So a pass stops itself first. 45s leaves room for the send in flight plus the
+ * finalise write. What is left stays QUEUED and the batch stays resumable,
+ * which is the state this design was already built for.
+ */
+const PASS_BUDGET_MS = 45_000;
 /** Gmail rejects messages over 25 MB; leave room for encoding overhead. */
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
@@ -247,7 +263,12 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * Work through a batch's queued items. Safe to call more than once: only
  * QUEUED items are picked up, so a success is never sent twice.
  */
-export async function processBatch(companyId: string, batchId: string) {
+export async function processBatch(
+  companyId: string,
+  batchId: string,
+  options: { budgetMs?: number } = {},
+) {
+  const budgetMs = options.budgetMs ?? PASS_BUDGET_MS;
   const batch = await prisma.emailBatch.findFirst({ where: { id: batchId, companyId } });
   if (!batch) throw new PostingError("Batch not found in this company");
 
@@ -261,7 +282,12 @@ export async function processBatch(companyId: string, batchId: string) {
     orderBy: { id: "asc" },
   });
 
+  const startedAt = Date.now();
   for (const [index, item] of queued.entries()) {
+    // Checked before the work, not after: stopping with a message half-uploaded
+    // is the thing this is here to avoid.
+    if (Date.now() - startedAt > budgetMs) break;
+
     const vendor = await prisma.vendor.findFirst({ where: { id: item.vendorId, companyId } });
     if (!vendor) {
       await prisma.emailBatchItem.update({
@@ -410,6 +436,35 @@ export async function retryFailed(options: {
   });
 
   return processBatch(options.companyId, batch.id);
+}
+
+/**
+ * Batches with messages still waiting to go out.
+ *
+ * Without this a batch that stopped early is unreachable: the only link to its
+ * page is the redirect at the end of the send action, and that is exactly the
+ * line a killed function never gets to. The queue survived; the way back to it
+ * did not.
+ */
+export async function unfinishedBatches(companyId: string) {
+  const batches = await prisma.emailBatch.findMany({
+    where: {
+      companyId,
+      status: { in: ["QUEUED", "SENDING"] },
+      items: { some: { status: "QUEUED" } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+
+  return Promise.all(
+    batches.map(async (batch) => ({
+      batch,
+      remaining: await prisma.emailBatchItem.count({
+        where: { emailBatchId: batch.id, status: "QUEUED" },
+      }),
+    })),
+  );
 }
 
 export async function batchWithItems(companyId: string, batchId: string) {

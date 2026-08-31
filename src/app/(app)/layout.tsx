@@ -117,6 +117,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       label: "Reporting",
       items: only([
         scope.hasSection("REPORTS") && { href: "/reports/profit-loss", label: "P&L" },
+        scope.hasSection("REPORTS") && {
+          href: "/reports/profit-loss-monthly",
+          label: "P&L by month",
+        },
         scope.hasSection("REPORTS") && { href: "/reports/balance-sheet", label: "Balance Sheet" },
         scope.hasSection("REPORTS") && { href: "/reports/trial-balance", label: "Trial Balance" },
         scope.hasSection("REPORTS") && { href: "/reports/general-ledger", label: "General Ledger" },

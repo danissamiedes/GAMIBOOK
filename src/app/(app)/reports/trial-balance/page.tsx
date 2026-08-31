@@ -109,9 +109,12 @@ export default async function TrialBalancePage({
                   <td className="py-1.5">
                     <a
                       className="underline decoration-dotted underline-offset-2"
+                      // ISO, not the display format: the account page parses
+                      // yyyy-mm-dd only, so mm/dd/yyyy here opened the
+                      // drill-down on a different period than the row.
                       href={`/reports/account/${row.accountId}?${
-                        from ? `from=${formatAccountingDate(from)}&` : ""
-                      }to=${formatAccountingDate(asOf)}`}
+                        from ? `from=${isoDate(from)}&` : ""
+                      }to=${isoDate(asOf)}`}
                     >
                       {row.name}
                     </a>

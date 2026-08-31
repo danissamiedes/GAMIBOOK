@@ -1708,3 +1708,47 @@ matched by position, because an unticked row still submits its amount box.
 
 Nothing new posts here: it is `recordBillPayment` per consultant, the same
 function the single-payment screen calls. The bulk part is the selecting.
+
+## Profit & Loss by month, and two dates that were not ISO
+
+The same accrual figures as the P&L, one column per month with the period total
+beside them. What it is for is the shape of a year rather than its size: a rent
+line that doubles in March, a fee that stopped in June.
+
+**The columns are the months the period actually covers.** A period starting on
+the 15th gets a first column running from the 15th, headed "Jan 15–Jan 31, 2026"
+rather than "Jan 2026". Assuming whole months from the endpoints would make the
+first column quietly claim to be a month it is only half of — and then the
+columns no longer sum to the total, which is the one property this report has to
+have. There is a test that every row and every section sums across its own
+months, and another that the totals match the standard P&L over the same period.
+A monthly P&L that disagrees with the P&L is worse than no monthly P&L.
+
+**One scan, not one per column.** Twelve `balancesByAccount` calls would give
+the same answer and read more like the rest of the reports, but a full year is
+the normal case here. One query grouped by account and month, with the account
+types joined in SQL so the database does not return every line in the year —
+the same shape the dashboard already uses for its six-month sparkline.
+
+Twelve columns do not fit a phone and are not made to: the table scrolls
+sideways inside its card with the account column pinned, because a figure whose
+row you cannot see is not a figure.
+
+### The bug found on the way
+
+Both existing dates in report links were being built with the *display*
+formatter:
+
+    const query = `from=${formatAccountingDate(from)}&to=${isoDate(to)}`;
+
+`parseAccountingDate` takes `yyyy-mm-dd` and nothing else, so `from=01/01/2026`
+parsed as null and the export fell back to the fiscal year start. The CSV and
+PDF therefore covered a *different period than the screen they were downloaded
+from* — and invisibly, because the fallback is the default anyone testing with
+a fresh page would already be on. The Trial Balance had the same fault in its
+drill-down links, both dates this time, so clicking an account opened it on the
+wrong period.
+
+The lesson is the one the `isoDate` / `formatAccountingDate` split was made for
+and did not quite finish: machine-readable in URLs, human-readable on screens.
+A date in a query string is never the display format.

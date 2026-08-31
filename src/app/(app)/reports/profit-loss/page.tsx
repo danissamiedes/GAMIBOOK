@@ -79,7 +79,11 @@ export default async function ProfitLossPage({
     compare ? profitAndLoss({ companyId: scope.companyId, from: priorFrom, to: priorTo }) : null,
   ]);
 
-  const query = `from=${formatAccountingDate(from)}&to=${isoDate(to)}`;
+  // ISO on both, and not the display format: parseAccountingDate at the other
+  // end takes yyyy-mm-dd only, so an mm/dd/yyyy `from` parsed as null and the
+  // export silently fell back to the fiscal year start — a CSV covering a
+  // different period than the screen it was downloaded from.
+  const query = `from=${isoDate(from)}&to=${isoDate(to)}`;
   const drill = (accountId: string) =>
     `/reports/account/${accountId}?from=${isoDate(from)}&to=${isoDate(to)}`;
 

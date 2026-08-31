@@ -467,6 +467,37 @@ export async function unfinishedBatches(companyId: string) {
   );
 }
 
+/**
+ * The scheduled job: finish any batch still holding queued messages.
+ *
+ * A pass stops itself at 45 seconds and leaves the rest queued, which made a
+ * large send take several presses of "Continue sending". This drains them in
+ * the background instead, so the button becomes the thing you use when you do
+ * not want to wait rather than the thing you must use to finish at all.
+ *
+ * One batch per run, oldest first: the next run is an hour away, and a company
+ * that queued three batches would rather the first one finish than all three
+ * crawl. Nothing here can send twice — `processBatch` only looks at items still
+ * marked QUEUED.
+ */
+export async function drainEmailBatches(budgetMs?: number) {
+  const batch = await prisma.emailBatch.findFirst({
+    where: { status: { in: ["QUEUED", "SENDING"] }, items: { some: { status: "QUEUED" } } },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, companyId: true },
+  });
+  if (!batch) return { drained: null };
+
+  const finished = await processBatch(batch.companyId, batch.id, { budgetMs });
+  return {
+    drained: batch.id,
+    sent: finished.sentCount,
+    remaining: await prisma.emailBatchItem.count({
+      where: { emailBatchId: batch.id, status: "QUEUED" },
+    }),
+  };
+}
+
 export async function batchWithItems(companyId: string, batchId: string) {
   const batch = await prisma.emailBatch.findFirst({
     where: { id: batchId, companyId },

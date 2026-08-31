@@ -271,21 +271,26 @@ model Company {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
-  name                 String
-  legalName            String?
+  name                    String
+  legalName               String?
   /// ISO 4217. Cannot be changed once anything is posted (SPEC §5).
-  baseCurrency         String       @db.Char(3)
+  baseCurrency            String       @db.Char(3)
   /// 1 = January (SPEC §12, default January).
-  fiscalYearStartMonth Int          @default(1)
+  fiscalYearStartMonth    Int          @default(1)
   /// Governs the time clock: display, day grouping, totals (SPEC §9).
-  timeClockTimeZone    String       @default("Asia/Manila")
+  timeClockTimeZone       String       @default("Asia/Manila")
   /// Governs scheduled jobs such as recurring invoicing (SPEC §7.2, §9).
-  operatingTimeZone    String       @default("Asia/Manila")
+  operatingTimeZone       String       @default("Asia/Manila")
   /// Posting on or before this date is rejected for everyone but OWNER (SPEC §4.2 rule 4).
-  booksClosedThrough   DateTime?    @db.Date
+  booksClosedThrough      DateTime?    @db.Date
   /// The accent colour this company's screens wear, so a glance says whose
   /// books are open when one login holds several (SPEC §3).
-  theme                CompanyTheme @default(BLUE)
+  theme                   CompanyTheme @default(BLUE)
+  /// SPEC §10.2. Off until someone turns it on: the first thing you should
+  /// learn about a misconfigured reminder is not a customer receiving one.
+  invoiceRemindersEnabled Boolean      @default(false)
+  /// SPEC §8.4. Auto-link only, which posts nothing and unmatches cleanly.
+  bankAutoLinkEnabled     Boolean      @default(false)
 
   /// Branding (SPEC §11) — populated in Phase 7, nullable until then.
   addressLine1 String?
@@ -548,6 +553,8 @@ model Customer {
   name             String
   /// Invoices go to these addresses.
   emails           String[]
+  /// False stops reminders reaching them. Their invoices still send.
+  sendEmails       Boolean  @default(true)
   billingAddress   String?
   /// May differ from the company's base currency (SPEC §5).
   defaultCurrency  String   @db.Char(3)
@@ -636,11 +643,14 @@ model Invoice {
   baseTotal    Decimal @default(0) @db.Decimal(18, 2)
   baseRelieved Decimal @default(0) @db.Decimal(18, 2)
 
-  lastEmailedAt DateTime?
-  issuedAt      DateTime?
-  voidedAt      DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  lastEmailedAt  DateTime?
+  /// When a reminder last went out. Separate from lastEmailedAt, which is the
+  /// invoice itself being sent — a reminder must not look like a re-issue.
+  lastRemindedAt DateTime?
+  issuedAt       DateTime?
+  voidedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   /// Set when this invoice was created by converting a sales order (§7.1a).

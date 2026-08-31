@@ -39,6 +39,9 @@ export default async function CompanySettingsPage({
     // only come from a hand-edited form, and losing a colour is not worth a
     // stack trace.
     const theme = isCompanyTheme(requestedTheme) ? requestedTheme : undefined;
+    // Unchecked boxes submit nothing, so absence is the "off" value.
+    const invoiceRemindersEnabled = formData.get("invoiceRemindersEnabled") === "1";
+    const bankAutoLinkEnabled = formData.get("bankAutoLinkEnabled") === "1";
 
     if (!name) redirect("/settings/company");
     if (
@@ -57,6 +60,8 @@ export default async function CompanySettingsPage({
         fiscalYearStartMonth,
         timeClockTimeZone,
         operatingTimeZone,
+        invoiceRemindersEnabled,
+        bankAutoLinkEnabled,
         ...(theme ? { theme } : {}),
       },
     });
@@ -71,6 +76,8 @@ export default async function CompanySettingsPage({
         fiscalYearStartMonth,
         timeClockTimeZone,
         operatingTimeZone,
+        invoiceRemindersEnabled,
+        bankAutoLinkEnabled,
         theme: theme ?? null,
       },
     });
@@ -167,6 +174,45 @@ export default async function CompanySettingsPage({
               />
             ))}
           </div>
+          <fieldset className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-700">
+            <legend className="text-sm font-semibold">Run without asking</legend>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Both are off until you turn them on, and both are logged — reminders in the
+              email log, links in the audit trail.
+            </p>
+
+            <label className="flex gap-3 text-sm">
+              <input
+                type="checkbox"
+                name="invoiceRemindersEnabled"
+                value="1"
+                defaultChecked={company.invoiceRemindersEnabled}
+                className="mt-1 h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-600"
+              />
+              <span>
+                <strong>Chase overdue invoices.</strong> Emails the customer once a week from
+                a week past the due date, until the invoice is paid or voided. A customer can
+                be excluded on their own record.
+              </span>
+            </label>
+
+            <label className="flex gap-3 text-sm">
+              <input
+                type="checkbox"
+                name="bankAutoLinkEnabled"
+                value="1"
+                defaultChecked={company.bankAutoLinkEnabled}
+                className="mt-1 h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-600"
+              />
+              <span>
+                <strong>Link the obvious bank lines.</strong> Only where exactly one recorded
+                payment matches the amount on the same day. It posts nothing — it points the
+                bank line at a payment already in the books — and unmatching undoes it.
+                Settling and categorising stay manual.
+              </span>
+            </label>
+          </fieldset>
+
           <Button type="submit">Save changes</Button>
         </form>
       </Card>

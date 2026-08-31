@@ -1752,3 +1752,62 @@ wrong period.
 The lesson is the one the `isoDate` / `formatAccountingDate` split was made for
 and did not quite finish: machine-readable in URLs, human-readable on screens.
 A date in a query string is never the display format.
+
+## Three things the app now does without being asked
+
+Recurring invoices and recurring bills already ran on their own. Three more
+join them, and what they have in common is more interesting than what they do:
+each was chosen because getting it wrong is *recoverable*.
+
+**Chasing overdue invoices.** The `INVOICE_REMINDER` template had existed since
+Phase 8, editable in Settings → Email, with `days_overdue` wired into it, and
+nothing had ever sent it. A finished part in a drawer. It now goes weekly from a
+week past due, until the invoice is paid or voided.
+
+Weekly-until-paid has an obvious hazard — an unpayable invoice mails forever —
+and it was chosen with that stated. Two things bound it: the interval counts
+from the **last reminder**, not the due date, so switching this on with a year
+of old invoices sends one round rather than fifty-two; and voiding an invoice is
+the way to stop chasing something that will never be paid. Customers gained the
+`sendEmails` opt-out that consultants already had, so excluding one no longer
+means deleting their address and cutting off their invoices too.
+
+`lastRemindedAt` is a separate column from `lastEmailedAt` on purpose. Sharing
+one field would make issuing an invoice look like chasing it, and a reminder
+reset the "last sent" the screen shows.
+
+**Draining email batches.** A bulk send stops itself at 45 seconds and leaves
+the rest queued; that turned an eighteen-message send into three presses of
+Continue. A job every fifteen minutes finishes them, so the button is now what
+you press when you do not want to wait rather than what you must press to
+finish at all. One batch per run, oldest first: a company that queued three
+would rather the first finish than all three crawl.
+
+**Linking the obvious bank lines.** Of the three match outcomes only LINK is
+safe unattended, and the reason is precise: **it posts nothing**. The payment is
+already in the ledger; the bank line is the bank confirming it. A wrong link is
+undone by unmatching and the books are exactly as they were. SETTLE and
+CATEGORISE both create postings, and no confidence score is worth a wrong
+ledger — they stay manual.
+
+Even inside LINK it is timid. `suggestCandidates` already requires an exact
+amount within five days; the job additionally requires **exactly one** candidate
+**on the same day**. Two candidates for one figure is the case a person should
+look at: the same amount to the same party twice in a week is either a duplicate
+or two real payments, and guessing is wrong half the time. The five-day
+tolerance stays for a person weighing options; it is not enough to act alone.
+
+### Both are off until switched on
+
+`invoiceRemindersEnabled` and `bankAutoLinkEnabled` default to false, per
+company, under Settings → Company. The first thing anyone learns about a
+misconfigured reminder should not be a customer receiving one. Only reminders
+were asked to roll out this way; auto-link got the same treatment because the
+reasoning transfers and one more boolean is cheap.
+
+### What stays manual, deliberately
+
+Closing a month, paying anyone, deleting anything, and completing a
+reconciliation. Each is a judgement or an irreversible commitment of money, and
+the value of the click is that a person made it. Automating a close would only
+mean the books close whether or not they are right.

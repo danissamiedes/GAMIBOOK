@@ -256,6 +256,22 @@ export default async function CustomersPage({
                 Active
               </label>
             ) : null}
+            {editing ? (
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="sendEmails"
+                  defaultChecked={editing.sendEmails}
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                />
+                <span>
+                  Send overdue reminders
+                  <span className="block text-xs text-slate-500">
+                    Off stops the weekly chase for this customer. Their invoices still send.
+                  </span>
+                </span>
+              </label>
+            ) : null}
             <div className="flex items-center gap-2">
               <Button type="submit">{editing ? "Save changes" : "Add customer"}</Button>
               {editing ? (

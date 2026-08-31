@@ -10,6 +10,7 @@ import {
   queueBulkSend,
   retryFailed,
   unfinishedBatches,
+  drainEmailBatches,
 } from "@/lib/email/bulk-send";
 import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { resetStorage } from "@/lib/storage";
@@ -389,6 +390,34 @@ describe("bulk work order send", () => {
       // One log row per message, not one per attempt at the batch.
       expect(await prisma.emailLog.count({ where: { emailBatchId: batchId } })).toBe(4);
       expect(await unfinishedBatches(fixture.company.id)).toHaveLength(0);
+    });
+
+    it("is finished by the scheduled drain, without a person pressing anything", async () => {
+      const batchId = await stall(4);
+
+      // Runs until there is nothing queued, exactly as the hourly job would
+      // over successive passes.
+      for (let pass = 0; pass < 6; pass++) {
+        const result = await drainEmailBatches();
+        if (!result.drained) break;
+      }
+
+      const batch = await prisma.emailBatch.findFirstOrThrow({ where: { id: batchId } });
+      expect(batch.status).toBe("COMPLETED");
+      expect(batch.sentCount).toBe(4);
+      expect(await prisma.emailLog.count({ where: { emailBatchId: batchId } })).toBe(4);
+    });
+
+    it("the drain has nothing to do when every batch is finished", async () => {
+      const abigail = await consultant("Abigail Bautista");
+      const { batchId } = await queueBulkSend({
+        companyId: fixture.company.id,
+        workOrderIds: [(await workOrder(abigail.id)).id],
+        groupByConsultant: false,
+      });
+      await processBatch(fixture.company.id, batchId);
+
+      expect((await drainEmailBatches()).drained).toBeNull();
     });
 
     it("does not offer another company's stalled batch", async () => {

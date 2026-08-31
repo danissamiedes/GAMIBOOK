@@ -82,6 +82,8 @@ export async function updateCustomer(input: {
       billingAddress: optionalText(formData.get("billingAddress")),
       notes: optionalText(formData.get("notes")),
       isActive: formData.get("isActive") === "on",
+      // Absence is "off": an unchecked box submits nothing at all.
+      sendEmails: formData.get("sendEmails") === "on",
     },
   });
 

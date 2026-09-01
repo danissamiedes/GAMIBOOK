@@ -1855,3 +1855,27 @@ least a message someone genuinely owed. An unwanted send cannot be recalled —
 nine people already have it. Reversibility was the stated test for what may run
 unattended, and the drain job was let through it because the queue looked like
 unfinished work rather than a record of work already done.
+
+## The Supabase Data API is off, rather than covered in RLS policies
+
+Supabase's advisor mailed "Table publicly accessible — Row-Level Security is not
+enabled", and it was right. Supabase generates a REST API over the `public`
+schema reachable with the anon key, which is public by design; RLS is what
+normally stops it. Prisma migrations do not enable RLS, and Supabase's default
+grants give `anon` access to new tables in `public`. So every table in the
+ledger sat behind an API guarded by nothing.
+
+The obvious response — enable RLS on forty tables and write policies — answers
+the advisor by building a lock for a door nobody uses. This app has no
+`supabase-js`, no anon key in any environment, and reaches Postgres only through
+Prisma. The REST API is pure attack surface.
+
+So it is switched off at **Settings → API → Exposed schemas**. One setting, no
+migration, and it cannot affect the app: Prisma speaks the Postgres wire
+protocol, not REST. The RLS route also carries a risk this one does not — if the
+role in the connection string does not bypass RLS, every screen returns zero rows
+until policies exist, which is a much worse Tuesday than an advisor email.
+
+RLS is still worth adding later as a second layer, in case the Data API is ever
+switched back on. Second, not first: defence in depth is only depth if the outer
+door is already shut.

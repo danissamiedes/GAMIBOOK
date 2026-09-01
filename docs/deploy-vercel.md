@@ -103,6 +103,31 @@ moment it returns a response, so the jobs never fire and nothing says so.
 deploy. Set it afterwards and redeploy. Environment variable changes never apply
 to an already-built deployment.
 
+## 3a. Turn off the Data API
+
+**Settings → API → Exposed schemas**: remove `public`, leaving nothing exposed.
+
+Supabase generates a REST API over the `public` schema, reachable with the
+**anon key** — a key designed to be public and embedded in browsers. Row-Level
+Security is what normally stops that key reading anything, and tables created by
+Prisma migrations do not have it: Prisma does not enable RLS, and Supabase's
+default grants hand `anon` access to new tables. The result is the whole ledger
+behind an API guarded by nothing. Supabase's advisor mails about it as
+`rls_disabled_in_public`, and it is right.
+
+This app never calls that API. There is no `supabase-js`, no anon key in any
+environment, and every query goes through Prisma over a direct Postgres
+connection. So the API is attack surface with no benefit, and switching it off
+is both the smallest fix and the complete one — Prisma speaks the Postgres wire
+protocol, not REST, so nothing in the app can notice.
+
+Enabling RLS on all forty-odd tables answers the same advisor and is much more
+work; worse, if the role in the connection string does not bypass RLS, every
+screen returns zero rows until policies exist. Worth doing later as a second
+layer, once the API is already closed. Not worth doing first.
+
+Storage is unaffected: it is reached with S3 credentials, not the Data API.
+
 ## 4. Match the function region to the database
 
 **Settings → Functions → Function Region**, set to your Supabase project's

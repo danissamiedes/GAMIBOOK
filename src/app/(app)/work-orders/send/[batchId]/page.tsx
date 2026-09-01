@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { sectionScope } from "@/lib/session-scope";
-import { batchWithItems, processBatch, retryFailed } from "@/lib/email/bulk-send";
+import {
+  batchWithItems,
+  discardRemaining,
+  processBatch,
+  retryFailed,
+} from "@/lib/email/bulk-send";
 import { dryRun } from "@/lib/email/gmail";
 import { PostingError } from "@/lib/errors";
 import { formatMoney } from "@/lib/currency";
@@ -47,6 +52,20 @@ export default async function BulkSendResultPage({
     "use server";
     const inner = await sectionScope("CONSULTANTS");
     await processBatch(inner.companyId, batchId);
+    redirect(`/work-orders/send/${batchId}`);
+  }
+
+  async function discard() {
+    "use server";
+    const inner = await sectionScope("CONSULTANTS");
+    try {
+      await discardRemaining({ companyId: inner.companyId, batchId, userId: inner.userId });
+    } catch (thrown) {
+      if (thrown instanceof PostingError) {
+        redirect(`/work-orders/send/${batchId}?error=${encodeURIComponent(thrown.message)}`);
+      }
+      throw thrown;
+    }
     redirect(`/work-orders/send/${batchId}`);
   }
 
@@ -97,6 +116,16 @@ export default async function BulkSendResultPage({
             {/* Primary when it is the thing left to do: a batch that stopped
                 early is unfinished work, not a footnote. */}
             <Button type="submit">Continue sending — {remaining} left</Button>
+          </form>
+        ) : null}
+        {remaining > 0 ? (
+          <form action={discard}>
+            {/* The other honest answer. If these went out another way, the
+                queue is stale rather than unfinished, and sending it would put
+                a second copy in someone's inbox. */}
+            <Button variant="secondary" type="submit">
+              Discard the rest without sending
+            </Button>
           </form>
         ) : null}
         <Link href="/work-orders/send">

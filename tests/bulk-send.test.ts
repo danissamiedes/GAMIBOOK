@@ -10,7 +10,6 @@ import {
   queueBulkSend,
   retryFailed,
   unfinishedBatches,
-  drainEmailBatches,
 } from "@/lib/email/bulk-send";
 import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { resetStorage } from "@/lib/storage";
@@ -392,32 +391,32 @@ describe("bulk work order send", () => {
       expect(await unfinishedBatches(fixture.company.id)).toHaveLength(0);
     });
 
-    it("is finished by the scheduled drain, without a person pressing anything", async () => {
+    it("does not send again what was already emailed from another batch", async () => {
+      // The real failure this guard exists for: a send stopped half way, the
+      // same work orders were re-sent by hand from a new batch, and the old
+      // queue still believed it had work to do. Continuing it must not put a
+      // second copy in anyone's inbox.
       const batchId = await stall(4);
-
-      // Runs until there is nothing queued, exactly as the hourly job would
-      // over successive passes.
-      for (let pass = 0; pass < 6; pass++) {
-        const result = await drainEmailBatches();
-        if (!result.drained) break;
-      }
-
-      const batch = await prisma.emailBatch.findFirstOrThrow({ where: { id: batchId } });
-      expect(batch.status).toBe("COMPLETED");
-      expect(batch.sentCount).toBe(4);
-      expect(await prisma.emailLog.count({ where: { emailBatchId: batchId } })).toBe(4);
-    });
-
-    it("the drain has nothing to do when every batch is finished", async () => {
-      const abigail = await consultant("Abigail Bautista");
-      const { batchId } = await queueBulkSend({
-        companyId: fixture.company.id,
-        workOrderIds: [(await workOrder(abigail.id)).id],
-        groupByConsultant: false,
+      const stranded = await prisma.emailBatchItem.findMany({
+        where: { emailBatchId: batchId, status: "QUEUED" },
       });
+      expect(stranded.length).toBeGreaterThan(0);
+
+      // Sent by hand, after this batch was raised.
+      await prisma.workOrder.updateMany({
+        where: { id: { in: stranded.flatMap((item) => item.workOrderIds) } },
+        data: { lastEmailedAt: new Date() },
+      });
+
+      const before = await prisma.emailLog.count();
       await processBatch(fixture.company.id, batchId);
 
-      expect((await drainEmailBatches()).drained).toBeNull();
+      expect(await prisma.emailLog.count()).toBe(before);
+      const after = await prisma.emailBatchItem.findMany({
+        where: { id: { in: stranded.map((item) => item.id) } },
+      });
+      expect(after.every((item) => item.status === "SKIPPED")).toBe(true);
+      expect(after[0].reason).toMatch(/Already emailed/);
     });
 
     it("does not offer another company's stalled batch", async () => {

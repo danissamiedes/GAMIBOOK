@@ -21,7 +21,12 @@ const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d));
 const DAY = 86_400_000;
 
 /**
- * SPEC §10.2: chasing overdue invoices without being asked.
+ * SPEC §10.2: chasing overdue invoices.
+ *
+ * NOTE: this is not wired to the scheduler. Nothing calls `runInvoiceReminders`
+ * on a timer — the app does not email a document to anyone outside the company
+ * unless a person pressed send. The service and these tests are kept so that
+ * turning it on is one line, not a rebuild.
  *
  * The tests worth having here are about what it does NOT send: an invoice that
  * is paid, one whose customer opted out, one chased three days ago, and

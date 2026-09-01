@@ -297,6 +297,30 @@ export async function processBatch(
       continue;
     }
 
+    // Everything in this item has been emailed since the batch was raised, so
+    // sending it now would be a second copy of mail that already went. This is
+    // not hypothetical: a send that stopped half way left nine messages queued,
+    // the same nine were re-sent by hand from a new batch, and the old queue
+    // still believed it had work to do.
+    const alreadySent = await prisma.workOrder.count({
+      where: {
+        companyId,
+        id: { in: item.workOrderIds },
+        lastEmailedAt: { gt: batch.createdAt },
+      },
+    });
+    if (alreadySent >= item.workOrderIds.length && item.workOrderIds.length > 0) {
+      await prisma.emailBatchItem.update({
+        where: { id: item.id },
+        data: {
+          status: "SKIPPED",
+          reason: "Already emailed after this batch was queued — not sent again.",
+          attempts: item.attempts + 1,
+        },
+      });
+      continue;
+    }
+
     try {
       const composed = await composeMessage({
         companyId,
@@ -468,34 +492,39 @@ export async function unfinishedBatches(companyId: string) {
 }
 
 /**
- * The scheduled job: finish any batch still holding queued messages.
+ * Abandon what a batch has not sent.
  *
- * A pass stops itself at 45 seconds and leaves the rest queued, which made a
- * large send take several presses of "Continue sending". This drains them in
- * the background instead, so the button becomes the thing you use when you do
- * not want to wait rather than the thing you must use to finish at all.
- *
- * One batch per run, oldest first: the next run is an hour away, and a company
- * that queued three batches would rather the first one finish than all three
- * crawl. Nothing here can send twice — `processBatch` only looks at items still
- * marked QUEUED.
+ * Until now the only thing you could do with a stranded queue was send it, and
+ * that is the wrong answer when the documents have already gone out another
+ * way. Marks the remainder SKIPPED and closes the batch; nothing already sent
+ * is touched.
  */
-export async function drainEmailBatches(budgetMs?: number) {
+export async function discardRemaining(options: {
+  companyId: string;
+  batchId: string;
+  userId?: string | null;
+}) {
   const batch = await prisma.emailBatch.findFirst({
-    where: { status: { in: ["QUEUED", "SENDING"] }, items: { some: { status: "QUEUED" } } },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, companyId: true },
+    where: { id: options.batchId, companyId: options.companyId },
   });
-  if (!batch) return { drained: null };
+  if (!batch) throw new PostingError("Batch not found in this company");
 
-  const finished = await processBatch(batch.companyId, batch.id, { budgetMs });
-  return {
-    drained: batch.id,
-    sent: finished.sentCount,
-    remaining: await prisma.emailBatchItem.count({
-      where: { emailBatchId: batch.id, status: "QUEUED" },
-    }),
-  };
+  const dropped = await prisma.emailBatchItem.updateMany({
+    where: { emailBatchId: batch.id, status: "QUEUED" },
+    data: { status: "SKIPPED", reason: "Discarded — not sent." },
+  });
+  if (dropped.count === 0) throw new PostingError("Nothing in this batch is still waiting");
+
+  await writeAudit({
+    companyId: options.companyId,
+    userId: options.userId,
+    action: "work_order.bulk_send_discarded",
+    entityType: "EmailBatch",
+    entityId: batch.id,
+    summary: `${dropped.count} queued message(s) discarded without sending`,
+  });
+
+  return finaliseBatch(options.companyId, batch.id);
 }
 
 export async function batchWithItems(companyId: string, batchId: string) {

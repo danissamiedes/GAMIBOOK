@@ -1,15 +1,21 @@
 import { autoCloseStaleEntries } from "@/lib/time/clock";
 import { runRecurringInvoices } from "@/lib/invoices/recurring";
 import { runRecurringBills } from "@/lib/payables/recurring-bills";
-import { runInvoiceReminders } from "@/lib/invoices/reminders";
-import { drainEmailBatches } from "@/lib/email/bulk-send";
 import { runBankAutoLink } from "@/lib/bank/auto-link";
 import { pruneRateLimits } from "@/lib/rate-limit";
 
 /**
- * In-process scheduler (SPEC §7.2, §8.2a, §9, §10.2): the stale-shift
- * auto-close, the two recurring runs, and the three jobs that chase, send and
- * match without being asked.
+ * In-process scheduler (SPEC §7.2, §8.2a, §9): the stale-shift auto-close,
+ * the two recurring runs, and the bank auto-link.
+ *
+ * **Nothing here emails a document to anyone outside the company.** A work
+ * order or an invoice reaches a consultant or a customer only because a person
+ * pressed a button for it. That rule is the whole reason the drain job and the
+ * reminder job were taken back out: a scheduled sender turned a batch nobody
+ * had finished into a second copy of mail that had already gone.
+ *
+ * The recurring runs record documents; they do not send them. The auto-link
+ * touches nothing outside the ledger.
  *
  * The jobs themselves are plain functions that take no scheduler state, so
  * moving this to a queue later means replacing this file and nothing else.
@@ -45,22 +51,6 @@ export const JOBS: Job[] = [
     name: "recurring-bills",
     everyMinutes: 60,
     run: () => runRecurringBills(),
-  },
-  {
-    // Hourly, but the weekly interval is enforced per invoice, so running
-    // often costs nothing and means a newly enabled company starts chasing
-    // within the hour rather than at some fixed time it did not choose.
-    // Sends nothing for a company that has not switched it on.
-    name: "invoice-reminders",
-    everyMinutes: 60,
-    run: () => runInvoiceReminders(),
-  },
-  {
-    // Finishes bulk sends that stopped at their own time budget, so a large
-    // batch completes on its own rather than needing repeated presses.
-    name: "drain-email-batches",
-    everyMinutes: 15,
-    run: () => drainEmailBatches(),
   },
   {
     // Only the LINK outcome, only where exactly one payment can be meant.

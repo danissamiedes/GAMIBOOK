@@ -1811,3 +1811,47 @@ Closing a month, paying anyone, deleting anything, and completing a
 reconciliation. Each is a judgement or an irreversible commitment of money, and
 the value of the click is that a person made it. Automating a close would only
 mean the books close whether or not they are right.
+
+## Nothing on a timer emails a document — reversing yesterday's entry
+
+The drain job sent nine work orders a second time, to nine consultants, and no
+one asked it to.
+
+The mechanism, exactly. A bulk send on 28 August was killed mid-loop: nine
+messages sent, nine left QUEUED, the batch never finalised. Those nine were then
+re-sent **by hand from a new batch**, which is the correct outcome and what the
+recipients received. The old batch still held nine QUEUED items. The drain job
+deployed on 31 August found that batch — oldest first, status SENDING, items
+QUEUED — and did exactly what it was written to do.
+
+Every safety in that code was real and none of them helped. `processBatch` never
+sends the same *item* twice; it had no idea those *documents* had gone out
+through a different batch. The guarantee was scoped to a batch, and the duplicate
+crossed between batches.
+
+Three changes.
+
+**Neither sender runs on a timer any more.** The drain job is gone and the
+reminder job is unregistered. The rule is now written at the top of the
+scheduler: *nothing here emails a document to anyone outside the company.* A
+work order or an invoice reaches a consultant or a customer because a person
+pressed a button for it. The recurring runs stay — they record documents, they
+do not send them — and so does the bank auto-link, which touches nothing outside
+the ledger.
+
+**A queued item whose documents were all emailed after its batch was raised is
+skipped**, with that as its reason. This is the guard that would have caught it,
+and it protects the manual "Continue sending" button too, which had the same
+hole.
+
+**A stranded batch can be discarded.** Until now the only thing you could do
+with one was send it, which is the wrong answer when the mail has already gone
+another way.
+
+The judgement worth recording is not "add a guard". It is that the drain job was
+the one thing on that list whose failure mode was **not** recoverable. Auto-link
+posts nothing and unmatches cleanly; a bad reminder is embarrassing but is at
+least a message someone genuinely owed. An unwanted send cannot be recalled —
+nine people already have it. Reversibility was the stated test for what may run
+unattended, and the drain job was let through it because the queue looked like
+unfinished work rather than a record of work already done.

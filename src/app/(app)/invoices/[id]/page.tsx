@@ -19,6 +19,7 @@ import { ConfigurationError, PostingError } from "@/lib/errors";
 import { prepareInvoiceEmail, sendEmail, stampEmailed } from "@/lib/email/send";
 import { dryRun } from "@/lib/email/gmail";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
+import { DocumentTasks } from "@/components/document-tasks";
 
 export default async function InvoicePage({
   params,
@@ -443,6 +444,12 @@ export default async function InvoicePage({
         </Card>
 
         <div className="space-y-6">
+          <DocumentTasks
+            scope={scope}
+            link={{ invoiceId: id }}
+            back={`/invoices/${id}`}
+            title={`Task on ${invoice.invoiceNumber ?? "invoice"}`}
+          />
           <Card>
             <h2 className="mb-3 text-sm font-semibold">Document</h2>
             <div className="space-y-3">

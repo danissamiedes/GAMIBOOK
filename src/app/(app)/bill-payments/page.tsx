@@ -31,6 +31,7 @@ import {
   PageHeader,
   Select,
 } from "@/components/ui";
+import { ListTaskDialog, TaskCell, openTaskCounts } from "@/components/list-tasks";
 
 export const metadata = { title: pageTitle("Bill payments") };
 
@@ -51,6 +52,9 @@ export default async function BillPaymentsPage({
     saved?: string;
     delete?: string;
     deleted?: string;
+    task?: string;
+    taskSaved?: string;
+    taskError?: string;
   }>;
 }) {
   const scope = await companyScope();
@@ -126,6 +130,10 @@ export default async function BillPaymentsPage({
   // the same rule the delete enforces so the button and the action never
   // disagree. Two queries for the whole page rather than two per row.
   const liveIds = payments.filter((payment) => !payment.reversedAt).map((payment) => payment.id);
+  const taskCounts = await openTaskCounts(scope, "billPaymentId", payments.map((p) => p.id));
+  const taskFor = params.task
+    ? (payments.find((entry) => entry.id === params.task) ?? null)
+    : null;
   const [postings, bankMatches] = await Promise.all([
     liveIds.length
       ? prisma.journalEntry.findMany({
@@ -341,6 +349,19 @@ export default async function BillPaymentsPage({
       />
 
       {params.error ? <Alert tone="error">{params.error}</Alert> : null}
+      {params.taskError ? (
+        <Alert tone="error">{decodeURIComponent(params.taskError)}</Alert>
+      ) : null}
+      {params.taskSaved ? <Alert tone="success">Task saved.</Alert> : null}
+      {taskFor ? (
+        <ListTaskDialog
+          scope={scope}
+          field="billPaymentId"
+          documentId={taskFor.id}
+          back="/bill-payments"
+          title={`Task on the payment of ${formatAccountingDate(taskFor.date)}`}
+        />
+      ) : null}
       {params.saved ? <Alert tone="success">Saved.</Alert> : null}
       {params.deleted ? (
         <Alert tone="success">
@@ -502,6 +523,10 @@ export default async function BillPaymentsPage({
                               Reverse
                             </Button>
                           </form>
+                          <TaskCell
+                            href={`/bill-payments?task=${payment.id}`}
+                            open={taskCounts.get(payment.id) ?? 0}
+                          />
                           {deleteRefusal(payment) === null ? (
                             // A link, not a submit: deleting is irreversible,
                             // so it takes a second screen that says what will

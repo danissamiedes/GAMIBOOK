@@ -16,6 +16,7 @@ import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib
 import { formatMoney } from "@/lib/currency";
 import { PostingError } from "@/lib/errors";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader } from "@/components/ui";
+import { DocumentTasks } from "@/components/document-tasks";
 
 export default async function SalesOrderPage({
   params,
@@ -209,8 +210,16 @@ export default async function SalesOrderPage({
           ) : null}
         </Card>
 
-        <Card>
-          <h2 className="mb-3 text-sm font-semibold">Actions</h2>
+        <div className="space-y-6">
+          <DocumentTasks
+            scope={scope}
+            link={{ salesOrderId: id }}
+            back={`/sales-orders/${id}`}
+            title={`Task on ${order.orderNumber ?? "sales order"}`}
+          />
+
+          <Card>
+            <h2 className="mb-3 text-sm font-semibold">Actions</h2>
           <div className="space-y-3">
               {order.status === "DRAFT" || order.status === "CONFIRMED" ? (
                 <Link
@@ -274,7 +283,8 @@ export default async function SalesOrderPage({
               </Link>
             ) : null}
           </div>
-        </Card>
+          </Card>
+        </div>
       </div>
     </>
   );

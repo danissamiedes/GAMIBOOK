@@ -28,6 +28,7 @@ import {
   PageHeader,
   Select,
 } from "@/components/ui";
+import { ListTaskDialog, TaskCell, openTaskCounts } from "@/components/list-tasks";
 
 export const metadata = { title: pageTitle("Expenses and bills") };
 
@@ -46,6 +47,9 @@ export default async function ExpensesPage({
     saved?: string;
     delete?: string;
     deleted?: string;
+    task?: string;
+    taskSaved?: string;
+    taskError?: string;
   }>;
 }) {
   const scope = await sectionScope("VENDORS");
@@ -129,6 +133,17 @@ export default async function ExpensesPage({
       booksClosedThrough: company.booksClosedThrough,
     });
   }
+
+  const taskCounts = await openTaskCounts(
+    scope,
+    "expenseId",
+    expenses.map((expense) => expense.id),
+  );
+  // The row whose "Task" link was clicked. Checked against what is on screen so
+  // a guessed id cannot open a dialog for another company's expense.
+  const taskFor = params.task
+    ? (expenses.find((expense) => expense.id === params.task) ?? null)
+    : null;
 
   // The row named by ?delete=, and only if it is genuinely deletable: a stale
   // link or a guessed id gets no confirmation screen.
@@ -294,6 +309,19 @@ export default async function ExpensesPage({
         description="A direct expense is paid as you record it. A bill is owed and cleared later."
       />
       {params.error ? <Alert tone="error">{params.error}</Alert> : null}
+      {params.taskError ? (
+        <Alert tone="error">{decodeURIComponent(params.taskError)}</Alert>
+      ) : null}
+      {params.taskSaved ? <Alert tone="success">Task saved.</Alert> : null}
+      {taskFor ? (
+        <ListTaskDialog
+          scope={scope}
+          field="expenseId"
+          documentId={taskFor.id}
+          back={`/expenses?tab=${tab}`}
+          title={`Task on ${taskFor.description}`}
+        />
+      ) : null}
       {params.saved ? (
         <Alert tone="success">
           Saved. The original entry was reversed and the corrected one posted in
@@ -415,6 +443,10 @@ export default async function ExpensesPage({
                     </td>
                     <td className="py-2 text-right">
                       <div className="flex items-center justify-end">
+                        <TaskCell
+                          href={`/expenses?tab=${tab}&task=${expense.id}`}
+                          open={taskCounts.get(expense.id) ?? 0}
+                        />
                         {editable(expense) ? (
                           <Link
                             href={`/expenses?tab=${tab}&edit=${expense.id}`}

@@ -19,6 +19,7 @@ import { ConfigurationError, PostingError } from "@/lib/errors";
 import { prepareWorkOrderEmail, sendEmail, stampEmailed } from "@/lib/email/send";
 import { dryRun } from "@/lib/email/gmail";
 import { Alert, Button, Card, DataTable, Field, Input, PageHeader, Select } from "@/components/ui";
+import { DocumentTasks } from "@/components/document-tasks";
 
 export default async function WorkOrderPage({
   params,
@@ -412,6 +413,12 @@ export default async function WorkOrderPage({
         </Card>
 
         <div className="space-y-6">
+          <DocumentTasks
+            scope={scope}
+            link={{ workOrderId: id }}
+            back={`/work-orders/${id}`}
+            title={`Task on ${workOrder.workOrderNumber ?? "work order"}`}
+          />
           <Card>
             <h2 className="mb-3 text-sm font-semibold">Document</h2>
             <div className="space-y-3">

@@ -138,6 +138,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     {
       label: "Other",
       items: only([
+        // Everyone: a task board that hid itself from some members would be a
+        // board nobody could rely on. Which tasks appear is filtered per person.
+        { href: "/tasks", label: "Tasks" },
         scope.hasSection("REPORTS") && { href: "/journal", label: "Journal" },
         scope.hasSection("SETTINGS") && { href: "/accounts", label: "Accounts" },
         scope.hasSection("SETTINGS") && { href: "/settings/branding", label: "Branding" },

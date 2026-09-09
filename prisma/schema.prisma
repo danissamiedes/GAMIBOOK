@@ -241,6 +241,19 @@ enum InvoiceStatus {
   VOID
 }
 
+/// SPEC §14. A task is open until someone finishes it.
+enum TaskStatus {
+  OPEN
+  COMPLETED
+}
+
+/// SPEC §14. Ordering only — nothing behaves differently by priority.
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+}
+
 /// SPEC §7.1.
 enum PaymentMethod {
   BANK_TRANSFER
@@ -341,6 +354,7 @@ model Company {
   recurringBillTemplates    RecurringBillTemplate[]
   bankReconciliations       BankReconciliation[]
   receiptUploads            ReceiptUpload[]
+  tasks                     Task[]
 
   @@index([organizationId])
 }
@@ -362,6 +376,8 @@ model User {
   auditLogs      AuditLog[]
   vendors        Vendor[]
   receiptUploads ReceiptUpload[]
+  tasksAssigned  Task[]               @relation("TaskAssignee")
+  tasksCreated   Task[]               @relation("TaskCreator")
 }
 
 model Membership {
@@ -662,6 +678,7 @@ model Invoice {
   applications PaymentApplication[]
   /// Set when this invoice was generated from a recurring template (§7.2).
   recurringRun RecurringInvoiceRun?
+  tasks        Task[]
 
   @@unique([companyId, invoiceNumber])
   @@index([companyId, status])
@@ -715,6 +732,7 @@ model Payment {
   customer         Customer             @relation(fields: [customerId], references: [id])
   applications     PaymentApplication[]
   bankTransactions BankTransaction[]
+  tasks            Task[]
 
   @@index([companyId, date])
   @@index([companyId, customerId])
@@ -815,6 +833,7 @@ model WorkOrder {
   lines            WorkOrderLine[]
   applications     BillPaymentApplication[]
   bankTransactions BankTransaction[]
+  tasks            Task[]
 
   @@unique([companyId, workOrderNumber])
   @@index([companyId, status])
@@ -881,6 +900,7 @@ model Expense {
   receipt      ReceiptUpload?
   /// Set when this expense was recorded by a recurring template (SPEC §8.2a).
   recurringRun RecurringBillRun?
+  tasks        Task[]
 
   @@index([companyId, kind, status])
   @@index([companyId, kind, date])
@@ -912,6 +932,7 @@ model BillPayment {
   vendor           Vendor                   @relation(fields: [vendorId], references: [id])
   applications     BillPaymentApplication[]
   bankTransactions BankTransaction[]
+  tasks            Task[]
 
   @@index([companyId, date])
   @@index([companyId, vendorId])
@@ -994,6 +1015,7 @@ model SalesOrder {
   lines    SalesOrderLine[]
   /// The invoice this order became, if it has been converted.
   invoice  Invoice?
+  tasks    Task[]
 
   @@unique([companyId, orderNumber])
   @@index([companyId, status])
@@ -1554,4 +1576,60 @@ enum ReceiptStatus {
   APPROVED
   /// Not an expense — kept, but out of the queue.
   DISMISSED
+}
+
+/// SPEC §14. A note-to-self or to a colleague, optionally hung on a document.
+///
+/// The document link is six nullable foreign keys rather than a polymorphic
+/// (type, id) pair, matching BillPaymentApplication: the database keeps the
+/// reference honest, and deleting a document takes its tasks with it instead
+/// of leaving them pointing at nothing. At most one may be set.
+///
+/// Who may see a task is derived from which one is set — a task on an invoice
+/// is visible to whoever holds SALES — so there is no `section` column to drift
+/// out of step with the document it hangs on.
+model Task {
+  id        String @id @default(cuid())
+  companyId String
+
+  subject  String
+  note     String?
+  dueDate  DateTime?    @db.Date
+  priority TaskPriority @default(NORMAL)
+  status   TaskStatus   @default(OPEN)
+
+  assignedUserId  String?
+  createdByUserId String?
+
+  /// At most one of these is set. None means a task with no document behind it.
+  invoiceId     String?
+  salesOrderId  String?
+  workOrderId   String?
+  expenseId     String?
+  billPaymentId String?
+  paymentId     String?
+
+  completedAt       DateTime?
+  completedByUserId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignedTo  User?        @relation("TaskAssignee", fields: [assignedUserId], references: [id])
+  createdBy   User?        @relation("TaskCreator", fields: [createdByUserId], references: [id])
+  invoice     Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  salesOrder  SalesOrder?  @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  workOrder   WorkOrder?   @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  expense     Expense?     @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  billPayment BillPayment? @relation(fields: [billPaymentId], references: [id], onDelete: Cascade)
+  payment     Payment?     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status, dueDate])
+  @@index([companyId, assignedUserId, status])
+  @@index([invoiceId])
+  @@index([salesOrderId])
+  @@index([workOrderId])
+  @@index([expenseId])
+  @@index([billPaymentId])
+  @@index([paymentId])
 }

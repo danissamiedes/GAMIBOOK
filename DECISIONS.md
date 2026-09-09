@@ -1879,3 +1879,53 @@ until policies exist, which is a much worse Tuesday than an advisor email.
 RLS is still worth adding later as a second layer, in case the Data API is ever
 switched back on. Second, not first: defence in depth is only depth if the outer
 door is already shut.
+
+## Tasks, and why they can never leak a document
+
+A note on a document — "call Robelyn about the rate", "get the signed copy" —
+with a subject, a note, a due date, a priority and someone's name on it. Nothing
+here posts; it is a to-do list that knows what it is next to.
+
+**Visibility is derived, never stored.** A task on an invoice is visible to
+whoever holds SALES, one on a work order to whoever holds CONSULTANTS. The
+alternative — a `section` column written at creation — is a copy of the
+document's own access rule and free to drift out of step with it. Deriving it
+means a task can never be more visible than the document it is about, and the
+filter is built as a list of what a person *may* see rather than what to hide,
+so a document type added later is invisible until someone names it. A task with
+no document has nothing to protect and is visible to everyone.
+
+Bill payments are the one document with two owners: consultants and vendors are
+settled on one screen by whoever holds either section, so a task there follows
+the same rule.
+
+**Six nullable foreign keys, not a polymorphic (type, id) pair**, matching
+`BillPaymentApplication`. The database keeps the reference honest and a deleted
+document takes its tasks with it, rather than leaving rows pointing at nothing.
+A CHECK constraint enforces the "at most one" the column list only implies — a
+task claiming to be about an invoice *and* a work order would appear under two
+sections and be listed twice. A second constraint ties `completedAt` to the
+status, because a completed task with no completion time is a status nobody can
+trust.
+
+**Where the button goes** follows the shape of each screen rather than a rule
+imposed on all six. Invoices, sales orders and work orders have detail pages and
+get a panel in the sidebar: the button, and the tasks already there with a tick
+box. Expenses, bill payments and customer payments are tables, so each row gets
+a small Task link showing its open count, and the page renders **one** dialog
+that opens on arrival — a dialog per row would be two hundred hidden forms to
+make one of them reachable.
+
+### The bug the browser found
+
+The pop-out is a native `<dialog>`: the browser already gives focus trapping,
+Escape, an inert background and the top layer, and a bespoke modal gets at least
+one of those subtly wrong. It is rendered with `open` so the form still exists
+with JavaScript off — and `showModal()` throws `InvalidStateError` on a dialog
+that is already open, so the fallback and the effect fought each other and the
+error boundary swallowed the page. It closes the inline copy before opening the
+modal one.
+
+Worth recording because of how it hid: the server returned 200 with nothing in
+its log, since the throw was in the browser. Only the rendered page said
+anything was wrong.

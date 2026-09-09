@@ -29,6 +29,9 @@ import {
   Select,
 } from "@/components/ui";
 import { ListTaskDialog, TaskCell, openTaskCounts } from "@/components/list-tasks";
+import { TaskDialog } from "@/components/task-dialog";
+import { addTask } from "@/app/(app)/tasks/actions";
+import { assignableUsers } from "@/lib/tasks";
 
 export const metadata = { title: pageTitle("Expenses and bills") };
 
@@ -134,6 +137,7 @@ export default async function ExpensesPage({
     });
   }
 
+  const assignees = await assignableUsers(scope.companyId);
   const taskCounts = await openTaskCounts(
     scope,
     "expenseId",
@@ -634,6 +638,37 @@ export default async function ExpensesPage({
               ) : null}
             </div>
           </form>
+
+          {/* Outside the form above, not inside it: the pop-out carries its own
+              form, and a form nested in a form is invalid HTML that browsers
+              resolve by dropping one of them. */}
+          <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+            {editing ? (
+              <TaskDialog
+                action={addTask}
+                users={assignees}
+                back={`/expenses?tab=${tab}&edit=${editing.id}`}
+                link={{ expenseId: editing.id }}
+                defaultAssigneeId={scope.userId}
+                today={isoDate(today())}
+                label="Add a task"
+                title={`Task on ${editing.description}`}
+              />
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex h-9 cursor-not-allowed items-center rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-400 dark:border-slate-700 dark:text-slate-600"
+                >
+                  Add a task
+                </button>
+                <p className="mt-1 text-xs text-slate-500">
+                  Record the expense first — a task has to be about something.
+                </p>
+              </>
+            )}
+          </div>
         </Card>
       </div>
     </>

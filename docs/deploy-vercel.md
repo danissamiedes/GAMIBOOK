@@ -128,6 +128,35 @@ layer, once the API is already closed. Not worth doing first.
 
 Storage is unaffected: it is reached with S3 credentials, not the Data API.
 
+## 3b. Changing the domain
+
+The live deployment is **https://gamibook.com**, bought through Vercel; the
+`gamibook.vercel.app` address still resolves and is worth leaving alone as a
+fallback. If the domain ever changes again, three things move with it, and
+**each fails quietly**:
+
+1. **`AUTH_URL`** (Vercel → Settings → Environment Variables) → the new origin,
+   no trailing slash. Auth.js builds its sign-in callbacks from this, so a stale
+   value bounces anyone signing in at the new domain back to the old one.
+   **Redeploy afterwards** — environment variables never apply to a deployment
+   that is already built.
+2. **`LEDGER_URL`** (GitHub → Settings → Secrets and variables → Actions) → the
+   new origin. The hourly workflow calls `${LEDGER_URL}/api/cron`. The old
+   address keeps working, so nothing turns red; it just stops being the truth.
+3. **The Google OAuth redirect URI**, if Gmail is connected. The callback is
+   `<origin>/api/email/google/callback` and Google matches it character for
+   character. Add the new one alongside the old rather than replacing it, so
+   both work during the changeover.
+
+Nothing in the code needs editing. Invitation links and the OAuth callback are
+built by `requestOrigin()` from the request's own host, so they follow whatever
+domain the person is actually using, and `trustHost: true` in `src/lib/auth.ts`
+is what makes trusting that header safe behind Vercel's proxy.
+
+Set the **apex** as the primary domain and let Vercel redirect `www` to it. Do
+not remove the `.vercel.app` address: it is the way back in if a DNS change goes
+wrong.
+
 ## 4. Match the function region to the database
 
 **Settings → Functions → Function Region**, set to your Supabase project's

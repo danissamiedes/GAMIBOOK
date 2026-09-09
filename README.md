@@ -485,7 +485,7 @@ openssl rand -base64 32   # CRON_SECRET
 | `DATABASE_URL` | transaction pooler, 6543, `?pgbouncer=true&connection_limit=1` |
 | `DIRECT_DATABASE_URL` | session pooler, 5432 |
 | `AUTH_SECRET` | generated above |
-| `AUTH_URL` | `https://your-project.vercel.app` — update it if you add a domain |
+| `AUTH_URL` | the site's own origin, no trailing slash — `https://gamibook.com` on the live deployment. See **Changing the domain** in `docs/deploy-vercel.md` |
 | `TOKEN_ENCRYPTION_KEY` | generated above |
 | `CRON_SECRET` | generated above |
 | `STORAGE_DRIVER` | `s3` |

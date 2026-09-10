@@ -145,9 +145,14 @@ export default async function VendorsPage({
                   return (
                     <tr key={vendor.id} className="border-b border-slate-100 dark:border-slate-800/60">
                       <td className="py-2">
-                        <span className={vendor.isActive ? "" : "text-slate-400 line-through"}>
+                        <Link
+                          href={`/vendors/${vendor.id}`}
+                          className={`underline decoration-dotted underline-offset-2 ${
+                            vendor.isActive ? "" : "text-slate-400 line-through"
+                          }`}
+                        >
                           {vendor.name}
-                        </span>
+                        </Link>
                       </td>
                       <td className="py-2 text-slate-500">{vendor.email ?? "—"}</td>
                       <td className="py-2">{vendor.defaultCurrency}</td>

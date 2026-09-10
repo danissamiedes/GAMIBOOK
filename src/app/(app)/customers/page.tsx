@@ -153,9 +153,14 @@ export default async function CustomersPage({
                   return (
                     <tr key={customer.id} className="border-b border-slate-100 dark:border-slate-800/60">
                       <td className="py-2">
-                        <span className={customer.isActive ? "" : "text-slate-400 line-through"}>
+                        <Link
+                          href={`/customers/${customer.id}`}
+                          className={`underline decoration-dotted underline-offset-2 ${
+                            customer.isActive ? "" : "text-slate-400 line-through"
+                          }`}
+                        >
                           {customer.name}
-                        </span>
+                        </Link>
                         {customer.emails.length > 0 ? (
                           <div className="text-xs text-slate-500">{customer.emails.join(", ")}</div>
                         ) : null}

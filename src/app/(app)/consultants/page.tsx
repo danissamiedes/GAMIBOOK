@@ -176,9 +176,14 @@ export default async function ConsultantsPage({
                   return (
                     <tr key={consultant.id} className="border-b border-slate-100 dark:border-slate-800/60">
                       <td className="py-2">
-                        <span className={consultant.isActive ? "" : "text-slate-400 line-through"}>
+                        <Link
+                          href={`/consultants/${consultant.id}`}
+                          className={`underline decoration-dotted underline-offset-2 ${
+                            consultant.isActive ? "" : "text-slate-400 line-through"
+                          }`}
+                        >
                           {consultant.name}
-                        </span>
+                        </Link>
                         {consultant.user ? (
                           <div className="text-xs text-slate-500">
                             clocks in as {consultant.user.email}

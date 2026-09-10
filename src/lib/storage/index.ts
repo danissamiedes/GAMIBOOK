@@ -116,4 +116,7 @@ export const storageKeys = {
     `companies/${companyId}/pdf/${kind}/${id}.pdf`,
   receiptInbox: (companyId: string, receiptId: string, filename: string) =>
     `companies/${companyId}/inbox/${receiptId}/${filename.replace(/[^\w.\-]/g, "_")}`,
+  /** An attachment on a note about a customer, vendor or consultant. */
+  partyNote: (companyId: string, noteId: string, filename: string) =>
+    `companies/${companyId}/notes/${noteId}/${filename.replace(/[^\w.\-]/g, "_")}`,
 };

@@ -1929,3 +1929,40 @@ modal one.
 Worth recording because of how it hid: the server returned 200 with nothing in
 its log, since the throw was in the browser. Only the rendered page said
 anything was wrong.
+
+## Notes on a party, and the detail pages they forced
+
+Customers, vendors and consultants had no page of their own — a list with an
+edit form beside it, which was enough while a party was just a name and some
+terms. A note with attachments is not that: it accumulates, it is read rather
+than filled in, and it needs room. So each of the three gained a detail page,
+reached by clicking the name in the list.
+
+**Consultants and vendors are both `Vendor` rows**, so one `vendorId` covers
+both, and the two pages differ only in which section guards them —
+`CONSULTANTS` and `VENDORS`. Scoping each page by `kind` as well as by company
+is what stops one being read through the other's URL.
+
+**A note belongs to exactly one party**, enforced by a CHECK rather than left to
+the columns to imply. A note hanging off a customer *and* a vendor would appear
+on two pages governed by two different section rules, and the stricter of them
+would be the one that lost.
+
+**Files belong to the note, not to the party.** "The signed contract and the ID
+they sent" is one note with two files, and deleting the note takes both — out of
+storage as well as out of the database. A bucket quietly filling with files no
+row points at is the failure this avoids, so the delete removes bytes first and
+rows second: the other order leaves orphans on any storage hiccup.
+
+**Editing keeps the date and the author.** `createdAt` and `createdByUserId`
+never move; an `editedAt` appears and the note says "edited". The previous text
+goes into the audit trail, which is append-only and therefore the only thing
+that will still know what it used to say. Whoever wrote it may change it, and so
+may an owner — a note is not an accounting entry, but it is still somebody's
+words, and rewriting a colleague's is not a small thing.
+
+The upload is a plain multipart form and the panel is `<details>` rather than a
+dialog: several notes may be open at once, nothing needs a focus trap, and the
+whole thing works with JavaScript off. Attachments are served through a scoped
+route rather than a public URL — these are contracts and IDs about named people,
+and the bucket is private for the same reason receipts are.

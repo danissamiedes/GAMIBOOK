@@ -355,6 +355,7 @@ model Company {
   bankReconciliations       BankReconciliation[]
   receiptUploads            ReceiptUpload[]
   tasks                     Task[]
+  partyNotes                PartyNote[]
 
   @@index([organizationId])
 }
@@ -378,6 +379,7 @@ model User {
   receiptUploads ReceiptUpload[]
   tasksAssigned  Task[]               @relation("TaskAssignee")
   tasksCreated   Task[]               @relation("TaskCreator")
+  partyNotes     PartyNote[]          @relation("PartyNoteAuthor")
 }
 
 model Membership {
@@ -587,6 +589,7 @@ model Customer {
   payments     Payment[]
   journalLines JournalLine[]
   recurring    RecurringInvoiceTemplate[]
+  partyNotes   PartyNote[]
 
   @@index([companyId, name])
 }
@@ -791,6 +794,7 @@ model Vendor {
   recurring    RecurringBillTemplate[]
   journalLines JournalLine[]
   timeEntries  TimeEntry[]
+  partyNotes   PartyNote[]
 
   @@unique([companyId, externalRef])
   @@index([companyId, kind, name])
@@ -1632,4 +1636,53 @@ model Task {
   @@index([expenseId])
   @@index([billPaymentId])
   @@index([paymentId])
+}
+
+/// SPEC §15. A dated note on a customer, vendor or consultant, with whatever
+/// files belong with it — a signed contract, a copy of an ID, an email thread.
+///
+/// Two nullable foreign keys and a CHECK that exactly one is set: consultants
+/// and vendors are both Vendor rows, so `vendorId` covers them both, and a note
+/// belonging to nobody would be a note nobody could ever find again.
+///
+/// Nothing here touches the ledger. A note is what a person wrote down.
+model PartyNote {
+  id        String @id @default(cuid())
+  companyId String
+
+  customerId String?
+  vendorId   String?
+
+  body            String
+  createdByUserId String?
+  /// Set the first time the text is changed, so the list can say so. The
+  /// created date and the author never move.
+  editedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company   Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer  Customer?       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vendor    Vendor?         @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  createdBy User?           @relation("PartyNoteAuthor", fields: [createdByUserId], references: [id])
+  files     PartyNoteFile[]
+
+  @@index([companyId, customerId, createdAt])
+  @@index([companyId, vendorId, createdAt])
+}
+
+/// SPEC §15. One attachment on a note. Deleting the note deletes these rows;
+/// the service is what removes the bytes from storage.
+model PartyNoteFile {
+  id          String   @id @default(cuid())
+  partyNoteId String
+  fileKey     String
+  filename    String
+  mimeType    String?
+  sizeBytes   Int
+  createdAt   DateTime @default(now())
+
+  note PartyNote @relation(fields: [partyNoteId], references: [id], onDelete: Cascade)
+
+  @@index([partyNoteId])
 }

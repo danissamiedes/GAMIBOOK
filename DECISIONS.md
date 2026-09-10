@@ -2024,3 +2024,24 @@ keeps the app DST-safe if a company is ever run somewhere that observes it.
 The browser check for this found a second bug beside it: each note rendered a
 pair of rows wrapped in a fragment, with the keys on the rows rather than on the
 fragment React actually holds in the list. Keyed on the fragment now.
+
+### The party lists lost their Edit column
+
+The name in the first column already links to the record, so a second link in
+the last column went to exactly the same place. Two controls for one action is
+one more than a reader has to think about, and it cost the width of a whole
+column on a table that wants it.
+
+The last column is gone from consultants and vendors entirely. Customers keep
+theirs, because Deactivate/Reactivate lives there and that is a real second
+action, not a duplicate of the first.
+
+**"New consultant" became "Add New".** The heading above already says which
+list you are on, so the button repeating it was noise; the New screen it opens
+still names what it is creating.
+
+Two leftovers from removing the edit panel went with it: the card was still
+inside a `lg:grid-cols-[2fr_1fr]` grid with nothing in the second column, so the
+table rendered at two thirds width with dead space beside it, and the empty
+states still told you to add the first one "on the right" — where there was no
+longer anything. It is above now, and so is the button.

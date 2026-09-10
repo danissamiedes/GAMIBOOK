@@ -29,8 +29,6 @@ export default async function CustomersPage({
     },
   });
 
-  // The row named by ?edit=, if it is one this viewer can actually see.
-
   async function toggleActive(formData: FormData) {
     "use server";
     const inner = await sectionScope("SALES");
@@ -51,7 +49,7 @@ export default async function CustomersPage({
       <PageHeader title="Customers" description="Who you invoice, and in which currency." />
       <div className="mb-4">
         <Link href="/customers/new">
-          <Button>New customer</Button>
+          <Button>Add New</Button>
         </Link>
       </div>
       {error === "name" ? <Alert tone="error">A name is required.</Alert> : null}
@@ -64,11 +62,11 @@ export default async function CustomersPage({
       ) : null}
       {saved ? <Alert tone="success">Saved.</Alert> : null}
 
-      <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
+      <div className="mt-4">
         <Card>
           {customers.length === 0 ? (
             <EmptyState title="No customers yet">
-              Add your first one on the right. A customer needs a name and an email to invoice to;
+              Add your first one above. A customer needs a name and an email to invoice to;
               everything else can wait.
             </EmptyState>
           ) : (
@@ -111,12 +109,6 @@ export default async function CustomersPage({
                       </td>
                       <td className="py-2 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Link
-                            href={`/customers/${customer.id}`}
-                            className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                          >
-                            Edit
-                          </Link>
                           <form action={toggleActive}>
                             <input type="hidden" name="customerId" value={customer.id} />
                             <Button variant="ghost" type="submit">

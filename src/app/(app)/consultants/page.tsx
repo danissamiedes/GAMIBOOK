@@ -44,7 +44,7 @@ export default async function ConsultantsPage({
       />
       <div className="mb-4">
         <Link href="/consultants/new">
-          <Button>New consultant</Button>
+          <Button>Add New</Button>
         </Link>
       </div>
       {error === "email" ? (
@@ -65,11 +65,11 @@ export default async function ConsultantsPage({
       ) : null}
       {saved ? <Alert tone="success">Saved.</Alert> : null}
 
-      <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
+      <div className="mt-4">
         <Card>
           {consultants.length === 0 ? (
             <EmptyState title="No consultants yet">
-              Add the first one on the right. A default rate and the email addresses to send work
+              Add the first one above. A default rate and the email addresses to send work
               orders to are what make the rest of the app quick.
             </EmptyState>
           ) : (
@@ -81,7 +81,6 @@ export default async function ConsultantsPage({
                   <th className="py-2">Currency</th>
                   <th className="py-2 text-right">Rate</th>
                   <th className="py-2 text-right">Owed</th>
-                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -120,14 +119,6 @@ export default async function ConsultantsPage({
                       </td>
                       <td className="py-2 text-right tabular-nums">
                         {owed.isZero() ? "—" : formatMoney(owed.toFixed(2), company.baseCurrency)}
-                      </td>
-                      <td className="py-2 text-right">
-                        <Link
-                          href={`/consultants/${consultant.id}`}
-                          className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                          Edit
-                        </Link>
                       </td>
                     </tr>
                   );

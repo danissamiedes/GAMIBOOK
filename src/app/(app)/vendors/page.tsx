@@ -39,7 +39,7 @@ export default async function VendorsPage({
       />
       <div className="mb-4">
         <Link href="/vendors/new">
-          <Button>New vendor</Button>
+          <Button>Add New</Button>
         </Link>
       </div>
       {error === "name" ? <Alert tone="error">A name is required.</Alert> : null}
@@ -50,11 +50,11 @@ export default async function VendorsPage({
       {error === "notFound" ? <Alert tone="error">That vendor is no longer here.</Alert> : null}
       {saved ? <Alert tone="success">Saved.</Alert> : null}
 
-      <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
+      <div className="mt-4">
         <Card>
           {vendors.length === 0 ? (
             <EmptyState title="No vendors yet">
-              Add the first one on the right. Vendors here are the regular kind — consultants live
+              Add the first one above. Vendors here are the regular kind — consultants live
               on their own screen because their documents work differently.
             </EmptyState>
           ) : (
@@ -66,7 +66,6 @@ export default async function VendorsPage({
                   <th className="py-2">Currency</th>
                   <th className="py-2">Terms</th>
                   <th className="py-2 text-right">Owed</th>
-                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -91,14 +90,6 @@ export default async function VendorsPage({
                       <td className="py-2 text-slate-500">Net {vendor.paymentTermsDays}</td>
                       <td className="py-2 text-right tabular-nums">
                         {owed.isZero() ? "—" : formatMoney(owed.toFixed(2), company.baseCurrency)}
-                      </td>
-                      <td className="py-2 text-right">
-                        <Link
-                          href={`/vendors/${vendor.id}`}
-                          className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                        >
-                          Edit
-                        </Link>
                       </td>
                     </tr>
                   );

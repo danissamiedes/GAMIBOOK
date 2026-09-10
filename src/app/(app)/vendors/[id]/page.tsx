@@ -80,6 +80,7 @@ export default async function VendorPage({
             scope={scope}
             party={{ vendorId: vendor.id }}
             back={`/vendors/${vendor.id}`}
+            timeZone={company.operatingTimeZone}
             openNoteId={note}
             saved={noteSaved === "1"}
             error={noteError}

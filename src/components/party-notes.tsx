@@ -1,5 +1,6 @@
+import { Fragment } from "react";
 import Link from "next/link";
-import { formatAccountingDate } from "@/lib/dates";
+import { formatStampInZone } from "@/lib/time/zone";
 import { listNotes, MAX_FILES_PER_NOTE, type PartyRef } from "@/lib/parties/notes";
 import { addNote, removeNote, saveNote } from "@/app/(app)/party-notes/actions";
 import { Alert, Button, Card, DataTable } from "@/components/ui";
@@ -34,6 +35,7 @@ export async function PartyNotes({
   scope,
   party,
   back,
+  timeZone,
   openNoteId,
   saved,
   error,
@@ -42,6 +44,8 @@ export async function PartyNotes({
   party: PartyRef;
   /** This page, for the actions to return to. */
   back: string;
+  /** The company's operating zone: note stamps are rendered in it. */
+  timeZone: string;
   /** The row expanded right now, from `?note=`. */
   openNoteId?: string;
   saved?: boolean;
@@ -82,13 +86,12 @@ export async function PartyNotes({
                 const open = openNoteId === note.id;
                 const mine = note.createdByUserId === scope.userId || scope.hasRole("OWNER");
                 return (
-                  <>
-                    <tr
-                      key={note.id}
-                      className="border-b border-slate-100 align-top dark:border-slate-800/60"
-                    >
+                  // Keyed here, not on the rows: the fragment is what the list
+                  // holds, and React only sees the key on its direct child.
+                  <Fragment key={note.id}>
+                    <tr className="border-b border-slate-100 align-top dark:border-slate-800/60">
                       <td className="whitespace-nowrap py-2 text-sm">
-                        {formatAccountingDate(note.createdAt)}
+                        {formatStampInZone(note.createdAt, timeZone)}
                         {note.editedAt ? (
                           <span className="block text-xs text-slate-500">edited</span>
                         ) : null}
@@ -112,10 +115,7 @@ export async function PartyNotes({
                     </tr>
 
                     {open ? (
-                      <tr
-                        key={`${note.id}-open`}
-                        className="border-b border-slate-100 dark:border-slate-800/60"
-                      >
+                      <tr className="border-b border-slate-100 dark:border-slate-800/60">
                         <td colSpan={3} className="bg-slate-50 px-3 py-3 dark:bg-slate-900/40">
                           <p className="whitespace-pre-wrap text-sm">{note.body}</p>
 
@@ -177,7 +177,7 @@ export async function PartyNotes({
                         </td>
                       </tr>
                     ) : null}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>

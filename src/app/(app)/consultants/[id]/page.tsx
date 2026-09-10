@@ -36,11 +36,12 @@ export default async function ConsultantPage({
   const { id } = await params;
   const { saved, error, note, noteSaved, noteError } = await searchParams;
 
-  const [consultant, expenseAccounts] = await Promise.all([
+  const [consultant, company, expenseAccounts] = await Promise.all([
     prisma.vendor.findFirst({
       where: { id, kind: "CONSULTANT", ...scope.where },
       include: { user: { select: { email: true } } },
     }),
+    prisma.company.findFirstOrThrow({ where: { id: scope.companyId } }),
     prisma.account.findMany({
       where: { ...scope.where, isActive: true, type: "EXPENSE" },
       orderBy: { code: "asc" },
@@ -86,6 +87,7 @@ export default async function ConsultantPage({
             scope={scope}
             party={{ vendorId: consultant.id }}
             back={`/consultants/${consultant.id}`}
+            timeZone={company.operatingTimeZone}
             openNoteId={note}
             saved={noteSaved === "1"}
             error={noteError}

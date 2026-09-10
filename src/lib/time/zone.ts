@@ -74,6 +74,20 @@ export function formatDateTimeInZone(instant: Date, timeZone: string): string {
   return formatInTimeZone(instant, timeZone, "d MMM yyyy, h:mm a");
 }
 
+/**
+ * mm/dd/yyyy hh:mm AM — a stored instant rendered the way accounting dates are
+ * written elsewhere in the app, with the time it happened kept.
+ *
+ * For timestamps sitting in a column next to accounting dates: `Date created`
+ * on a note, say. Zero-padded on both halves so a column of them lines up.
+ * Unlike `formatAccountingDate`, which reads a date-only value straight out of
+ * UTC, this converts — an instant recorded at 22:00 UTC is the next morning in
+ * Manila, and the row has to say so.
+ */
+export function formatStampInZone(instant: Date, timeZone: string): string {
+  return formatInTimeZone(instant, timeZone, "MM/dd/yyyy hh:mm a");
+}
+
 export function formatDayLabel(dayKey: string, timeZone: string): string {
   return formatInTimeZone(dayBounds(dayKey, timeZone).start, timeZone, "EEE d MMM");
 }

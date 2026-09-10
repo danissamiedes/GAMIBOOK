@@ -71,6 +71,7 @@ export default async function CustomerPage({
             scope={scope}
             party={{ customerId: customer.id }}
             back={`/customers/${customer.id}`}
+            timeZone={company.operatingTimeZone}
             openNoteId={note}
             saved={noteSaved === "1"}
             error={noteError}

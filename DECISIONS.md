@@ -2003,3 +2003,24 @@ dated note history beside a field labelled "Notes" made a page nobody could
 read. The field is now **Standing note** — one line always shown on the record —
 against the dated history beside it. The browser check found this by refusing to
 resolve which "Notes" it meant, which is a fair complaint from a person too.
+
+### The Date created column shows a time, in the company's zone
+
+A note is not an accounting date. Accounting dates are plain dates stored at UTC
+midnight and rendered straight out of UTC (SPEC §13) — a note's `createdAt` is
+an *instant*, and rendering that the same way was wrong twice over: it dropped
+the time, and it showed the UTC day. A note written at 07:00 on a Manila morning
+is 23:00 the previous day in UTC, so the column said yesterday.
+
+`formatStampInZone` converts through the IANA zone and renders
+`MM/DD/YYYY hh:mm AM`, zero-padded on both halves so a column of them lines up.
+
+The zone is the company's own `operatingTimeZone`, not a hardcoded
+`Asia/Manila`. It defaults to Manila, so a Philippine company reads exactly as
+asked; a company set to anything else gets its own business hours rather than
+somebody else's. This matches how the email log already stamps its rows, and
+keeps the app DST-safe if a company is ever run somewhere that observes it.
+
+The browser check for this found a second bug beside it: each note rendered a
+pair of rows wrapped in a fragment, with the keys on the rows rather than on the
+fragment React actually holds in the list. Keyed on the fragment now.

@@ -11,6 +11,7 @@ import { timesheet, openEntries, flaggedEntries } from "@/lib/time/report";
 import {
   dayBounds,
   formatDuration,
+  formatStampInZone,
   parseLocalDateTime,
   workDayKey,
   weekBounds,
@@ -60,6 +61,28 @@ describe("Manila time handling (SPEC §9)", () => {
       "2026-03-14",
       "2026-03-15",
     ]);
+  });
+
+  it("stamps an instant as mm/dd/yyyy hh:mm AM in the given zone", () => {
+    // 22:00 UTC on 9 September is already 06:00 the next morning in Manila.
+    // Reading the UTC date off the timestamp would show the wrong day here,
+    // which is the whole reason the column converts.
+    const evening = new Date("2026-09-09T22:00:00.000Z");
+    expect(formatStampInZone(evening, MANILA)).toBe("09/10/2026 06:00 AM");
+
+    // And the same instant elsewhere is a different day again.
+    expect(formatStampInZone(evening, "America/New_York")).toBe("09/09/2026 06:00 PM");
+  });
+
+  it("zero-pads both halves of a stamp so a column lines up", () => {
+    const morning = parseLocalDateTime("2026-01-05T09:07", MANILA)!;
+    expect(formatStampInZone(morning, MANILA)).toBe("01/05/2026 09:07 AM");
+
+    const noon = parseLocalDateTime("2026-01-05T12:00", MANILA)!;
+    expect(formatStampInZone(noon, MANILA)).toBe("01/05/2026 12:00 PM");
+
+    const midnight = parseLocalDateTime("2026-01-05T00:00", MANILA)!;
+    expect(formatStampInZone(midnight, MANILA)).toBe("01/05/2026 12:00 AM");
   });
 
   it("formats durations for people", () => {

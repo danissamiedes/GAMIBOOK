@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { formatAccountingDate } from "@/lib/dates";
 import { listNotes, MAX_FILES_PER_NOTE, type PartyRef } from "@/lib/parties/notes";
 import { addNote, removeNote, saveNote } from "@/app/(app)/party-notes/actions";
-import { Alert, Button, Card } from "@/components/ui";
+import { Alert, Button, Card, DataTable } from "@/components/ui";
 import type { CompanyScope } from "@/lib/company-scope";
 
 /** Bytes as something a person reads. */
@@ -11,21 +12,29 @@ function size(bytes: number): string {
   return `${(bytes / 1_048_576).toFixed(1)} MB`;
 }
 
+/** The first line, or the first hundred characters — whichever comes first. */
+function preview(body: string): string {
+  const line = body.split("\n")[0].trim();
+  return line.length > 100 ? `${line.slice(0, 100)}…` : line;
+}
+
 /**
  * Notes on a customer, vendor or consultant (SPEC §15).
  *
- * One server component so the three party pages get the same thing by
- * rendering one tag. Each note keeps the date it was written and who wrote it;
- * editing changes the text and says "edited", and never rewrites either.
+ * A table, because a note has facts worth lining up — when, who, and what it
+ * says — and a stack of paragraphs makes those impossible to scan. The full
+ * text, the attachments and the edit and delete buttons live in a row that
+ * opens underneath the one you clicked.
  *
- * The edit form is a `<details>` rather than a dialog: several notes may be
- * open at once, they are ordinary text, and nothing here needs a modal's focus
- * trap. It also means the whole panel works with JavaScript off.
+ * Opening is a link to `?note=<id>` rather than a client component: the server
+ * already re-renders on every action here, one open row is the whole state, and
+ * this way it works with JavaScript off and survives a refresh.
  */
 export async function PartyNotes({
   scope,
   party,
   back,
+  openNoteId,
   saved,
   error,
 }: {
@@ -33,6 +42,8 @@ export async function PartyNotes({
   party: PartyRef;
   /** This page, for the actions to return to. */
   back: string;
+  /** The row expanded right now, from `?note=`. */
+  openNoteId?: string;
   saved?: boolean;
   error?: string;
 }) {
@@ -42,9 +53,11 @@ export async function PartyNotes({
       ? { name: "customerId", value: party.customerId }
       : { name: "vendorId", value: party.vendorId };
 
+  const rowHref = (noteId: string) =>
+    `${back}${openNoteId === noteId ? "" : `?note=${noteId}`}`;
+
   return (
     <Card>
-      <h2 className="mb-1 text-sm font-semibold">Notes</h2>
       <p className="mb-3 text-xs text-slate-500">
         What was said or agreed, and the paperwork that goes with it. Nothing here posts.
       </p>
@@ -52,7 +65,127 @@ export async function PartyNotes({
       {error ? <Alert tone="error">{decodeURIComponent(error)}</Alert> : null}
       {saved ? <Alert tone="success">Note saved.</Alert> : null}
 
-      <form action={addNote} className="mb-5 space-y-2">
+      {notes.length === 0 ? (
+        <p className="mb-5 text-sm text-slate-500">Nothing written down yet.</p>
+      ) : (
+        <div className="mb-5">
+          <DataTable>
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
+                <th className="py-2">Date created</th>
+                <th className="py-2">Created by</th>
+                <th className="py-2">Note preview</th>
+              </tr>
+            </thead>
+            <tbody>
+              {notes.map((note) => {
+                const open = openNoteId === note.id;
+                const mine = note.createdByUserId === scope.userId || scope.hasRole("OWNER");
+                return (
+                  <>
+                    <tr
+                      key={note.id}
+                      className="border-b border-slate-100 align-top dark:border-slate-800/60"
+                    >
+                      <td className="whitespace-nowrap py-2 text-sm">
+                        {formatAccountingDate(note.createdAt)}
+                        {note.editedAt ? (
+                          <span className="block text-xs text-slate-500">edited</span>
+                        ) : null}
+                      </td>
+                      <td className="py-2 text-sm">
+                        {note.createdBy?.name ?? note.createdBy?.email ?? "—"}
+                      </td>
+                      <td className="py-2 text-sm">
+                        <Link
+                          href={rowHref(note.id)}
+                          className="underline decoration-dotted underline-offset-2"
+                        >
+                          {preview(note.body)}
+                        </Link>
+                        {note.files.length > 0 ? (
+                          <span className="ml-2 text-xs text-slate-500">
+                            {note.files.length} file{note.files.length === 1 ? "" : "s"}
+                          </span>
+                        ) : null}
+                      </td>
+                    </tr>
+
+                    {open ? (
+                      <tr
+                        key={`${note.id}-open`}
+                        className="border-b border-slate-100 dark:border-slate-800/60"
+                      >
+                        <td colSpan={3} className="bg-slate-50 px-3 py-3 dark:bg-slate-900/40">
+                          <p className="whitespace-pre-wrap text-sm">{note.body}</p>
+
+                          {note.files.length > 0 ? (
+                            <ul className="mt-3 space-y-1">
+                              {note.files.map((file) => (
+                                <li key={file.id} className="text-sm">
+                                  <a
+                                    className="underline decoration-dotted underline-offset-2"
+                                    href={`/party-notes/${file.id}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    {file.filename}
+                                  </a>
+                                  <span className="ml-2 text-xs text-slate-500">
+                                    {size(file.sizeBytes)}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+
+                          {mine ? (
+                            <div className="mt-3 space-y-2 border-t border-slate-200 pt-3 dark:border-slate-700">
+                              <form action={saveNote} className="space-y-2">
+                                <input type="hidden" name="noteId" value={note.id} />
+                                <input type="hidden" name="back" value={back} />
+                                <textarea
+                                  name="body"
+                                  rows={4}
+                                  defaultValue={note.body}
+                                  required
+                                  aria-label="Edit note"
+                                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+                                />
+                                <Button type="submit" variant="secondary">
+                                  Save changes
+                                </Button>
+                              </form>
+                              <form action={removeNote}>
+                                <input type="hidden" name="noteId" value={note.id} />
+                                <input type="hidden" name="back" value={back} />
+                                <Button type="submit" variant="danger">
+                                  Delete this note
+                                  {note.files.length > 0
+                                    ? ` and its ${note.files.length} file(s)`
+                                    : ""}
+                                </Button>
+                              </form>
+                            </div>
+                          ) : null}
+
+                          <p className="mt-3">
+                            <Link href={back} className="text-xs text-slate-500 underline">
+                              Close
+                            </Link>
+                          </p>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </>
+                );
+              })}
+            </tbody>
+          </DataTable>
+        </div>
+      )}
+
+      <form action={addNote} className="space-y-2 border-t border-slate-200 pt-4 dark:border-slate-700">
         <input type="hidden" name={hidden.name} value={hidden.value} />
         <input type="hidden" name="back" value={back} />
         <label className="block text-sm">
@@ -78,78 +211,6 @@ export async function PartyNotes({
         </label>
         <Button type="submit">Save note</Button>
       </form>
-
-      {notes.length === 0 ? (
-        <p className="text-sm text-slate-500">Nothing written down yet.</p>
-      ) : (
-        <ul className="space-y-4">
-          {notes.map((note) => {
-            const mine = note.createdByUserId === scope.userId || scope.hasRole("OWNER");
-            return (
-              <li
-                key={note.id}
-                className="border-t border-slate-100 pt-3 first:border-0 first:pt-0 dark:border-slate-800/60"
-              >
-                <p className="text-xs text-slate-500">
-                  {formatAccountingDate(note.createdAt)}
-                  {" · "}
-                  {note.createdBy?.name ?? note.createdBy?.email ?? "somebody since removed"}
-                  {note.editedAt ? " · edited" : ""}
-                </p>
-                <p className="mt-1 whitespace-pre-wrap text-sm">{note.body}</p>
-
-                {note.files.length > 0 ? (
-                  <ul className="mt-2 space-y-1">
-                    {note.files.map((file) => (
-                      <li key={file.id} className="text-sm">
-                        <a
-                          className="underline decoration-dotted underline-offset-2"
-                          href={`/party-notes/${file.id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {file.filename}
-                        </a>
-                        <span className="ml-2 text-xs text-slate-500">{size(file.sizeBytes)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-
-                {mine ? (
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
-                      Edit or delete
-                    </summary>
-                    <form action={saveNote} className="mt-2 space-y-2">
-                      <input type="hidden" name="noteId" value={note.id} />
-                      <input type="hidden" name="back" value={back} />
-                      <textarea
-                        name="body"
-                        rows={3}
-                        defaultValue={note.body}
-                        required
-                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
-                      />
-                      <Button type="submit" variant="secondary">
-                        Save changes
-                      </Button>
-                    </form>
-                    <form action={removeNote} className="mt-2">
-                      <input type="hidden" name="noteId" value={note.id} />
-                      <input type="hidden" name="back" value={back} />
-                      <Button type="submit" variant="danger">
-                        Delete this note
-                        {note.files.length > 0 ? ` and its ${note.files.length} file(s)` : ""}
-                      </Button>
-                    </form>
-                  </details>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
     </Card>
   );
 }

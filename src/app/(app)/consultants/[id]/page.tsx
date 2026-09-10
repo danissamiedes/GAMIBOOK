@@ -3,82 +3,94 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
+import { ConsultantForm } from "../consultant-form";
 import { PartyNotes } from "@/components/party-notes";
-import { Button, Card, PageHeader } from "@/components/ui";
+import { Alert, Button, PageHeader } from "@/components/ui";
 
 export const metadata = { title: pageTitle("Consultant") };
 
 /**
- * One consultant: who they are, and everything written down about them.
+ * One consultant: the fields that describe them, and everything written down
+ * about them.
  *
- * The editable fields stay on the list screen. This page exists because notes
- * and their attachments need room a side form does not have.
+ * Both sections live here rather than beside the list, because editing somebody
+ * on a screen showing everybody made it easy to type into the wrong row.
  *
- * Scoped to CONSULTANT, so the two kinds of Vendor cannot be read through each
- * other's page — the sections that guard them are different.
+ * Scoped to kind = CONSULTANT as well as to the company, so a regular vendor
+ * cannot be read through this page — the sections guarding the two differ.
  */
 export default async function ConsultantPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ noteSaved?: string; noteError?: string }>;
+  searchParams: Promise<{
+    saved?: string;
+    error?: string;
+    note?: string;
+    noteSaved?: string;
+    noteError?: string;
+  }>;
 }) {
   const scope = await sectionScope("CONSULTANTS");
   const { id } = await params;
-  const { noteSaved, noteError } = await searchParams;
+  const { saved, error, note, noteSaved, noteError } = await searchParams;
 
-  const party = await prisma.vendor.findFirst({
-    where: { id, kind: "CONSULTANT", ...scope.where },
-  });
-  if (!party) notFound();
+  const [consultant, expenseAccounts] = await Promise.all([
+    prisma.vendor.findFirst({
+      where: { id, kind: "CONSULTANT", ...scope.where },
+      include: { user: { select: { email: true } } },
+    }),
+    prisma.account.findMany({
+      where: { ...scope.where, isActive: true, type: "EXPENSE" },
+      orderBy: { code: "asc" },
+      select: { id: true, code: true, name: true },
+    }),
+  ]);
+  if (!consultant) notFound();
 
   return (
     <>
       <PageHeader
-        title={party.name}
-        description={`Consultant · ${party.defaultCurrency} · ${party.paymentTermsDays} day terms${
-          party.isActive ? "" : " · inactive"
+        title={consultant.name}
+        description={`Consultant · ${consultant.defaultCurrency} · ${consultant.paymentTermsDays} day terms${
+          consultant.isActive ? "" : " · inactive"
         }`}
       />
 
-      <div className="mb-4 flex gap-2">
-        <Link href={`/consultants?edit=${party.id}`}>
-          <Button variant="secondary">Edit details</Button>
-        </Link>
+      <div className="mb-4">
         <Link href="/consultants">
           <Button variant="ghost">All consultants</Button>
         </Link>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_1.4fr]">
-        <Card>
-          <h2 className="mb-3 text-sm font-semibold">Details</h2>
-          <dl className="space-y-2 text-sm">
-            <div>
-              <dt className="text-xs text-slate-500">Email</dt>
-              <dd>{party.email || "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-slate-500">Address</dt>
-              <dd className="whitespace-pre-wrap">{party.address || "—"}</dd>
-            </div>
-            {party.notes ? (
-              <div>
-                <dt className="text-xs text-slate-500">Standing note on the record</dt>
-                <dd className="whitespace-pre-wrap">{party.notes}</dd>
-              </div>
-            ) : null}
-          </dl>
-        </Card>
+      {saved ? <Alert tone="success">Saved.</Alert> : null}
 
-        <PartyNotes
-          scope={scope}
-          party={{ vendorId: party.id }}
-          back={`/consultants/${party.id}`}
-          saved={noteSaved === "1"}
-          error={noteError}
-        />
+      <div className="grid gap-6 lg:grid-cols-[1fr_1.3fr]">
+        <section>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Main information
+          </h2>
+          <ConsultantForm
+            editing={consultant}
+            expenseAccounts={expenseAccounts}
+            error={error}
+          />
+        </section>
+
+        <section>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Notes
+          </h2>
+          <PartyNotes
+            scope={scope}
+            party={{ vendorId: consultant.id }}
+            back={`/consultants/${consultant.id}`}
+            openNoteId={note}
+            saved={noteSaved === "1"}
+            error={noteError}
+          />
+        </section>
       </div>
     </>
   );

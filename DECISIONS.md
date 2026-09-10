@@ -1966,3 +1966,40 @@ dialog: several notes may be open at once, nothing needs a focus trap, and the
 whole thing works with JavaScript off. Attachments are served through a scoped
 route rather than a public URL — these are contracts and IDs about named people,
 and the bucket is private for the same reason receipts are.
+
+## The party form moved to the party's own page
+
+Editing a customer used to happen in a panel beside the list — a screen showing
+everybody, with one person's fields in the margin. It worked while a party was a
+name and some terms. Once the party had a page of its own, the panel was a
+second place to change the same record, and the wrong one: nothing on it said
+which row you were editing except a heading you had to trust.
+
+So the panel is gone from all three lists. Each page now has **Main
+information** and **Notes** side by side, and creating happens on its own New
+screen that lands you on the new party's page. The list is a list.
+
+**The forms moved out into components** — `customer-form.tsx` and its two
+siblings — because the New screen and the party's page both render them, and
+two copies of a form's validation is two places for it to drift. Their server
+actions moved to `actions.ts` for the same reason, and gained a redirect to the
+party rather than back to the list: after saving somebody you are looking at
+them.
+
+**Notes became a table.** A note has facts worth lining up — when, who, and what
+it says — and a stack of paragraphs makes those impossible to scan. Date
+created, created by, note preview. Clicking a row opens the full text, the
+attachments and the edit and delete buttons underneath it.
+
+That expansion is a link to `?note=<id>`, not a client component. The server
+already re-renders on every action here, one open row is the entire state, and a
+query parameter survives a refresh and works with JavaScript off. A `<details>`
+inside a table row would have meant giving up the table.
+
+### Two things called Notes
+
+Customers and vendors already had a free-text `notes` column, and putting a
+dated note history beside a field labelled "Notes" made a page nobody could
+read. The field is now **Standing note** — one line always shown on the record —
+against the dated history beside it. The browser check found this by refusing to
+resolve which "Notes" it meant, which is a fair complaint from a person too.

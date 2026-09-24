@@ -6,9 +6,9 @@ import { APP_NAME } from "@/lib/brand";
 import { Landing } from "@/components/marketing/landing";
 
 export const metadata: Metadata = {
-  title: `${APP_NAME} — accounting with consultant time tracking`,
+  title: `${APP_NAME} — bookkeeping for growing businesses`,
   description:
-    "Double-entry accounting for businesses that bill for people's time: consultant work orders, a time clock, invoices, bills and bank reconciliation in one set of books.",
+    "Accurate, on-time bookkeeping for small businesses and entrepreneurs. Monthly bookkeeping, reconciliation, financial reporting and payroll support — on our own accounting system or the one you already use.",
 };
 
 /**

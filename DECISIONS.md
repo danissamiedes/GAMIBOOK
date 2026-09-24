@@ -2048,39 +2048,38 @@ longer anything. It is above now, and so is the button.
 
 ## A public landing page at gamibook.com
 
-The app is being sold to other businesses, so the address had to stop opening
+The practice is being sold to new clients, so the address had to stop opening
 with a login form. Signed out, `/` is now the marketing page; signed in, it is
 the same router it always was — consultants to the time clock, everyone else to
 the dashboard. `/login` is untouched, so every bookmark, redirect and invitation
 link still lands where it did, and the whole thing stays one deployment with no
 new domain, DNS record or OAuth redirect URI to register.
 
-The structure follows the BookkeepingPoint site supplied as a reference: sticky
-nav, split hero with a "how it works" card, a capability strip, a six-card
-feature grid, a dark "why" band, four pricing tiers with the middle one
-flagged, testimonials, a contact form, and a dark footer. Its blue is already
-this app's `brand-600`, so the palette needed nothing.
+**GAMIBOOK sells the same service BookkeepingPoint does.** The six services, the
+four weekly tiers ($350 / $500 / $750 / Custom) and the client recommendations
+are the owner's own, supplied as a reference and reproduced as given. The
+credential strip — QuickBooks ProAdvisor, Xero Certified, FreshBooks, Wave,
+Gusto Payroll, Bill.com — belongs here for the same reason: those certify the
+bookkeeper, and the bookkeeping is what is being sold.
 
-**Two things were deliberately not copied.**
+**One section exists that the reference does not have**, and it is the reason
+the two sites are separate. GAMIBOOK runs on this accounting system, and a
+client may or may not want it: "Your books, on your system or ours" puts the two
+side by side — the GAMIBOOK platform at $20/month, against staying in their own
+QuickBooks, Xero, FreshBooks or Wave at no extra cost. The same one-line offer
+repeats in the footer of every pricing card, because a visitor who scrolls
+straight to prices should not have to scroll back to learn the software is
+optional. The contact form asks which they want, so the first reply already
+knows.
 
-The reference runs a strip of QuickBooks / Xero / FreshBooks / Gusto logos.
-Those certify *the bookkeeper*, and under a product name the same strip reads as
-an integration or an endorsement that does not exist. Ours lists what the app
-actually does instead — audit trail, period close, spreadsheet import, exports,
-backups.
+**Testimonials are quoted as written.** Two LinkedIn recommendations and three
+Upwork reviews, all about the owner by name. They are reproduced verbatim rather
+than tightened for flow — editing a recommendation is editing what somebody
+said, and a five-star review that has been smoothed out is no longer theirs.
 
-The testimonials section renders an empty, visibly-marked placeholder. Writing a
-quote there would be writing a customer, and a made-up recommendation on a
-pricing page is the kind of thing that is only ever found out in public. Real
-quotes replace the box, or the section goes.
-
-**The prices are placeholders and say so in the file.** They are shaped like the
-reference's tiers and sized against what the app meters — companies, seats,
-consultants — but nobody has agreed them. They live in
-`src/components/marketing/plans.ts` rather than in the JSX, so changing a number
-never means reading markup. One structural change from the reference: it prices
-a bookkeeping *service* by the week, because a person does the work. This is
-software, so it prices by the month.
+**Copy and prices live in `content.ts`, not in the JSX.** Prices change far more
+often than layout does, and hunting for a number inside markup is how a wrong
+one survives three edits.
 
 **The contact form opens the visitor's mail client rather than posting.** A form
 that POSTs needs somewhere for leads to land, and choosing that before a single

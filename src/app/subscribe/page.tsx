@@ -25,6 +25,13 @@ export const metadata = { title: pageTitle("Your subscription") };
  * Reached straight after signup, and again from anywhere the books have gone
  * read-only. Nothing is charged here — the button creates a subscription at
  * PayPal and sends the payer there to approve it.
+ *
+ * With PayPal unconfigured this is not an error screen. Onboarding runs
+ * through a consultation, so an account that exists at all is one the practice
+ * already agreed to take on and will invoice directly; the page says that and
+ * lets them get on with it. The missing settings go to the server log, where
+ * the person who can act on them will look — naming environment variables at a
+ * client reads as broken software rather than as a deliberate arrangement.
  */
 export default async function SubscribePage({
   searchParams,
@@ -45,10 +52,13 @@ export default async function SubscribePage({
     select: { organizationId: true, name: true },
   });
 
-  const [current, readiness] = await Promise.all([
-    standing(company.organizationId),
-    Promise.resolve(checkoutReadiness()),
-  ]);
+  const current = await standing(company.organizationId);
+  const readiness = checkoutReadiness();
+  if (!readiness.ready) {
+    console.info(
+      `[billing] checkout is off; set ${readiness.missing.join(", ")} to turn it on`,
+    );
+  }
 
   async function subscribe() {
     "use server";
@@ -136,10 +146,19 @@ export default async function SubscribePage({
               </p>
             </form>
           ) : (
-            <Alert tone="error">
-              Payments are not configured on this deployment. Missing:{" "}
-              {readiness.missing.join(", ")}.
-            </Alert>
+            <>
+              <Alert tone="success">
+                Your account is ready to use.
+              </Alert>
+              <p className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                Billing for the system is arranged with you directly — we will send the details
+                and there is nothing to set up here. Everything in your books works in the
+                meantime.
+              </p>
+              <Link href="/dashboard" className="mt-5 inline-block">
+                <Button>Go to your dashboard</Button>
+              </Link>
+            </>
           )}
         </div>
       </Card>

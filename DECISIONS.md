@@ -2155,3 +2155,29 @@ The terms themselves are a working draft written to be accurate about what the
 software does and honest about what it does not promise. That is the part a
 lawyer cannot supply; the rest — enforceability, consumer law, data protection —
 is the part they must. They say so at the top of `src/lib/billing/terms.ts`.
+
+
+### Nothing is bought with a button
+
+Every prospect books a consultation first. The practice talks to them, agrees
+what they need, and sends them the steps if they go ahead — so the landing page
+has no checkout on it at all. Both cards in "your system or ours", and all four
+service tiers, go to the contact form.
+
+That removed the one self-serve route the previous commit had added. It was
+built on the reasoning that $20/month is small enough to sell without a
+conversation, which is true of the price and false of this business: the system
+is one line in an engagement the practice is agreeing to take on, not a product
+sold beside it.
+
+**The signup and checkout code stays, unlinked and working.** `/signup` still
+builds a complete account, because the steps sent after a consultation are a
+link to exactly that — a client who has already been spoken to should not be
+typed in by hand. PayPal stays dormant behind its environment variables until
+someone sets them.
+
+With checkout off, `/subscribe` is not an error screen. An account that exists
+at all is one the practice agreed to take on and will invoice directly, so the
+page says the account is ready and shows the way to the dashboard. The missing
+settings go to the server log instead: naming environment variables at a client
+reads as broken software rather than as a deliberate arrangement.

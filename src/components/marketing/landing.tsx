@@ -396,24 +396,21 @@ export function Landing() {
                   ))}
                 </ul>
 
-                {/* Only the system can be bought without a conversation. The
-                    bookkeeping tiers below send you to the contact form,
-                    because taking a client on is the practice's decision. */}
-                {option.featured ? (
-                  <Link
-                    href="/signup"
-                    className="mt-7 block rounded-lg bg-brand-600 px-4 py-2.5 text-center text-sm font-semibold text-white transition-colors hover:bg-brand-700"
-                  >
-                    Start now
-                  </Link>
-                ) : (
-                  <a
-                    href="#contact"
-                    className="mt-7 block rounded-lg border border-slate-300 px-4 py-2.5 text-center text-sm font-semibold text-slate-700 transition-colors hover:border-slate-400 dark:border-slate-700 dark:text-slate-200"
-                  >
-                    Talk to us about it
-                  </a>
-                )}
+                {/* Both routes go to the consultation. Nothing on this site is
+                    bought with a button: the practice talks to a prospect
+                    first, agrees what they need, and sends them the steps. A
+                    self-serve checkout would commit it before that
+                    conversation — including to clients it cannot service. */}
+                <a
+                  href="#contact"
+                  className={`mt-7 block rounded-lg px-4 py-2.5 text-center text-sm font-semibold transition-colors ${
+                    option.featured
+                      ? "bg-brand-600 text-white hover:bg-brand-700"
+                      : "border border-slate-300 text-slate-700 hover:border-slate-400 dark:border-slate-700 dark:text-slate-200"
+                  }`}
+                >
+                  Talk to us about it
+                </a>
               </div>
             ))}
           </div>

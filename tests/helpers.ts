@@ -24,7 +24,13 @@ export async function resetDatabase() {
       "ImportRow", "ImportBatch",
       "JournalLine", "JournalEntry", "Account", "AuditLog",
       "PasswordResetToken", "Invitation", "NumberSequence",
-      "Membership", "User", "Company", "Organization"
+      "Membership", "User",
+      -- Subscription cascades from Organization, but ProviderWebhookEvent has
+      -- no foreign key at all: it is keyed by the provider's own event id and
+      -- deliberately stands alone. Left out of this list it survives a reset,
+      -- and a test asserting on webhook events silently depends on file order.
+      "Subscription", "ProviderWebhookEvent",
+      "Company", "Organization"
     RESTART IDENTITY CASCADE
   `);
 }

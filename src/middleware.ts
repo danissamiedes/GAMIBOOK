@@ -19,6 +19,10 @@ const PUBLIC_PREFIXES = [
   // fires on a real path.
   "/",
   "/login",
+  // Signup and the terms it asks you to accept. Both are for people who do not
+  // have an account yet, so both have to answer without one.
+  "/signup",
+  "/terms",
   "/forgot-password",
   "/reset-password",
   "/invite",

@@ -1,6 +1,7 @@
 import type { JournalSourceType, Prisma, Role } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { PostingError } from "@/lib/errors";
+import { assertSubscriptionPermitsPosting } from "@/lib/billing/subscription";
 import { formatAccountingDate } from "@/lib/dates";
 import { money, sum, toCents } from "@/lib/money";
 import { SYSTEM_ACCOUNTS } from "./accounts";
@@ -112,7 +113,12 @@ export async function postJournalEntry(
       throw new PostingError("A journal entry needs at least two lines");
     }
 
+    // Two gates, and they answer different questions. The period gate is about
+    // the date; the subscription gate is about whether this organization may
+    // post at all. Both live here so there is one place a posting is refused
+    // rather than a check each caller has to remember.
     await assertPeriodOpen(tx, input.companyId, date, input.role);
+    await assertSubscriptionPermitsPosting(input.companyId, tx);
 
     // Accounts must belong to this company and be usable. One query, so a
     // borrowed account id from another company simply is not found.

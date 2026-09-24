@@ -277,6 +277,11 @@ model Organization {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   companies Company[]
+
+  /// Billing sits on the organization, not the company: one subscriber may
+  /// keep several sets of books. Absent for organizations that predate
+  /// self-serve signup, and absence means unmetered (SPEC §16).
+  subscription Subscription?
 }
 
 model Company {
@@ -368,6 +373,12 @@ model User {
   passwordHash String?
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
+  /// When this person accepted the terms, and which version they accepted
+  /// (SPEC §16). Both, because "they ticked a box once" is not an answer to
+  /// "what did they agree to" — the wording changes and the old consent does
+  /// not cover the new text. Null for everyone invited before signup existed.
+  termsAcceptedAt      DateTime?
+  termsAcceptedVersion String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -1685,4 +1696,82 @@ model PartyNoteFile {
   note PartyNote @relation(fields: [partyNoteId], references: [id], onDelete: Cascade)
 
   @@index([partyNoteId])
+}
+
+/// What a self-serve subscriber is paying for (SPEC §16).
+///
+/// Only the software is sold this way. The bookkeeping tiers are a
+/// professional engagement the practice has to agree to take, so they are
+/// quoted after a consultation and never charged by a button.
+enum SubscriptionPlan {
+  GAMIBOOK_SYSTEM
+}
+
+/// Where a subscription stands. The order is the life of one: created, paying,
+/// failing, tolerated no longer, gone.
+enum SubscriptionStatus {
+  /// Created here, not yet approved at PayPal. No access is granted on this.
+  PENDING
+  ACTIVE
+  /// A payment failed. Still fully usable until `graceUntil` passes.
+  PAST_DUE
+  /// Grace expired. Everything is readable; nothing new may be posted.
+  READ_ONLY
+  /// Ended deliberately, by the subscriber or by us.
+  CANCELLED
+}
+
+/// One organization's subscription (SPEC §16).
+///
+/// An organization with no row here is not metered at all — that is what every
+/// organization created before self-serve signup looks like, and treating
+/// absence as "unlimited" rather than "unpaid" is deliberate: a billing feature
+/// that locks out existing books the day it ships is a billing feature that
+/// should not ship.
+model Subscription {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  plan   SubscriptionPlan   @default(GAMIBOOK_SYSTEM)
+  status SubscriptionStatus @default(PENDING)
+
+  /// PayPal's subscription id (I-…). Null until the payer approves it.
+  providerSubscriptionId String? @unique
+  /// The PayPal plan it was bought on, kept so support can see which price.
+  providerPlanId         String?
+  /// Who PayPal says is paying. Often not the email they signed up with, which
+  /// is exactly why it is worth storing.
+  payerEmail             String?
+
+  /// End of the period already paid for, as PayPal reports it.
+  currentPeriodEnd DateTime?
+  /// When a failed payment stops being tolerated. Set on the first failure,
+  /// cleared when a payment succeeds.
+  graceUntil       DateTime?
+  cancelledAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+/// Every provider webhook we have already acted on (SPEC §16).
+///
+/// PayPal retries a webhook it did not get a 200 for, and replays are a normal
+/// part of its delivery — not an attack. Writing the event id first and
+/// refusing a duplicate is what stops one retried "payment failed" from
+/// shortening a grace period twice.
+model ProviderWebhookEvent {
+  /// The provider's own event id, so the uniqueness is theirs, not ours.
+  id         String   @id
+  provider   String   @default("paypal")
+  eventType  String
+  /// Kept whole. When a subscription's state looks wrong, the answer is
+  /// usually in an event nobody parsed carefully enough at the time.
+  payload    Json
+  receivedAt DateTime @default(now())
+
+  @@index([eventType, receivedAt])
 }

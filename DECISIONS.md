@@ -2088,3 +2088,70 @@ one with nothing to maintain and nothing to leak. The cost is stated in the
 component: it needs a configured mail client, and the enquiry only exists once
 the visitor presses send. When enquiries start arriving, that function becomes a
 server action.
+
+
+## Self-serve signup and subscriptions (SPEC §16)
+
+Two products are sold on this site and only one of them can be bought with a
+button. The bookkeeping tiers are $350–$750 **per week** and the practice has to
+agree to take the client — capacity, fit, the state of their books. A public
+subscribe button on that means waking up to clients you cannot service, having
+already taken their money. So the service sends people to the contact form, and
+only the $20/month system has a checkout.
+
+**PayPal, with webhooks.** Hosted subscription links were the quicker option and
+were rejected: a plain link cannot say who was checking out, so every payment
+would be matched by hand. The API carries our own organization id through as
+`custom_id` and back out in every webhook, which is what makes activation
+automatic. Matching on the payer's email was the obvious alternative and is
+wrong — people pay from a different PayPal account than the one they signed up
+with routinely.
+
+**No subscription row means unmetered.** Every organization that existed before
+this shipped looks exactly like that, and reading absence as "has not paid"
+would have locked the practice out of its own books on day one. Only an
+organization that went through checkout is metered.
+
+**Lapsing never costs anyone their records.** A failed payment is tolerated for
+14 days — cards expire by accident far more often than people decide to stop
+paying — and after that the books go read-only: everything readable, every
+report runnable, every export available, nothing new postable. These are
+accounting records, and the year-end they are needed for is often exactly when
+money is tight. Locking someone out of their own books to collect $20 is not a
+trade worth making.
+
+Read-only is derived from the clock inside `standing()` rather than written by a
+job. A scheduler that failed to run cannot then silently extend someone's
+access, and the answer is right the moment it becomes true.
+
+**The grace clock starts once and is not restarted.** PayPal retries a failed
+payment and sends an event for each attempt; if every one pushed the deadline
+out, a subscription that never pays again would work indefinitely.
+
+**Every webhook is written down before it is acted on**, keyed by PayPal's own
+event id. Retries are ordinary traffic rather than an attack, but a replayed
+"payment failed" would restart a grace period and a replayed "cancelled"
+arriving after a fresh signup would cancel the new one.
+
+**The return URL proves nothing.** It can be typed, bookmarked or shared, so
+coming back from PayPal is not evidence of payment — `completeCheckout` asks
+PayPal directly, and checks the subscription id belongs to this organization
+before it counts for anything. The webhook reaches the same conclusion
+independently; either may be first and both are idempotent.
+
+**Verification failures are refused, not waved through.** With no
+`PAYPAL_WEBHOOK_ID` the endpoint cannot tell a real delivery from a forged one,
+and it grants paid access — so "cannot check" has to mean no.
+
+### Terms of service
+
+Accepting them is a required checkbox at signup, enforced on the server rather
+than by `required` on the input: a box only the browser polices is not a record
+of anyone agreeing to anything. What is stored is the **version** as well as the
+timestamp, because "they ticked a box once" does not answer "what did they agree
+to" — the wording changes, and old consent does not cover new text.
+
+The terms themselves are a working draft written to be accurate about what the
+software does and honest about what it does not promise. That is the part a
+lawyer cannot supply; the rest — enforceability, consumer law, data protection —
+is the part they must. They say so at the top of `src/lib/billing/terms.ts`.

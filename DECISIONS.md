@@ -2045,3 +2045,47 @@ inside a `lg:grid-cols-[2fr_1fr]` grid with nothing in the second column, so the
 table rendered at two thirds width with dead space beside it, and the empty
 states still told you to add the first one "on the right" — where there was no
 longer anything. It is above now, and so is the button.
+
+## A public landing page at gamibook.com
+
+The app is being sold to other businesses, so the address had to stop opening
+with a login form. Signed out, `/` is now the marketing page; signed in, it is
+the same router it always was — consultants to the time clock, everyone else to
+the dashboard. `/login` is untouched, so every bookmark, redirect and invitation
+link still lands where it did, and the whole thing stays one deployment with no
+new domain, DNS record or OAuth redirect URI to register.
+
+The structure follows the BookkeepingPoint site supplied as a reference: sticky
+nav, split hero with a "how it works" card, a capability strip, a six-card
+feature grid, a dark "why" band, four pricing tiers with the middle one
+flagged, testimonials, a contact form, and a dark footer. Its blue is already
+this app's `brand-600`, so the palette needed nothing.
+
+**Two things were deliberately not copied.**
+
+The reference runs a strip of QuickBooks / Xero / FreshBooks / Gusto logos.
+Those certify *the bookkeeper*, and under a product name the same strip reads as
+an integration or an endorsement that does not exist. Ours lists what the app
+actually does instead — audit trail, period close, spreadsheet import, exports,
+backups.
+
+The testimonials section renders an empty, visibly-marked placeholder. Writing a
+quote there would be writing a customer, and a made-up recommendation on a
+pricing page is the kind of thing that is only ever found out in public. Real
+quotes replace the box, or the section goes.
+
+**The prices are placeholders and say so in the file.** They are shaped like the
+reference's tiers and sized against what the app meters — companies, seats,
+consultants — but nobody has agreed them. They live in
+`src/components/marketing/plans.ts` rather than in the JSX, so changing a number
+never means reading markup. One structural change from the reference: it prices
+a bookkeeping *service* by the week, because a person does the work. This is
+software, so it prices by the month.
+
+**The contact form opens the visitor's mail client rather than posting.** A form
+that POSTs needs somewhere for leads to land, and choosing that before a single
+enquiry exists is building for an imagined problem. A `mailto:` works on day
+one with nothing to maintain and nothing to leak. The cost is stated in the
+component: it needs a configured mail client, and the enquiry only exists once
+the visitor presses send. When enquiries start arriving, that function becomes a
+server action.

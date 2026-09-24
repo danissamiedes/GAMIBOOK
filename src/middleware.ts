@@ -14,6 +14,10 @@ import { getToken } from "next-auth/jwt";
  */
 
 const PUBLIC_PREFIXES = [
+  // The landing page. Exact match only — "/" as a prefix would open the whole
+  // app, so `matches` compares it with === and the startsWith("//") arm never
+  // fires on a real path.
+  "/",
   "/login",
   "/forgot-password",
   "/reset-password",

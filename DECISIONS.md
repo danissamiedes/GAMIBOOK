@@ -2303,3 +2303,19 @@ The From header quotes the display name and escapes quotes inside it. A comma in
 a company name would otherwise read as the end of one address and the start of
 another, and a malformed header is not a cosmetic bug: the server rejects the
 message.
+
+### The health check disagreed with the sender about dry run
+
+`/api/health` read `EMAIL_DRY_RUN !== "false"` while the sender read
+`=== "true"`. With the variable unset — which is one of the two ways to turn
+dry run off — the sender went live and the health check reported that mail was
+being suppressed.
+
+That is the wrong way round for the only question this flag answers. A check
+that is silent about real mail going out is better than one that actively says
+it is not.
+
+The route now calls `dryRun()`, so there is one answer rather than two readings
+of the same variable that can drift apart. Covered by a test that walks the
+values an operator actually types — `true`, `false`, `TRUE`, `1`, empty, and
+absent.

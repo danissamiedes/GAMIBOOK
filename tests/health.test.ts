@@ -97,3 +97,27 @@ describe("health endpoint", () => {
     expect(body.database).toMatchObject({ configured: true, malformed: true });
   });
 });
+
+describe("the dry-run flag it reports (SPEC §10)", () => {
+  // The health check and the sender once read the same variable with opposite
+  // defaults, so with EMAIL_DRY_RUN unset the check said mail was being
+  // suppressed while it was going out for real. Both now come from dryRun().
+  const original = process.env.EMAIL_DRY_RUN;
+  afterEach(() => {
+    if (original === undefined) delete process.env.EMAIL_DRY_RUN;
+    else process.env.EMAIL_DRY_RUN = original;
+  });
+
+  it("agrees with the sender however the variable is set", async () => {
+    const { dryRun } = await import("@/lib/email/gmail");
+
+    for (const value of ["true", "false", "TRUE", "1", "", undefined]) {
+      if (value === undefined) delete process.env.EMAIL_DRY_RUN;
+      else process.env.EMAIL_DRY_RUN = value;
+
+      // Only the exact string "true" suppresses a send; everything else,
+      // including the variable being absent, means real mail.
+      expect(dryRun()).toBe(value === "true");
+    }
+  });
+});

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { dryRun } from "@/lib/email/gmail";
 import { opsAuthorised } from "@/lib/ops-auth";
 
 /**
@@ -100,7 +101,12 @@ export async function GET(request: Request) {
       database,
       migrations,
       storage: process.env.STORAGE_DRIVER ?? "local",
-      emailDryRun: process.env.EMAIL_DRY_RUN !== "false",
+      // The sender's own answer, not a second reading of the variable. These
+      // were written with opposite defaults — `!== "false"` here against
+      // `=== "true"` in the sender — so with EMAIL_DRY_RUN unset this reported
+      // that mail was being suppressed while it was going out for real. A
+      // health check that is wrong about that is worse than not having one.
+      emailDryRun: dryRun(),
       schedulerInProcess: process.env.SCHEDULER_ENABLED === "true",
       warnings,
     },

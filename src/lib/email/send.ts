@@ -4,7 +4,8 @@ import { cachedPdf } from "@/lib/pdf/render";
 import { formatMoney } from "@/lib/currency";
 import { formatAccountingDate } from "@/lib/dates";
 import { buildMimeMessage, toGmailRaw, type Attachment } from "./mime";
-import { EmailSendError, dryRun, sendViaGmail } from "./gmail";
+import { EmailNotConnectedError, EmailSendError, dryRun, sendViaGmail } from "./gmail";
+import { sendViaSmtp } from "./smtp";
 import { renderTemplate, templateFor } from "./templates";
 
 /**
@@ -86,21 +87,39 @@ export async function sendEmail(options: {
   let lastError = "";
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const connection = await prisma.emailConnection.findUnique({
-        where: { companyId: options.companyId },
-      });
-      const raw = toGmailRaw(
-        buildMimeMessage({
-          from: connection?.emailAddress ?? "unknown",
-          to: email.to,
-          cc: email.cc,
-          subject: email.subject,
-          text: email.body,
-          attachments: email.attachments,
+      const [connection, company] = await Promise.all([
+        prisma.emailConnection.findUnique({ where: { companyId: options.companyId } }),
+        prisma.company.findUnique({
+          where: { id: options.companyId },
+          select: { name: true, emailFromName: true, emailReplyTo: true },
         }),
-      );
+      ]);
+      if (!connection) {
+        throw new EmailNotConnectedError();
+      }
 
-      const sent = await sendViaGmail({ companyId: options.companyId, raw });
+      const mime = buildMimeMessage({
+        from: connection.emailAddress,
+        // The company's own name unless it has set something else: a work
+        // order from a bare address looks like nobody sent it.
+        fromName: company?.emailFromName?.trim() || company?.name,
+        replyTo: company?.emailReplyTo?.trim() || null,
+        to: email.to,
+        cc: email.cc,
+        subject: email.subject,
+        text: email.body,
+        attachments: email.attachments,
+      });
+
+      // Both providers send the same bytes. Headers, encoding and attachment
+      // boundaries are decided once, in buildMimeMessage, so a message cannot
+      // differ depending on which transport carried it.
+      const sent =
+        connection.provider === "SMTP"
+          ? await sendViaSmtp({ connection, raw: mime, to: email.to, cc: email.cc }).then(
+              (result) => ({ gmailMessageId: result.messageId }),
+            )
+          : await sendViaGmail({ companyId: options.companyId, raw: toGmailRaw(mime) });
       const updated = await prisma.emailLog.update({
         where: { id: log.id },
         data: {

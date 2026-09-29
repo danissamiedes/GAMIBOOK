@@ -13,6 +13,7 @@ import {
   connectedMailbox,
 } from "@/lib/email/gmail";
 import { encryptionAvailable } from "@/lib/email/crypto";
+import { connectSmtp, validateSmtp, verifySmtp } from "@/lib/email/smtp";
 import { requestOrigin } from "@/lib/request-origin";
 import {
   DEFAULT_TEMPLATES,
@@ -23,7 +24,7 @@ import {
   templateFor,
 } from "@/lib/email/templates";
 import { sendEmail } from "@/lib/email/send";
-import { Alert, Button, Card, Field, Input, PageHeader } from "@/components/ui";
+import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export const metadata = { title: pageTitle("Email settings") };
 
@@ -84,6 +85,42 @@ export default async function EmailSettingsPage({
       redirect("/settings/email?error=TOKEN_ENCRYPTION_KEY%20is%20not%20set");
     }
     redirect(authorizationUrl({ origin: innerOrigin, state: inner.companyId }));
+  }
+
+  async function connectSmtpMailbox(formData: FormData) {
+    "use server";
+    const inner = await sectionScope("SETTINGS");
+    if (!encryptionAvailable()) {
+      redirect("/settings/email?error=TOKEN_ENCRYPTION_KEY%20is%20not%20set");
+    }
+
+    const settings = {
+      host: String(formData.get("smtpHost") || ""),
+      port: Number(formData.get("smtpPort") || 0),
+      secure: String(formData.get("smtpSecure") || "true") === "true",
+      username: String(formData.get("smtpUsername") || ""),
+      password: String(formData.get("smtpPassword") || ""),
+      fromAddress: String(formData.get("smtpFrom") || ""),
+    };
+
+    const problem = validateSmtp(settings);
+    if (problem) redirect(`/settings/email?error=${encodeURIComponent(problem.message)}`);
+
+    // Proved before it is stored. Credentials that only fail when a batch of
+    // eighteen work orders goes out fail at the worst possible moment.
+    const check = await verifySmtp(settings);
+    if (!check.ok) redirect(`/settings/email?error=${encodeURIComponent(check.reason)}`);
+
+    await connectSmtp({ companyId: inner.companyId, userId: inner.userId, settings });
+    await writeAudit({
+      companyId: inner.companyId,
+      userId: inner.userId,
+      action: "email.connected",
+      entityType: "EmailConnection",
+      summary: `SMTP ${settings.fromAddress}`,
+      data: { provider: "SMTP", host: settings.host, port: settings.port },
+    });
+    redirect("/settings/email?connected=1");
   }
 
   async function disconnect() {
@@ -166,7 +203,7 @@ export default async function EmailSettingsPage({
     <>
       <PageHeader
         title="Email"
-        description="Mail is sent from your own Google mailbox, so it appears in Sent and replies come back to you."
+        description="Mail goes out from this company's own mailbox, so it appears in its Sent folder and replies reach a person."
       />
 
       {params.saved ? <Alert tone="success">Saved.</Alert> : null}
@@ -195,23 +232,19 @@ export default async function EmailSettingsPage({
         </Alert>
       ) : null}
 
-      <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_1fr]">
+      <div className="mt-4 space-y-6">
         <Card>
-          <h2 className="mb-3 text-sm font-semibold">Google account</h2>
+          <h2 className="mb-3 text-sm font-semibold">Where mail is sent from</h2>
 
-          {!gmailConfigured() ? (
-            <Alert tone="warning">
-              Set <code>AUTH_GOOGLE_ID</code> and{" "}
-              <code>AUTH_GOOGLE_SECRET</code>, and add{" "}
-              <code>{origin}/api/email/google/callback</code> as an authorised
-              redirect URI in the Google Cloud console. Only the{" "}
-              <code>gmail.send</code> scope is requested — this app cannot read
-              your mail.
-            </Alert>
-          ) : connection ? (
+          {connection ? (
             <div className="space-y-3">
               <p className="text-sm">
-                Connected as <strong>{connection.emailAddress}</strong>
+                Connected as <strong>{connection.emailAddress}</strong>{" "}
+                <span className="text-slate-500">
+                  ({connection.provider === "SMTP"
+                    ? `SMTP · ${connection.smtpHost}`
+                    : "Google"})
+                </span>
               </p>
               {connection.needsReconnectAt ? (
                 <Alert tone="error">
@@ -231,16 +264,87 @@ export default async function EmailSettingsPage({
               </form>
             </div>
           ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                No mailbox connected. Until one is, invitations and documents
-                fall back to a copyable link.
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              No mailbox connected. Until one is, invitations and documents fall back to a
+              copyable link.
+            </p>
+          )}
+
+          {/* Two ways in, and which one a company needs is decided by who runs
+              its mail rather than by preference. Google cannot send as a Titan
+              or Outlook address — it will not put an address on the envelope
+              the account does not own — so for those companies SMTP is the
+              only path, not the fallback. */}
+          <div className="mt-5 grid gap-4 border-t border-slate-200 pt-5 md:grid-cols-2 dark:border-slate-700">
+            <div>
+              <h3 className="mb-1 text-sm font-medium">Google / Gmail</h3>
+              <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                For a Gmail or Google Workspace mailbox. Nothing to type — you approve it at
+                Google, and no password is stored.
               </p>
-              <form action={connect}>
-                <Button type="submit">Connect Google account</Button>
+              {gmailConfigured() ? (
+                <form action={connect}>
+                  <Button variant={connection ? "secondary" : "primary"} type="submit">
+                    {connection?.provider === "GOOGLE" ? "Reconnect" : "Connect Google account"}
+                  </Button>
+                </form>
+              ) : (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Not available: <code>AUTH_GOOGLE_ID</code> and <code>AUTH_GOOGLE_SECRET</code>{" "}
+                  are unset, and <code>{origin}/api/email/google/callback</code> must be an
+                  authorised redirect URI.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <h3 className="mb-1 text-sm font-medium">Any other mailbox (SMTP)</h3>
+              <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                Titan, GoDaddy, Outlook, Zoho or your own server. The settings are checked
+                against the server before they are saved, and the password is encrypted.
+              </p>
+              <form action={connectSmtpMailbox} className="space-y-3">
+                <Field label="Send from" hint="The address recipients will see.">
+                  <Input
+                    name="smtpFrom"
+                    type="email"
+                    required
+                    placeholder="accounting@yourcompany.com"
+                  />
+                </Field>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <Field label="Server" hint="Titan uses smtp.titan.email.">
+                    <Input name="smtpHost" required placeholder="smtp.titan.email" />
+                  </Field>
+                  <Field label="Port">
+                    <Input
+                      name="smtpPort"
+                      type="number"
+                      required
+                      defaultValue={465}
+                      className="w-24"
+                    />
+                  </Field>
+                </div>
+                <Field
+                  label="Encryption"
+                  hint="465 is TLS. 587 is STARTTLS. Port 25 is refused — it sends the password in the clear."
+                >
+                  <Select name="smtpSecure" defaultValue="true">
+                    <option value="true">TLS (port 465)</option>
+                    <option value="false">STARTTLS (port 587)</option>
+                  </Select>
+                </Field>
+                <Field label="Username" hint="Usually the full email address.">
+                  <Input name="smtpUsername" required placeholder="accounting@yourcompany.com" />
+                </Field>
+                <Field label="Mailbox password">
+                  <Input name="smtpPassword" type="password" required autoComplete="off" />
+                </Field>
+                <Button type="submit">Connect this mailbox</Button>
               </form>
             </div>
-          )}
+          </div>
         </Card>
 
         <Card>

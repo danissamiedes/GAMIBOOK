@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { sectionScope } from "@/lib/session-scope";
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
+import { connectedMailbox } from "@/lib/email/gmail";
 import {
   Alert,
   Button,
@@ -18,13 +20,16 @@ import { COMPANY_THEMES, isCompanyTheme } from "@/lib/company-theme";
 export default async function CompanySettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string }>;
+  searchParams: Promise<{ saved?: string; error?: string }>;
 }) {
   const scope = await sectionScope("SETTINGS");
   const company = await prisma.company.findFirstOrThrow({
     where: { id: scope.companyId },
   });
-  const { saved } = await searchParams;
+  const { saved, error } = await searchParams;
+  // Which mailbox is actually sending. The address on the Company record is
+  // presentation; this is the one Gmail will put on the envelope.
+  const mailbox = await connectedMailbox(scope.companyId);
 
   async function save(formData: FormData) {
     "use server";
@@ -41,6 +46,16 @@ export default async function CompanySettingsPage({
     const theme = isCompanyTheme(requestedTheme) ? requestedTheme : undefined;
     // Unchecked boxes submit nothing, so absence is the "off" value.
     const bankAutoLinkEnabled = formData.get("bankAutoLinkEnabled") === "1";
+
+    const emailFromName = String(formData.get("emailFromName") || "").trim();
+    const emailReplyTo = String(formData.get("emailReplyTo") || "").trim();
+    // Deliberately loose, and only when something was typed. An address is
+    // proven by mail reaching it, not by a regular expression — but a value
+    // with no "@" in it is a typo every time, and a bad Reply-To silently
+    // sends every reply nowhere.
+    if (emailReplyTo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailReplyTo)) {
+      redirect("/settings/company?error=replyTo");
+    }
 
     if (!name) redirect("/settings/company");
     if (
@@ -60,6 +75,10 @@ export default async function CompanySettingsPage({
         timeClockTimeZone,
         operatingTimeZone,
         bankAutoLinkEnabled,
+        // Empty clears the field rather than storing "", so the fallbacks in
+        // the send path see null and use the company name.
+        emailFromName: emailFromName || null,
+        emailReplyTo: emailReplyTo || null,
         ...(theme ? { theme } : {}),
       },
     });
@@ -75,6 +94,8 @@ export default async function CompanySettingsPage({
         timeClockTimeZone,
         operatingTimeZone,
         bankAutoLinkEnabled,
+        emailFromName: emailFromName || null,
+        emailReplyTo: emailReplyTo || null,
         theme: theme ?? null,
       },
     });
@@ -93,6 +114,9 @@ export default async function CompanySettingsPage({
       />
       <Card className="max-w-xl">
         {saved ? <Alert tone="success">Saved.</Alert> : null}
+        {error === "replyTo" ? (
+          <Alert tone="error">That reply-to address does not look like an email address.</Alert>
+        ) : null}
         <form action={save} className="mt-2 space-y-4">
           <Field label="Company name">
             <Input name="name" defaultValue={company.name} required />
@@ -171,6 +195,67 @@ export default async function CompanySettingsPage({
               />
             ))}
           </div>
+          <fieldset className="space-y-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+            <legend className="text-sm font-semibold">Sending documents by email</legend>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Work orders, invoices and receipts go out from this company&rsquo;s own mailbox, so
+              they appear in its Sent folder and replies reach a person.
+            </p>
+
+            {/* The connection is the fact; these fields are presentation. Shown
+                first because "which address is sending" is the question someone
+                opens this section to answer. */}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-900/50">
+              {mailbox ? (
+                <>
+                  <p className="font-medium text-slate-900 dark:text-white">
+                    Sending as {mailbox.emailAddress}
+                  </p>
+                  {mailbox.needsReconnectAt ? (
+                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                      Google has stopped accepting this connection — reconnect it before the next
+                      send.
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <p className="font-medium text-amber-700 dark:text-amber-400">
+                  No mailbox connected — nothing can be emailed yet.
+                </p>
+              )}
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                The sending address is whichever Google account is connected; Gmail will not send
+                as an address it does not own.{" "}
+                <Link href="/settings/email" className="underline">
+                  {mailbox ? "Change or reconnect it" : "Connect a mailbox"}
+                </Link>
+              </p>
+            </div>
+
+            <Field
+              label="Sender name"
+              hint="What the recipient sees beside the address. Blank uses the company name."
+            >
+              <Input
+                name="emailFromName"
+                defaultValue={company.emailFromName ?? ""}
+                placeholder={company.name}
+              />
+            </Field>
+
+            <Field
+              label="Reply-to address"
+              hint="Where replies go, if not the sending mailbox. Use this to collect replies at an address the app cannot send from."
+            >
+              <Input
+                name="emailReplyTo"
+                type="email"
+                defaultValue={company.emailReplyTo ?? ""}
+                placeholder={mailbox?.emailAddress ?? "accounts@yourcompany.com"}
+              />
+            </Field>
+          </fieldset>
+
           <fieldset className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-700">
             <legend className="text-sm font-semibold">Run without asking</legend>
             <p className="text-sm text-slate-600 dark:text-slate-300">

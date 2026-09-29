@@ -310,6 +310,21 @@ model Company {
   /// SPEC §8.4. Auto-link only, which posts nothing and unmatches cleanly.
   bankAutoLinkEnabled     Boolean      @default(false)
 
+  /// How this company signs its outgoing documents (SPEC §10).
+  ///
+  /// The address mail is *sent from* is the connected Google mailbox and
+  /// cannot be anything else — Gmail will not send as an address the account
+  /// does not own. These two shape what the recipient sees and where a reply
+  /// goes, which is the part that does not need an OAuth grant.
+  ///
+  /// `emailFromName` is the display name: "POISE FITNESS STUDIO
+  /// <accounting@…>" rather than a bare address. Falls back to the company
+  /// name when unset.
+  emailFromName String?
+  /// Where replies should land, when that is not the sending mailbox. The one
+  /// way to reach a mailbox this app cannot send from.
+  emailReplyTo  String?
+
   /// Branding (SPEC §11) — populated in Phase 7, nullable until then.
   addressLine1 String?
   addressLine2 String?
@@ -366,21 +381,21 @@ model Company {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  name         String
+  id                   String    @id @default(cuid())
+  email                String    @unique
+  name                 String
   /// Argon2id. Null until the user accepts an invite and sets one.
-  passwordHash String?
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
+  passwordHash         String?
+  isActive             Boolean   @default(true)
+  lastLoginAt          DateTime?
   /// When this person accepted the terms, and which version they accepted
   /// (SPEC §16). Both, because "they ticked a box once" is not an answer to
   /// "what did they agree to" — the wording changes and the old consent does
   /// not cover the new text. Null for everyone invited before signup existed.
   termsAcceptedAt      DateTime?
   termsAcceptedVersion String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   memberships    Membership[]
   invitesSent    Invitation[]         @relation("InvitedBy")
@@ -1055,23 +1070,50 @@ model SalesOrderLine {
 /// SPEC §10. One connected Gmail mailbox per company. The refresh token is
 /// held under envelope encryption — a data key per record, itself encrypted
 /// with the key from the environment — so a database dump alone is useless.
+/// How a company's mail actually leaves the building (SPEC §10).
+///
+/// Google was the only option while the practice ran on Gmail. A client whose
+/// mailbox is Titan, Outlook or Zoho cannot use it at all — the Gmail API
+/// refuses to put an address on the envelope that the account does not own —
+/// so SMTP is not a convenience here, it is the difference between being able
+/// to send as that company and not.
+enum EmailProvider {
+  GOOGLE
+  SMTP
+}
+
 model EmailConnection {
-  id                     String    @id @default(cuid())
-  companyId              String    @unique
+  id                     String        @id @default(cuid())
+  companyId              String        @unique
+  provider               EmailProvider @default(GOOGLE)
   /// The mailbox mail is sent from, so replies come back to a human.
   emailAddress           String
   /// Base64 of the AES-GCM ciphertext, iv and tag for the refresh token.
-  refreshTokenCiphertext String
+  /// Google only; an SMTP connection has no token to refresh.
+  refreshTokenCiphertext String?
   /// The data key, itself encrypted with the environment key.
-  encryptedDataKey       String
-  scope                  String
+  encryptedDataKey       String?
+
+  /// SMTP only. The password is sealed exactly as the Google token is —
+  /// same envelope encryption, same environment key — because a mailbox
+  /// password is every bit as dangerous as a refresh token and rather more
+  /// likely to be reused somewhere else.
+  smtpHost               String?
+  smtpPort               Int?
+  /// True for implicit TLS (465). False for STARTTLS on 587.
+  smtpSecure             Boolean? @default(true)
+  smtpUsername           String?
+  smtpPasswordCiphertext String?
+  smtpPasswordKey        String?
+
+  scope             String    @default("")
   /// Set when Google rejects the token, so the UI can say "reconnect" rather
   /// than failing silently on every send.
-  needsReconnectAt       DateTime?
-  lastError              String?
-  connectedByUserId      String?
-  connectedAt            DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  needsReconnectAt  DateTime?
+  lastError         String?
+  connectedByUserId String?
+  connectedAt       DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }

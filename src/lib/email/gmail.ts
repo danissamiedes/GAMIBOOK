@@ -115,25 +115,30 @@ export async function connectMailbox(options: {
 
   const sealed = encryptSecret(tokens.refresh_token);
 
+  // Switching provider clears the other one's credentials. A company that
+  // moves from SMTP to Google must not leave a mailbox password sitting in the
+  // row, both because it is no longer needed and because it is still a
+  // password.
+  const shared = {
+    provider: "GOOGLE" as const,
+    emailAddress: email ?? "unknown",
+    refreshTokenCiphertext: sealed.ciphertext,
+    encryptedDataKey: sealed.encryptedDataKey,
+    scope: tokens.scope ?? GMAIL_SEND_SCOPE,
+    connectedByUserId: options.userId,
+    smtpHost: null,
+    smtpPort: null,
+    smtpUsername: null,
+    smtpPasswordCiphertext: null,
+    smtpPasswordKey: null,
+    needsReconnectAt: null,
+    lastError: null,
+  };
+
   return prisma.emailConnection.upsert({
     where: { companyId: options.companyId },
-    create: {
-      companyId: options.companyId,
-      emailAddress: email ?? "unknown",
-      refreshTokenCiphertext: sealed.ciphertext,
-      encryptedDataKey: sealed.encryptedDataKey,
-      scope: tokens.scope ?? GMAIL_SEND_SCOPE,
-      connectedByUserId: options.userId,
-    },
-    update: {
-      emailAddress: email ?? "unknown",
-      refreshTokenCiphertext: sealed.ciphertext,
-      encryptedDataKey: sealed.encryptedDataKey,
-      scope: tokens.scope ?? GMAIL_SEND_SCOPE,
-      connectedByUserId: options.userId,
-      needsReconnectAt: null,
-      lastError: null,
-    },
+    create: { companyId: options.companyId, ...shared },
+    update: shared,
   });
 }
 
@@ -145,6 +150,16 @@ export async function disconnectMailbox(companyId: string) {
 async function accessTokenFor(companyId: string): Promise<{ token: string; from: string }> {
   const connection = await prisma.emailConnection.findUnique({ where: { companyId } });
   if (!connection) throw new EmailNotConnectedError();
+
+  // Both columns are nullable now that a connection may be SMTP instead, and
+  // an SMTP one has no token to refresh. Reaching here with either missing
+  // means something asked Google to send for a mailbox Google knows nothing
+  // about — a wiring mistake, not a user one.
+  if (!connection.refreshTokenCiphertext || !connection.encryptedDataKey) {
+    throw new EmailNotConnectedError(
+      "This company is not connected to a Google mailbox.",
+    );
+  }
 
   const refreshToken = decryptSecret({
     ciphertext: connection.refreshTokenCiphertext,

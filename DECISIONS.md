@@ -2250,3 +2250,56 @@ The audit entry is written before anything is removed, while the row still
 exists to be described accurately. The uploaded file is deleted from storage
 first, and a failure there is swallowed: the row is what the user asked to be
 rid of, and an orphaned object in the bucket is the lesser problem.
+
+## Sending from a mailbox Google does not run
+
+The practice ran on Gmail, so Gmail was the only way out. A client on Titan,
+Outlook or Zoho could not use it at all: the Gmail API refuses to put an
+address on the envelope that the authenticated account does not own. For those
+companies SMTP is not a fallback — it is the difference between a work order
+coming from them and coming from somebody else.
+
+**`EmailConnection` now carries a provider.** GOOGLE keeps the refresh token;
+SMTP keeps host, port, encryption, username and a sealed password. Connecting
+one clears the other's credentials in the same write — a company moving from
+Gmail to Titan must not leave a live refresh token beside its new settings, and
+one moving the other way must not leave a mailbox password behind.
+
+**The password is sealed exactly as the Google token is** — same envelope
+encryption, same environment key. A mailbox password is every bit as dangerous
+as a refresh token and rather more likely to be reused somewhere else.
+
+**Port 25 is refused, not warned about.** It sends the password in the clear,
+and a default nobody revisits is how that stays true for years. 465 and 587 are
+both offered and TLS verification is not negotiable: a server that cannot prove
+who it is gets no password from us.
+
+**Settings are proved against the server before they are stored.** Credentials
+that only fail when eighteen work orders go out fail at the worst possible
+moment, and the person who could fix them has moved on by then. The errors are
+translated too — "the server refused that username and password, and Titan
+usually wants the full address" beats `EAUTH`.
+
+**Both providers send the same bytes.** `buildMimeMessage` decides the headers,
+the encoding and the attachment boundaries once; the transport only carries
+them. Neither gets its own opinion about what a message looks like.
+
+A mailer dependency earns its place here in a way it did not for the Gmail API.
+That took a base64 string over HTTPS. This needs AUTH, STARTTLS negotiation,
+line folding and dot-stuffing, and hand-rolling those is how a message silently
+arrives corrupted at one provider in ten.
+
+### Sender name and reply-to
+
+Which address sends is fixed by the connection and cannot be anything else.
+What the recipient *sees* is not: `emailFromName` puts the company's name beside
+the address, because a work order from a bare address looks like nobody sent it,
+and `emailReplyTo` points replies at a mailbox the app may have no way to send
+from. Both live on the Company and are edited in Company settings, where the
+section also names the live sending mailbox — "which address is sending" being
+the question someone opens that section to answer.
+
+The From header quotes the display name and escapes quotes inside it. A comma in
+a company name would otherwise read as the end of one address and the start of
+another, and a malformed header is not a cosmetic bug: the server rejects the
+message.

@@ -11,6 +11,10 @@ export type Attachment = { filename: string; content: Buffer; contentType?: stri
 
 export type MessageInput = {
   from: string;
+  /** Display name for the sender, e.g. "POISE FITNESS STUDIO". Optional. */
+  fromName?: string | null;
+  /** Where replies should go, when that is not the sending mailbox. */
+  replyTo?: string | null;
   to: string[];
   cc?: string[];
   subject: string;
@@ -30,11 +34,29 @@ function foldBase64(input: string): string {
   return (input.match(/.{1,76}/g) ?? []).join("\r\n");
 }
 
+/**
+ * `Name <address>`, with the name quoted so a comma or a full stop in it
+ * cannot be read as the end of one address and the start of another.
+ */
+function address(email: string, name?: string | null): string {
+  const trimmed = name?.trim();
+  if (!trimmed) return email;
+  // A quote or backslash inside a quoted string has to be escaped, or the
+  // header is malformed and the whole message is rejected.
+  const quoted = trimmed.replace(/([\\"])/g, "\\$1");
+  return `${encodeHeader(`"${quoted}"`)} <${email}>`;
+}
+
 export function buildMimeMessage(input: MessageInput): string {
   const headers: string[] = [
-    `From: ${input.from}`,
+    `From: ${address(input.from, input.fromName)}`,
     `To: ${input.to.join(", ")}`,
     ...(input.cc && input.cc.length > 0 ? [`Cc: ${input.cc.join(", ")}`] : []),
+    // Only when it differs from the sender. A Reply-To repeating the From
+    // address is noise some clients show to the reader as a second line.
+    ...(input.replyTo && input.replyTo !== input.from
+      ? [`Reply-To: ${input.replyTo}`]
+      : []),
     `Subject: ${encodeHeader(input.subject)}`,
     "MIME-Version: 1.0",
   ];

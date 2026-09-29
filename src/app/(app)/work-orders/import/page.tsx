@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { stageImport } from "@/lib/imports/work-orders";
+import { deleteImportBatch, isDeletable } from "@/lib/imports/erase";
 import { WORK_ORDER_IMPORT_COLUMNS } from "@/lib/imports/columns";
 import { maxImportBytes, maxImportLabel, ImportParseError } from "@/lib/imports/parse";
 import { PostingError } from "@/lib/errors";
@@ -19,7 +20,7 @@ export const metadata = { title: pageTitle("Import work orders") };
 export default async function ImportWorkOrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; removed?: string }>;
 }) {
   const scope = await sectionScope("CONSULTANTS");
   const params = await searchParams;
@@ -64,6 +65,17 @@ export default async function ImportWorkOrdersPage({
     redirect(`/work-orders/import/${batchId}`);
   }
 
+  async function removeBatch(formData: FormData) {
+    "use server";
+    const inner = await sectionScope("CONSULTANTS");
+    const result = await deleteImportBatch(inner, String(formData.get("batchId") || ""));
+    redirect(
+      result.ok
+        ? `/work-orders/import?removed=${encodeURIComponent(result.fileName)}`
+        : `/work-orders/import?error=${encodeURIComponent(result.reason)}`,
+    );
+  }
+
   return (
     <>
       <PageHeader
@@ -71,6 +83,11 @@ export default async function ImportWorkOrdersPage({
         description="Upload your spreadsheet. Nothing is created until you review what it found."
       />
       {params.error ? <Alert tone="error">{decodeURIComponent(params.error)}</Alert> : null}
+      {params.removed ? (
+        <Alert tone="success">
+          Removed {decodeURIComponent(params.removed)} from the list. No documents were affected.
+        </Alert>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
         <Card tone="muted">
@@ -138,6 +155,7 @@ export default async function ImportWorkOrdersPage({
                   <th className="py-2">Rows</th>
                   <th className="py-2">Work orders</th>
                   <th className="py-2">Status</th>
+                  <th className="py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -152,6 +170,19 @@ export default async function ImportWorkOrdersPage({
                     <td className="py-2">{batch.rowCount}</td>
                     <td className="py-2">{batch.createdCount || "—"}</td>
                     <td className="py-2 text-xs text-slate-500">{batch.status.toLowerCase().replace("_", " ")}</td>
+                    <td className="py-2 text-right">
+                      {/* Only a discarded attempt. A committed batch is the
+                          record of where its work orders came from, and one
+                          still being reviewed has its own Discard button. */}
+                      {isDeletable(batch.status) ? (
+                        <form action={removeBatch}>
+                          <input type="hidden" name="batchId" value={batch.id} />
+                          <Button variant="ghost" type="submit">
+                            Remove
+                          </Button>
+                        </form>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>

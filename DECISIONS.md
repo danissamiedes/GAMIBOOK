@@ -2221,3 +2221,32 @@ bundle with it. Every screen's import path is unchanged, so all ~100 call sites
 got this without being touched.
 
 Reduced-motion stops the spinner turning. The cursor still says it is working.
+
+## Removing failed imports from the list
+
+"Recent imports" fills up with the same spreadsheet uploaded four times while
+its columns were being fixed. Those attempts staged nothing and posted nothing,
+and there is no reason to keep them on the screen.
+
+**Only a discarded batch can be removed**, and the button is absent rather than
+disabled on the rest. A committed batch is the provenance of the work orders it
+created — each carries `importBatchId` pointing back at it, which is the answer
+to "where did this posting come from". A batch still being reviewed is
+unfinished work and already has its own Discard button; removing it outright
+would be a second way to throw away the same thing.
+
+**Nothing here touches a document.** Deleting a batch removes the upload and the
+staged rows nobody accepted. The success message says so explicitly, because
+"Remove" next to a row that created three work orders is exactly the kind of
+thing someone hesitates over.
+
+**The status is checked, and then the documents are checked anyway.** A
+discarded batch created nothing by definition, so the second query is
+redundant — until the day it is not. A label disagreeing with the ledger is the
+case where the ledger wins, and one count is a cheap way never to orphan a work
+order.
+
+The audit entry is written before anything is removed, while the row still
+exists to be described accurately. The uploaded file is deleted from storage
+first, and a failure there is swallowed: the row is what the user asked to be
+rid of, and an orphaned object in the bucket is the lesser problem.

@@ -120,3 +120,26 @@ describe("storing an SMTP connection (SPEC §10)", () => {
     expect(row.smtpSecure).toBe(false);
   });
 });
+
+describe("what a failure tells the person reading it (SPEC §10)", () => {
+  // The first real attempt at this failed on a hostname typo and reported
+  // "getaddrinfo EBUSY smtp.tital.email" — the answer buried in jargon.
+  it("reads a DNS failure as a hostname problem, whichever code it arrives as", async () => {
+    const { verifySmtp } = await import("@/lib/email/smtp");
+
+    const result = await verifySmtp({
+      ...good,
+      // A name that cannot resolve, in a reserved TLD that never will.
+      host: "smtp.tital.invalid",
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/could not be reached/i);
+    expect(result.reason).toMatch(/typo/i);
+    // It names the host it tried, so a typo is visible in the message itself.
+    expect(result.reason).toContain("smtp.tital.invalid");
+    // And never leaks the raw resolver code at the reader.
+    expect(result.reason).not.toMatch(/getaddrinfo|EBUSY|ENOTFOUND/);
+  }, 30_000);
+});

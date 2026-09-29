@@ -313,8 +313,25 @@ export default async function EmailSettingsPage({
                   />
                 </Field>
                 <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <Field label="Server" hint="Titan uses smtp.titan.email.">
-                    <Input name="smtpHost" required placeholder="smtp.titan.email" />
+                  <Field label="Server" hint="Start typing, or pick one from the list.">
+                    {/* Offered as a list rather than left to typing: the first
+                        real attempt at this failed on "smtp.tital.email", and
+                        a hostname typo surfaces as a DNS error that reads like
+                        a fault rather than a spelling mistake. */}
+                    <Input
+                      name="smtpHost"
+                      required
+                      list="smtp-hosts"
+                      placeholder="smtp.titan.email"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <datalist id="smtp-hosts">
+                      <option value="smtp.titan.email">Titan / GoDaddy</option>
+                      <option value="smtp.office365.com">Microsoft 365 / Outlook</option>
+                      <option value="smtp.zoho.com">Zoho Mail</option>
+                      <option value="smtp.gmail.com">Gmail (app password)</option>
+                    </datalist>
                   </Field>
                   <Field label="Port">
                     <Input

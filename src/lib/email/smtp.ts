@@ -85,22 +85,29 @@ export async function verifySmtp(settings: SmtpSettings): Promise<{ ok: true } |
     await transport.verify();
     return { ok: true };
   } catch (error) {
-    return { ok: false, reason: describe(error) };
+    return { ok: false, reason: describe(error, settings.host) };
   } finally {
     transport.close();
   }
 }
 
 /** Turn a provider's error into something the person reading it can act on. */
-function describe(error: unknown): string {
+function describe(error: unknown, host?: string): string {
   const raw = error instanceof Error ? error.message : String(error);
   const code = (error as { code?: string } | null)?.code;
 
   if (code === "EAUTH" || /invalid login|authentication fail|535/i.test(raw)) {
     return "The server refused that username and password. Titan and Outlook often need the full email address as the username.";
   }
-  if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
-    return "That server address could not be found. Check the hostname for a typo.";
+  // Every way a name lookup can fail lands here. EBUSY and EAI_AGAIN are the
+  // resolver giving up rather than answering "no such host", but from the
+  // person's side they mean the same thing and have the same first cause: the
+  // hostname is wrong. Left out, EBUSY fell through to `getaddrinfo EBUSY
+  // smtp.tital.email`, which buries the actual answer — a typo — in jargon.
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN" || code === "EBUSY" || code === "EDNS") {
+    return `That server address could not be reached${
+      host ? ` (${host})` : ""
+    }. Check the hostname for a typo — Titan is smtp.titan.email.`;
   }
   if (code === "ETIMEDOUT" || code === "ECONNECTION" || code === "ESOCKET") {
     return "Could not reach the server on that port. Try 465 with TLS, or 587 with STARTTLS.";
@@ -198,7 +205,7 @@ export async function sendViaSmtp(options: {
     // 4xx is the server saying "not now"; 5xx is "not ever". Only the first is
     // worth the retry loop in send.ts.
     const transient = typeof code === "number" ? code >= 400 && code < 500 : !isPermanent(error);
-    throw new EmailSendError(describe(error), transient);
+    throw new EmailSendError(describe(error, settings.host), transient);
   } finally {
     transport.close();
   }

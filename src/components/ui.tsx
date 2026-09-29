@@ -14,29 +14,14 @@ import type { ComponentProps, ReactNode } from "react";
  */
 const TOUCH_TARGET = "[@media(pointer:coarse)]:min-h-11";
 
-export function Button({
-  variant = "primary",
-  className = "",
-  ...props
-}: ComponentProps<"button"> & {
-  variant?: "primary" | "secondary" | "danger" | "ghost";
-}) {
-  const styles = {
-    primary:
-      "bg-brand-600 text-white hover:bg-brand-700 dark:bg-brand-600 dark:text-white dark:hover:bg-brand-500",
-    secondary:
-      "border border-slate-300 bg-white text-slate-900 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800",
-    danger: "bg-red-600 text-white hover:bg-red-700",
-    ghost:
-      "text-slate-600 hover:bg-brand-50 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-brand-400",
-  }[variant];
-  return (
-    <button
-      {...props}
-      className={`inline-flex h-9 items-center justify-center rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:pointer-events-none disabled:opacity-50 ${TOUCH_TARGET} ${styles} ${className}`}
-    />
-  );
-}
+/**
+ * Re-exported rather than defined here: it needs `useFormStatus` and so has to
+ * be a client component, and marking this whole module "use client" would drag
+ * every card, field and table into the browser bundle with it. The import path
+ * every screen already uses is unchanged.
+ */
+import { Button } from "./busy-button";
+export { Button };
 
 export function Input({ className = "", ...props }: ComponentProps<"input">) {
   return (

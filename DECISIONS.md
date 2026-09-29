@@ -2181,3 +2181,43 @@ at all is one the practice agreed to take on and will invoice directly, so the
 page says the account is ready and shows the way to the dashboard. The missing
 settings go to the server log instead: naming environment variables at a client
 reads as broken software rather than as a deliberate arrangement.
+
+## Buttons say when they are working
+
+A server action leaves the page fully interactive while it runs, so a click that
+took four seconds looked exactly like a click that missed. People pressed again.
+On a form that posts to the ledger, pressing again is a duplicate entry, not a
+cosmetic complaint.
+
+`Button` now reads two hooks and shows a pending state from either.
+`useFormStatus` covers the enclosing form's action — saving a document, sending
+a batch of work orders. `useLinkStatus` covers a navigation when the button sits
+inside a `<Link>`, which is how half the buttons in this app are written. Outside
+a `<Link>` that hook is a plain context read with an idle default, so it costs
+nothing on the buttons that are not links, and it stays false for a route
+already prefetched — that navigation is instant and a spinner would only
+flicker.
+
+Three signals, because one is not enough on a slow connection. The button shows
+a spinner and sets `aria-busy`. It refuses a second press, and it disables every
+submit in the form rather than only itself, because a second action started from
+the same form is the duplicate we are preventing. And the whole document takes
+the system wait cursor, which is what the user actually asked for and what every
+desktop application has trained people to read.
+
+**The button keeps full opacity while busy.** The usual disabled 50% says
+"unavailable", and a spinning button is the opposite of that.
+
+**The busy cursor is reference-counted.** A navigation can start while a save is
+finishing, and the one that ends first must not take the cursor back while the
+other is still running. It is released on unmount too — a successful action
+usually redirects and takes its own button with it, and without that cleanup the
+cursor would spin on whatever page replaced it.
+
+**The implementation lives in its own file, re-exported from `ui.tsx`.** It
+needs `useFormStatus` and so must be a client component; marking the whole
+module `"use client"` would drag every card, field and table into the browser
+bundle with it. Every screen's import path is unchanged, so all ~100 call sites
+got this without being touched.
+
+Reduced-motion stops the spinner turning. The cursor still says it is working.

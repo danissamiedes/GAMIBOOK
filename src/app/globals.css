@@ -224,3 +224,32 @@ code {
     text-decoration: none !important;
   }
 }
+
+/**
+ * The pointer while something is running.
+ *
+ * A server action leaves the page interactive while it works, so a slow save
+ * was indistinguishable from a click that missed. `BusyButton` sets
+ * `data-busy` on the root for as long as a form action or a navigation is in
+ * flight, and the whole document adopts the system wait cursor — the same
+ * signal any desktop application gives, and the one people already read
+ * without being taught.
+ *
+ * `!important` on the descendant rule is deliberate and narrow. Controls set
+ * their own cursor (`pointer` on a button, `text` in a field), and those would
+ * otherwise win on precisely the elements the pointer spends its time over.
+ * The rule only applies while the attribute is present, which is measured in
+ * seconds.
+ */
+html[data-busy],
+html[data-busy] * {
+  cursor: wait !important;
+}
+
+/* Someone who has asked for less motion still needs to know it is working; the
+   spinner stops turning and the cursor carries the message on its own. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin {
+    animation: none;
+  }
+}

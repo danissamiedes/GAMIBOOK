@@ -2319,3 +2319,31 @@ The route now calls `dryRun()`, so there is one answer rather than two readings
 of the same variable that can drift apart. Covered by a test that walks the
 values an operator actually types — `true`, `false`, `TRUE`, `1`, empty, and
 absent.
+
+## Editing an account
+
+The code in the chart is now a link to an edit screen, for the accounts a
+company added itself. System accounts have no link and the screen refuses them:
+the app posts to them by key and every other report quotes their names, so
+there is nothing useful to offer and a good deal to break.
+
+**Code, name and description change freely.** Every posting refers to its
+account by id, so renumbering 6400 to 5200 moves nothing in the ledger — the
+figures before and after are identical and only the sort order of the reports
+changes, which is the whole point of renumbering.
+
+**Subtype changes too, and is the reason this exists.** Moving an account from
+Expense to Cost of Sales is how gross margin gets corrected after the fact. It
+restates every period the account has postings in, so the screen says so before
+the save and the confirmation says so after: the figures do not change, where
+they are reported does.
+
+**Type is locked once anything has been posted.** An expense reclassified as an
+asset silently rewrites every past P&L and balance sheet, and no warning text
+makes that safe to offer on a form. Before the first posting it is just a
+mistake to fix, so it is allowed then — and the locked select carries its value
+in a hidden field, because a disabled one submits nothing and the save would
+read it as empty.
+
+The uniqueness check excludes the row being edited. Without that, renaming an
+account without renumbering it would report a clash with itself.

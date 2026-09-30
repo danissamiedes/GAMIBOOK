@@ -1,4 +1,5 @@
 import { pageTitle } from "@/lib/brand";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
@@ -39,10 +40,10 @@ function humanSubtype(subtype: AccountSubtype): string {
 export default async function AccountsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; created?: string }>;
+  searchParams: Promise<{ error?: string; created?: string; saved?: string; restated?: string }>;
 }) {
   const scope = await sectionScope("SETTINGS");
-  const { error, created } = await searchParams;
+  const { error, created, saved, restated } = await searchParams;
 
   const accounts = await prisma.account.findMany({
     where: scope.where,
@@ -142,10 +143,18 @@ export default async function AccountsPage({
     <>
       <PageHeader
         title="Chart of accounts"
-        description="System accounts are the ones the app posts to automatically. They cannot be removed or retyped."
+        description="Click a code to edit that account. System accounts are the ones the app posts to automatically — they cannot be edited or removed."
       />
 
       {created ? <Alert tone="success">{created} accounts created.</Alert> : null}
+      {saved ? (
+        <Alert tone="success">
+          Saved {decodeURIComponent(saved)}.
+          {restated
+            ? " It has moved section, so reports covering its postings now read differently."
+            : ""}
+        </Alert>
+      ) : null}
       {error === "duplicate" ? <Alert tone="error">That code is already in use.</Alert> : null}
       {error === "required" ? <Alert tone="error">Code and name are both required.</Alert> : null}
       {error === "subtype" ? <Alert tone="error">Pick a subtype that matches the type.</Alert> : null}
@@ -172,7 +181,20 @@ export default async function AccountsPage({
                         className="border-b border-slate-100 last:border-0 dark:border-slate-800/60"
                       >
                         <td className="w-16 py-1.5 font-mono text-xs text-slate-500">
-                          {account.code}
+                          {/* The code is the handle. System accounts get plain
+                              text: the app posts to them by key and every
+                              other screen quotes their names, so there is
+                              nothing here to offer. */}
+                          {account.isSystem ? (
+                            account.code
+                          ) : (
+                            <Link
+                              href={`/accounts/${account.id}`}
+                              className="underline decoration-dotted underline-offset-2 hover:text-brand-700 dark:hover:text-brand-400"
+                            >
+                              {account.code}
+                            </Link>
+                          )}
                         </td>
                         <td className="py-1.5">
                           <span className={account.isActive ? "" : "text-slate-400 line-through"}>

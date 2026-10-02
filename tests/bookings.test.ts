@@ -500,7 +500,7 @@ describe("what a booking refuses (SPEC §17)", () => {
 });
 
 describe("the public grid (SPEC §17)", () => {
-  it("marks taken slots and prices the rest", async () => {
+  it("marks held slots pending and confirmed ones taken", async () => {
     const { units } = await pickleFarm();
     const date = soon();
     await createBookingGroup({
@@ -521,10 +521,42 @@ describe("the public grid (SPEC §17)", () => {
 
     expect(grid.units).toHaveLength(3);
     expect(grid.slots).toHaveLength(16);
-    expect(grid.cells.get(`${units[0].id}:600`)?.unavailable).toBe("taken");
+    // A fresh booking is held, not paid for: the grid says so rather than
+    // telling a stranger the court is gone when the hold may yet lapse.
+    expect(grid.cells.get(`${units[0].id}:600`)?.unavailable).toBe("pending");
     expect(grid.cells.get(`${units[1].id}:600`)?.unavailable).toBeNull();
     expect(grid.cells.get(`${units[1].id}:600`)?.amount?.toFixed(2)).toBe("200.00");
     expect(grid.cells.get(`${units[1].id}:1140`)?.amount?.toFixed(2)).toBe("350.00");
+  });
+
+  it("marks a confirmed slot taken", async () => {
+    const { units } = await pickleFarm();
+    const date = soon();
+    const booked = await createBookingGroup({
+      slug: "the-pickle-farm",
+      picks: [{ unitId: units[0].id, startMinute: 600 }],
+      date,
+      ...booker,
+    });
+    expect(booked.ok).toBe(true);
+    if (!booked.ok) return;
+    await prisma.bookingGroup.update({
+      where: { id: booked.group.id },
+      data: {
+        status: "CONFIRMED",
+        bookings: { updateMany: { where: {}, data: { status: "CONFIRMED" } } },
+      },
+    });
+
+    const venue = (await publicVenue("the-pickle-farm"))!;
+    const grid = await dayGrid({
+      settings: venue.settings,
+      units: venue.units,
+      rates: venue.rates,
+      date,
+      timeZone: "Asia/Manila",
+    });
+    expect(grid.cells.get(`${units[0].id}:600`)?.unavailable).toBe("taken");
   });
 
   it("puts an expired hold's slots back on the grid", async () => {

@@ -35,6 +35,39 @@ function tabLabel(date: string, today: string): { top: string; day: string; mont
 }
 
 /**
+ * What a cell nobody can book says, and how it is drawn.
+ *
+ * Grey fill means gone: somebody paid and a person checked it. A reservation
+ * still waiting on payment is drawn differently and says so, because it can
+ * still lapse or be turned down and put the slot back on the market — calling
+ * that "Booked" claims more than the venue actually has, to a stranger who is
+ * deciding whether to come at all.
+ */
+const UNAVAILABLE: Record<
+  "taken" | "pending" | "past" | "no-price",
+  { label: string; className: string }
+> = {
+  taken: {
+    label: "Booked",
+    className:
+      "border-slate-300 bg-slate-200 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400",
+  },
+  pending: {
+    label: "Pending Reservation",
+    className:
+      "border-dashed border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300",
+  },
+  past: {
+    label: "Passed",
+    className: "border-dashed border-slate-200 text-slate-400 dark:border-slate-800",
+  },
+  "no-price": {
+    label: "—",
+    className: "border-dashed border-slate-200 text-slate-400 dark:border-slate-800",
+  },
+};
+
+/**
  * The public booking page (SPEC §17).
  *
  * No account, no session. A stranger arrives from a link, sees what is free,
@@ -219,14 +252,13 @@ export default async function BookPage({
                       const isPicked = picked.has(key);
 
                       if (cell.unavailable) {
+                        const state = UNAVAILABLE[cell.unavailable];
                         return (
                           <td key={unit.id} className="p-1">
-                            <div className="rounded-md border border-dashed border-slate-200 py-2 text-center text-xs text-slate-400 dark:border-slate-800">
-                              {cell.unavailable === "taken"
-                                ? "Booked"
-                                : cell.unavailable === "past"
-                                  ? "Passed"
-                                  : "—"}
+                            <div
+                              className={`rounded-md border px-1 py-2 text-center text-xs leading-tight ${state.className}`}
+                            >
+                              {state.label}
                             </div>
                           </td>
                         );

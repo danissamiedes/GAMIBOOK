@@ -2472,3 +2472,24 @@ fault rather than the page's.
 **Saving the settings form never loses the QR by accident.** The field is only
 touched when a new file is sent or the remove box is ticked, so editing the
 opening hours does not quietly clear it.
+
+## A held slot is not a booked slot
+
+The public grid used to draw everything unavailable the same way: "Booked",
+whether the venue had been paid or a stranger had merely opened the form ninety
+seconds ago. Two different facts, and the grid asserted the stronger one.
+
+**"Pending Reservation" for a slot that is held or waiting on a payment being
+checked.** That booking can still lapse when the hold expires, or be turned down
+when the proof does not add up, and the slot goes straight back on the market.
+Telling the next person it is sold is claiming more than the venue has — and the
+person reading it is deciding whether to come at all.
+
+**"Booked", on a grey ground, only once somebody has paid and a person has
+checked it.** The fill is what makes a full day legible at a glance; the two
+unavailable states look different because they mean different things, and the
+one that is final is the one that reads as solid.
+
+The grid still refuses both: neither is a link, and the unique index that stops
+double-booking has not changed. This is about what the page says, not what it
+allows.

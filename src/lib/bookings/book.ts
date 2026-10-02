@@ -20,8 +20,15 @@ export type OfferedSlot = Slot & {
   unitId: string;
   amount: Money | null;
   rateLabel: string | null;
-  /** Why it cannot be booked, or null when it can. */
-  unavailable: "taken" | "past" | "no-price" | null;
+  /**
+   * Why it cannot be booked, or null when it can.
+   *
+   * "taken" is a booking somebody has paid for and a person has checked;
+   * "pending" is one that is held or waiting on a payment being verified.
+   * Both are off the market, but calling the second one booked overstates
+   * what the venue actually has — the hold can still lapse or be turned down.
+   */
+  unavailable: "taken" | "pending" | "past" | "no-price" | null;
 };
 
 export type DayGrid = {
@@ -114,7 +121,7 @@ export async function dayGrid(options: {
     select: { unitId: true, startMinute: true, status: true, group: { select: { heldUntil: true } } },
   });
 
-  const takenKeys = new Set(
+  const takenKeys = new Map<string, "taken" | "pending">(
     taken
       // An expired hold is not a booking. Leaving it on the grid would keep a
       // court off the market because somebody opened a form and wandered off.
@@ -122,7 +129,13 @@ export async function dayGrid(options: {
         (row) =>
           row.status !== "HELD" || !row.group.heldUntil || row.group.heldUntil > now,
       )
-      .map((row) => `${row.unitId}:${row.startMinute}`),
+      .map(
+        (row) =>
+          [
+            `${row.unitId}:${row.startMinute}`,
+            row.status === "CONFIRMED" ? ("taken" as const) : ("pending" as const),
+          ] as const,
+      ),
   );
 
   const today = venueToday(timeZone, now);
@@ -145,13 +158,9 @@ export async function dayGrid(options: {
         unitId: unit.id,
         amount: price?.amount ?? null,
         rateLabel: price?.label ?? null,
-        unavailable: takenKeys.has(key)
-          ? "taken"
-          : past
-            ? "past"
-            : price
-              ? null
-              : "no-price",
+        unavailable:
+          takenKeys.get(key) ??
+          (past ? "past" : price ? null : "no-price"),
       });
     }
   }

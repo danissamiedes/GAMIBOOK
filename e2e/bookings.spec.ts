@@ -21,7 +21,8 @@ test("a guest books, sends proof, and an admin confirms it", async ({ page }) =>
   // A day a few out, so "today" and its passed hours never decide the test.
   // Followed by a goto rather than a click: the grid re-renders under the
   // pointer while the day loads, and a click into that is a race.
-  await page.goto(await dayHref(page, 3));
+  const day = await dayHref(page, 3);
+  await page.goto(day);
   // Three slots in one go: two hours on one court, plus the later of those
   // hours on a second — the two shapes the venue asked for.
   //
@@ -57,6 +58,12 @@ test("a guest books, sends proof, and an admin confirms it", async ({ page }) =>
   await expect(page.getByText("Held — we need your payment")).toBeVisible();
   // The payment instructions the venue set are shown.
   await expect(page.getByText(/GCash/)).toBeVisible();
+
+  // Back on the grid those slots are off the market, but they are not sold:
+  // nobody has paid yet, so they must not read "Booked" to the next stranger.
+  await page.goto(day);
+  await expect(page.getByText("Pending Reservation").first()).toBeVisible();
+  await page.goBack();
 
   const reference = (await page.getByRole("heading", { level: 1 }).innerText())
     .replace("Booking ", "")
@@ -113,15 +120,21 @@ test("a guest books, sends proof, and an admin confirms it", async ({ page }) =>
   await page.goto(`/book/the-pickle-farm/${reference}`);
   await expect(page.getByText("Confirmed — see you then")).toBeVisible();
 
+  // And only now does the grid call those slots booked.
+  await page.goto(day);
+  await expect(page.getByText("Booked").first()).toBeVisible();
+
   expect(errors).toEqual([]);
 });
 
-test("a booked slot is no longer offered", async ({ page }) => {
+test("a slot that is not free is never clickable", async ({ page }) => {
   await page.goto("/book/the-pickle-farm");
-  const booked = page.getByText("Booked").first();
-  // Either there is a booked slot from the run above, or the grid is clean —
-  // both are valid; what matters is that "Booked" is never clickable.
-  if ((await booked.count()) > 0) {
-    expect(await booked.evaluate((el) => el.closest("a") !== null)).toBe(false);
+  // Either an earlier run left some of these on the grid or it is clean —
+  // both are valid; what matters is that neither state is ever a link.
+  for (const label of ["Booked", "Pending Reservation"]) {
+    const cell = page.getByText(label, { exact: true }).first();
+    if ((await cell.count()) > 0) {
+      expect(await cell.evaluate((el) => el.closest("a") !== null)).toBe(false);
+    }
   }
 });

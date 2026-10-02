@@ -25,6 +25,7 @@ export const ALL_SECTIONS: Section[] = [
   "BANKING",
   "REPORTS",
   "SETTINGS",
+  "BOOKINGS",
 ];
 
 export type CompanyScope = {
@@ -99,6 +100,7 @@ export const SECTION_LABELS: Record<Section, string> = {
   BANKING: "Banking",
   REPORTS: "Reports",
   SETTINGS: "Settings",
+  BOOKINGS: "Bookings",
 };
 
 export const SECTION_DESCRIPTIONS: Record<Section, string> = {
@@ -108,6 +110,7 @@ export const SECTION_DESCRIPTIONS: Record<Section, string> = {
   BANKING: "Bank accounts, CSV import and matching",
   REPORTS: "P&L, Balance Sheet, Trial Balance, General Ledger",
   SETTINGS: "Chart of accounts, company and email settings",
+  BOOKINGS: "Taking bookings, checking proof of payment, units and rates",
 };
 
 /**

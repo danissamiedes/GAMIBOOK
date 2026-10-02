@@ -119,4 +119,8 @@ export const storageKeys = {
   /** An attachment on a note about a customer, vendor or consultant. */
   partyNote: (companyId: string, noteId: string, filename: string) =>
     `companies/${companyId}/notes/${noteId}/${filename.replace(/[^\w.\-]/g, "_")}`,
+  /** Proof of payment for a booking. The filename is scrubbed hard: this one
+   *  is chosen by a stranger with no account (SPEC §17). */
+  bookingProof: (companyId: string, bookingId: string, filename: string) =>
+    `companies/${companyId}/bookings/${bookingId}/${filename.replace(/[^\w.\-]/g, "_").slice(-120)}`,
 };

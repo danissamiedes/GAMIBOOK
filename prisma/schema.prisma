@@ -84,6 +84,8 @@ enum Section {
   BANKING
   REPORTS
   SETTINGS
+  /// Taking and confirming bookings (SPEC §17).
+  BOOKINGS
 }
 
 /// SPEC §9. How a time entry came to exist, so an edited row can never be
@@ -342,6 +344,12 @@ model Company {
   /// review rather than running forever (SPEC §9).
   maxShiftHours Int @default(16)
 
+  /// Bookings (SPEC §17). Absent for every company that does not take them.
+  bookingSettings BookingSettings?
+  bookableUnits   BookableUnit[]
+  bookingRates    BookingRate[]
+  bookings        Booking[]
+
   setupCompletedAt DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -405,6 +413,7 @@ model User {
   receiptUploads ReceiptUpload[]
   tasksAssigned  Task[]               @relation("TaskAssignee")
   tasksCreated   Task[]               @relation("TaskCreator")
+  bookings       Booking[]
   partyNotes     PartyNote[]          @relation("PartyNoteAuthor")
 }
 
@@ -1816,4 +1825,175 @@ model ProviderWebhookEvent {
   receivedAt DateTime @default(now())
 
   @@index([eventType, receivedAt])
+}
+
+/// Where a booking stands (SPEC §17).
+///
+/// Payment happens outside this system — a transfer, a wallet, cash — so the
+/// states track evidence rather than money: the slot is held, the booker says
+/// they have paid, somebody checked.
+enum BookingStatus {
+  /// Slot taken, nothing proven. Expires if no proof arrives.
+  HELD
+  /// The booker has uploaded proof. Waiting on a person to look at it.
+  PAYMENT_SUBMITTED
+  /// A human checked the proof and said yes.
+  CONFIRMED
+  CANCELLED
+}
+
+/// How one company runs its bookings (SPEC §17).
+model BookingSettings {
+  id        String @id @default(cuid())
+  companyId String @unique
+
+  /// What a bookable thing is called here — "Court", "Office", "Class",
+  /// "Room". The whole public page reads better for saying the real word, and
+  /// nobody books a "unit".
+  unitLabel       String @default("Unit")
+  unitLabelPlural String @default("Units")
+
+  /// The public page lives at /book/<slug>, and only when published.
+  slug        String  @unique
+  isPublished Boolean @default(false)
+
+  venueName    String?
+  venueAddress String?
+  intro        String?
+
+  /// Minutes in one bookable slot.
+  slotMinutes    Int @default(60)
+  /// Opening hours as minutes from midnight, in the operating zone.
+  opensAtMinute  Int @default(420)
+  closesAtMinute Int @default(1380)
+  /// How many days ahead the public page offers.
+  horizonDays    Int @default(14)
+
+  /// Shown to the booker once a slot is held: where to send the money.
+  paymentInstructions String?
+  /// How long a held slot survives with no proof, so an abandoned booking
+  /// does not keep a court off the market forever.
+  holdMinutes         Int     @default(120)
+  /// Where "someone submitted proof" goes. Falls back to the company email.
+  notifyEmail         String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// One bookable thing: a court, an office, a class, a section (SPEC §17).
+model BookableUnit {
+  id        String  @id @default(cuid())
+  companyId String
+  name      String
+  /// Shown under the name on the public page — "Indoor, covered".
+  note      String?
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  bookings Booking[]
+  rates    BookingRate[]
+
+  @@index([companyId, sortOrder])
+}
+
+/// What a slot costs, and when that price applies (SPEC §17).
+///
+/// Rates are rules rather than a price per slot, because the price of a court
+/// at 7am and at 7pm differ by time of day and day of week, and typing a
+/// number into every cell of a fourteen-day grid is not a thing anyone will
+/// keep up to date.
+model BookingRate {
+  id        String @id @default(cuid())
+  companyId String
+
+  /// What the booker sees beside the price: "Peak", "Off-Peak", "Member".
+  label  String
+  amount Decimal @db.Decimal(18, 2)
+
+  /// 0 = Sunday … 6 = Saturday. Empty means every day.
+  daysOfWeek  Int[]
+  /// The window this rate covers, as minutes from midnight.
+  startMinute Int
+  endMinute   Int
+
+  /// Null applies to every unit; set it to price one court differently.
+  unitId String?
+
+  /// Higher wins where two rates overlap, so a specific rule can sit on top
+  /// of a general one without rewriting it.
+  priority Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  unit    BookableUnit? @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, startMinute])
+}
+
+/// One booked slot (SPEC §17).
+///
+/// Deliberately holds the booker's details rather than pointing at a Customer.
+/// Most bookings are from strangers who will never come back, and creating a
+/// customer record — and with it a row in the books — for every guest would
+/// fill the ledger with people who once hired a court for an hour.
+model Booking {
+  id        String @id @default(cuid())
+  companyId String
+  unitId    String
+
+  /// Short and sayable over the phone: the booker quotes it, the admin finds it.
+  reference String
+
+  /// The local calendar date, as the venue counts days.
+  date        DateTime @db.Date
+  startMinute Int
+  endMinute   Int
+
+  status BookingStatus @default(HELD)
+
+  amount    Decimal @db.Decimal(18, 2)
+  currency  String  @db.Char(3)
+  /// Which rate priced it, kept so a later rate change does not rewrite history.
+  rateLabel String?
+
+  customerName  String
+  customerEmail String
+  customerPhone String?
+  note          String?
+
+  /// Set when the booker was signed in. Guests leave it null.
+  userId String?
+
+  /// When an unpaid hold stops holding.
+  heldUntil DateTime?
+
+  /// Proof of payment: the file, what they typed, and when it arrived.
+  paymentProofKey    String?
+  paymentProofName   String?
+  paymentReference   String?
+  paymentNote        String?
+  paymentSubmittedAt DateTime?
+
+  confirmedAt       DateTime?
+  confirmedByUserId String?
+  cancelledAt       DateTime?
+  cancelReason      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  unit    BookableUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  user    User?        @relation(fields: [userId], references: [id])
+
+  @@unique([companyId, reference])
+  @@index([companyId, date])
+  @@index([companyId, status])
+  @@index([unitId, date, startMinute])
 }

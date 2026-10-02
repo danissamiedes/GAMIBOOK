@@ -2347,3 +2347,64 @@ read it as empty.
 
 The uniqueness check excludes the row being edited. Without that, renaming an
 account without renumbering it would report a clash with itself.
+
+## Bookings (SPEC §17)
+
+A booking section: units, rates, a public page strangers can book from, and a
+payment step that is a person looking at evidence rather than a card being
+charged.
+
+**Nothing posts to the ledger.** A confirmed booking records that it is paid and
+stops there. The public page is writable by anyone with the link, and a surface
+like that creating journal entries — or customer records — is a far larger blast
+radius than a court hire justifies. The income is raised in the books the usual
+way.
+
+**Times are minutes from midnight in the venue's own zone, not instants.** A
+court opens at 7am local whatever the clocks did overnight. Storing an offset
+would mean every daylight-saving change silently moved the opening hour.
+
+**The slot is claimed by a partial unique index, not by checking first.** Two
+people can press Book in the same second, and the loser has to find out from the
+database rather than from the other player turning up. Prisma cannot express
+`UNIQUE … WHERE status <> 'CANCELLED'`, so it is written by hand in the
+migration, and `createBooking` reads the constraint violation as "taken".
+
+**A slot with no rate is not for sale.** `priceFor` returns nothing rather than
+zero when no rule covers a slot. A court with no price is misconfigured, and
+quietly selling it for nothing is the worst possible reading of that.
+
+**The price comes from the stored rates, never from the request.** So is the
+company — it comes from the slug. A posted amount is a number a stranger chose.
+
+**Holds expire; paid bookings never do.** An abandoned form must not keep a
+court off the market, so an unpaid hold has a deadline and the grid ignores one
+that has passed. The moment proof of payment arrives the deadline is cleared:
+somebody has now sent real money, and a sweep taking their slot back because an
+admin was asleep would be indefensible.
+
+**The reference is six characters from a 32-letter alphabet**, with I, L, O and
+U removed — nothing that sounds alike down a phone or reads as a digit. It is
+also the only credential on the booking page, which is why it is random rather
+than a counter: a sequential number would let anyone read every booking the
+venue has by counting.
+
+**Proof of payment is served through the app, never from a public bucket URL.**
+It is a screenshot of somebody's bank account. The Content-Type is derived from
+a short allow-list rather than echoed from the upload, because a filename chosen
+by a stranger is not a safe thing to hand back as a header.
+
+**Bookings are their own section.** A front desk that takes bookings should not
+also be able to read the profit and loss, and reusing SALES would have given it
+invoices and receivables too.
+
+**Every email is a reply to something a person just did** — uploaded proof,
+pressed Confirm. Nothing here sends on a schedule or on its own. All of them are
+best-effort: a venue with no mailbox connected must still be able to take
+bookings, and a booking already paid for must not be lost because a mail server
+was slow.
+
+THE PICKLE FARM ships in the seed as a working example — three courts, 7am to
+11pm, off-peak 200 / peak 350 / a weekend rule that sits on top of both by
+priority — because a booking page with no units and no rates shows nothing at
+all and reads as broken rather than as empty.

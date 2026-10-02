@@ -1,0 +1,279 @@
+import Link from "next/link";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { pageTitle } from "@/lib/brand";
+import { prisma } from "@/lib/db";
+import { sectionScope } from "@/lib/session-scope";
+import { writeAudit } from "@/lib/audit";
+import { parseMinute, toTimeInput } from "@/lib/bookings/slots";
+import { requestOrigin } from "@/lib/request-origin";
+import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
+
+export const metadata = { title: pageTitle("Booking settings") };
+
+/** Lowercase, hyphenated, no surprises in a URL. */
+function toSlug(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+/**
+ * How this company's bookings work (SPEC §17).
+ *
+ * The public page does not exist until it is published here, and it lives at
+ * an address the company chooses. Publishing is the switch that makes a venue
+ * reachable by strangers, so it is a deliberate tick rather than a side effect
+ * of filling the form in.
+ */
+export default async function BookingSettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; saved?: string }>;
+}) {
+  const scope = await sectionScope("BOOKINGS");
+  const { error, saved } = await searchParams;
+
+  const [company, existing] = await Promise.all([
+    prisma.company.findFirstOrThrow({
+      where: { id: scope.companyId },
+      select: { name: true, operatingTimeZone: true, email: true },
+    }),
+    prisma.bookingSettings.findUnique({ where: { companyId: scope.companyId } }),
+  ]);
+
+  const origin = requestOrigin(await headers());
+
+  async function save(formData: FormData) {
+    "use server";
+    const inner = await sectionScope("BOOKINGS");
+
+    const slug = toSlug(String(formData.get("slug") || ""));
+    if (!slug) redirect("/bookings/settings?error=slug");
+
+    const opens = parseMinute(String(formData.get("opensAt") || ""));
+    const closes = parseMinute(String(formData.get("closesAt") || ""));
+    if (opens === null || closes === null) redirect("/bookings/settings?error=time");
+    if (closes <= opens) redirect("/bookings/settings?error=window");
+
+    const slotMinutes = Number(formData.get("slotMinutes") || 60);
+    if (!Number.isInteger(slotMinutes) || slotMinutes < 5 || slotMinutes > 720) {
+      redirect("/bookings/settings?error=slot");
+    }
+
+    const unitLabel = String(formData.get("unitLabel") || "Unit").trim() || "Unit";
+    const data = {
+      unitLabel,
+      unitLabelPlural: String(formData.get("unitLabelPlural") || "").trim() || `${unitLabel}s`,
+      slug,
+      isPublished: formData.get("isPublished") === "on",
+      venueName: String(formData.get("venueName") || "").trim() || null,
+      venueAddress: String(formData.get("venueAddress") || "").trim() || null,
+      intro: String(formData.get("intro") || "").trim() || null,
+      slotMinutes,
+      opensAtMinute: opens,
+      closesAtMinute: closes,
+      horizonDays: Math.min(90, Math.max(1, Number(formData.get("horizonDays") || 14))),
+      paymentInstructions: String(formData.get("paymentInstructions") || "").trim() || null,
+      holdMinutes: Math.min(1440, Math.max(5, Number(formData.get("holdMinutes") || 120))),
+      notifyEmail: String(formData.get("notifyEmail") || "").trim() || null,
+    };
+
+    try {
+      await prisma.bookingSettings.upsert({
+        where: { companyId: inner.companyId },
+        create: { companyId: inner.companyId, ...data },
+        update: data,
+      });
+    } catch (fault) {
+      // The slug is unique across every company: two venues cannot share a
+      // public address, and the second one to try must be told why.
+      if (fault && typeof fault === "object" && "code" in fault && fault.code === "P2002") {
+        redirect("/bookings/settings?error=slugTaken");
+      }
+      throw fault;
+    }
+
+    await writeAudit({
+      companyId: inner.companyId,
+      userId: inner.userId,
+      action: "booking_settings.updated",
+      entityType: "BookingSettings",
+      summary: data.isPublished ? `published at /book/${slug}` : "saved, not published",
+    });
+    redirect("/bookings/settings?saved=1");
+  }
+
+  const MESSAGES: Record<string, string> = {
+    slug: "The public address needs at least one letter or number.",
+    slugTaken: "Another venue already uses that address. Pick a different one.",
+    time: "Those opening hours could not be read.",
+    window: "Closing time has to be after opening time.",
+    slot: "A slot is between 5 minutes and 12 hours long.",
+  };
+
+  const slug = existing?.slug ?? toSlug(company.name);
+
+  return (
+    <>
+      <PageHeader
+        title="Booking settings"
+        description={`Times are in this company's operating zone, ${company.operatingTimeZone}.`}
+      />
+
+      <div className="mb-4">
+        <Link href="/bookings">
+          <Button variant="ghost">All bookings</Button>
+        </Link>
+      </div>
+
+      {error ? <Alert tone="error">{MESSAGES[error] ?? "That could not be saved."}</Alert> : null}
+      {saved ? <Alert tone="success">Saved.</Alert> : null}
+
+      <Card className="max-w-2xl">
+        <form action={save} className="space-y-5">
+          <fieldset className="space-y-4">
+            <legend className="text-sm font-semibold">The public page</legend>
+
+            <Field
+              label="Address"
+              hint={`Your page will be at ${origin}/book/<address>`}
+            >
+              <Input name="slug" defaultValue={slug} required />
+            </Field>
+
+            <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-900/50">
+              <input
+                type="checkbox"
+                name="isPublished"
+                defaultChecked={existing?.isPublished ?? false}
+                className="mt-0.5 size-4 accent-brand-600"
+              />
+              <span>
+                <strong className="block">Open for bookings</strong>
+                <span className="text-slate-600 dark:text-slate-400">
+                  Until this is ticked the page is not reachable at all, even by someone who has
+                  the link.
+                </span>
+              </span>
+            </label>
+
+            {existing?.isPublished ? (
+              <p className="text-sm">
+                Live at{" "}
+                <a
+                  href={`/book/${existing.slug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-dotted underline-offset-2"
+                >
+                  {origin}/book/{existing.slug}
+                </a>
+              </p>
+            ) : null}
+
+            <Field label="Venue name" hint={`Blank uses the company name, ${company.name}.`}>
+              <Input name="venueName" defaultValue={existing?.venueName ?? ""} />
+            </Field>
+            <Field label="Address shown to bookers">
+              <Input name="venueAddress" defaultValue={existing?.venueAddress ?? ""} />
+            </Field>
+            <Field label="Introduction" hint="Optional. A line or two at the top of the page.">
+              <Input name="intro" defaultValue={existing?.intro ?? ""} />
+            </Field>
+          </fieldset>
+
+          <fieldset className="space-y-4 border-t border-slate-200 pt-5 dark:border-slate-700">
+            <legend className="text-sm font-semibold">What people book</legend>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Called a" hint="Court, Office, Class, Room.">
+                <Input name="unitLabel" defaultValue={existing?.unitLabel ?? "Court"} required />
+              </Field>
+              <Field label="Several are" hint="Courts, Offices, Classes.">
+                <Input name="unitLabelPlural" defaultValue={existing?.unitLabelPlural ?? "Courts"} />
+              </Field>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Opens">
+                <Input
+                  name="opensAt"
+                  type="time"
+                  required
+                  defaultValue={toTimeInput(existing?.opensAtMinute ?? 420)}
+                />
+              </Field>
+              <Field label="Closes">
+                <Input
+                  name="closesAt"
+                  type="time"
+                  required
+                  defaultValue={toTimeInput(existing?.closesAtMinute ?? 1380)}
+                />
+              </Field>
+              <Field label="Slot length">
+                <Select name="slotMinutes" defaultValue={String(existing?.slotMinutes ?? 60)}>
+                  {[30, 45, 60, 90, 120].map((minutes) => (
+                    <option key={minutes} value={minutes}>
+                      {minutes} minutes
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+
+            <Field label="Days ahead" hint="How far into the future the page offers.">
+              <Input
+                name="horizonDays"
+                type="number"
+                min={1}
+                max={90}
+                defaultValue={existing?.horizonDays ?? 14}
+              />
+            </Field>
+          </fieldset>
+
+          <fieldset className="space-y-4 border-t border-slate-200 pt-5 dark:border-slate-700">
+            <legend className="text-sm font-semibold">Payment</legend>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              No money moves through GAMIBOOK. The booker pays you however you ask, uploads proof,
+              and somebody here confirms it.
+            </p>
+
+            <Field
+              label="How to pay"
+              hint="Shown to the booker once their slot is held. Bank details, wallet number, or 'pay at the desk'."
+            >
+              <textarea
+                name="paymentInstructions"
+                rows={4}
+                defaultValue={existing?.paymentInstructions ?? ""}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+              />
+            </Field>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Hold for" hint="Minutes a slot is held before payment arrives.">
+                <Input
+                  name="holdMinutes"
+                  type="number"
+                  min={5}
+                  max={1440}
+                  defaultValue={existing?.holdMinutes ?? 120}
+                />
+              </Field>
+              <Field label="Tell us at" hint={`Blank uses ${company.email ?? "the company email"}.`}>
+                <Input name="notifyEmail" type="email" defaultValue={existing?.notifyEmail ?? ""} />
+              </Field>
+            </div>
+          </fieldset>
+
+          <Button type="submit">Save settings</Button>
+        </form>
+      </Card>
+    </>
+  );
+}

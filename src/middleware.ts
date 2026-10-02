@@ -23,6 +23,10 @@ const PUBLIC_PREFIXES = [
   // have an account yet, so both have to answer without one.
   "/signup",
   "/terms",
+  // The public booking pages. Strangers with no account are the whole point
+  // of them (SPEC §17); which venue, which prices and which slots are all
+  // decided server-side from the slug.
+  "/book",
   "/forgot-password",
   "/reset-password",
   "/invite",

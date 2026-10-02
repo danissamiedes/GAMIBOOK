@@ -135,6 +135,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           scope.hasSection("VENDORS") && { href: "/receipts", label: "Receipt inbox" },
       ]),
     },
+    scope.hasSection("BOOKINGS") && {
+      label: "Bookings",
+      items: only([
+        { href: "/bookings", label: "Bookings" },
+        { href: "/bookings/units", label: "Units" },
+        { href: "/bookings/rates", label: "Rates" },
+        { href: "/bookings/settings", label: "Settings" },
+      ]),
+    },
     {
       label: "Other",
       items: only([

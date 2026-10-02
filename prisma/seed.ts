@@ -138,6 +138,79 @@ async function main() {
   const otherBookkeeper = await upsertUser("usd-bookkeeper@example.com", "Uma Ledger", passwordHash);
   await member(otherBookkeeper.id, usdCompany.id, "BOOKKEEPER");
 
+  // ---- Bookings: a venue that takes them (SPEC §17) ----------------------
+  // A real-shaped example, because a booking page with no courts and no rates
+  // shows nothing at all and reads as broken rather than as empty.
+  const pickleCompany = await prisma.company.upsert({
+    where: { id: "seed-company-pickle" },
+    create: {
+      id: "seed-company-pickle",
+      organizationId: organization.id,
+      name: "THE PICKLE FARM",
+      baseCurrency: "PHP",
+      fiscalYearStartMonth: 1,
+      timeClockTimeZone: "Asia/Manila",
+      operatingTimeZone: "Asia/Manila",
+      theme: "AMBER",
+      setupCompletedAt: new Date(),
+    },
+    update: {},
+  });
+  await sequences(pickleCompany.id);
+  await createDefaultChartOfAccounts(pickleCompany.id);
+  await member(owner.id, pickleCompany.id, "OWNER");
+
+  // Someone who takes bookings and nothing else — the front desk should not
+  // be able to read the profit and loss.
+  const deskUser = await upsertUser("desk@example.com", "Dina Desk", passwordHash);
+  await member(deskUser.id, pickleCompany.id, "BOOKKEEPER", ["BOOKINGS"]);
+
+  await prisma.bookingSettings.upsert({
+    where: { companyId: pickleCompany.id },
+    create: {
+      companyId: pickleCompany.id,
+      slug: "the-pickle-farm",
+      isPublished: true,
+      unitLabel: "Court",
+      unitLabelPlural: "Courts",
+      venueName: "THE PICKLE FARM",
+      venueAddress: "White Plains, New Visayas, Panabo City, Davao del Norte",
+      intro: "Three indoor courts. Book by the hour — we hold your slot while you pay.",
+      opensAtMinute: 7 * 60,
+      closesAtMinute: 23 * 60,
+      slotMinutes: 60,
+      horizonDays: 14,
+      holdMinutes: 120,
+      paymentInstructions:
+        "GCash 0917 000 0000 (The Pickle Farm)\nor BPI 1234-5678-90\n\nSend a screenshot once you have paid and quote your booking reference.",
+    },
+    update: {},
+  });
+
+  for (const [index, name] of ["Court 1", "Court 2", "Court 3"].entries()) {
+    const id = `seed-court-${index + 1}`;
+    await prisma.bookableUnit.upsert({
+      where: { id },
+      create: { id, companyId: pickleCompany.id, name, sortOrder: index },
+      update: {},
+    });
+  }
+
+  // Off-peak through the working day, peak from five, and a weekend rule that
+  // sits on top of both by priority.
+  const rates = [
+    { id: "seed-rate-offpeak", label: "Off-Peak", amount: "200.00", startMinute: 7 * 60, endMinute: 17 * 60, daysOfWeek: [] as number[], priority: 0 },
+    { id: "seed-rate-peak", label: "Peak", amount: "350.00", startMinute: 17 * 60, endMinute: 23 * 60, daysOfWeek: [] as number[], priority: 0 },
+    { id: "seed-rate-weekend", label: "Weekend", amount: "400.00", startMinute: 7 * 60, endMinute: 23 * 60, daysOfWeek: [0, 6], priority: 10 },
+  ];
+  for (const rate of rates) {
+    await prisma.bookingRate.upsert({
+      where: { id: rate.id },
+      create: { companyId: pickleCompany.id, ...rate },
+      update: {},
+    });
+  }
+
   // ---- Phase 2: chart of accounts and a little history -------------------
   for (const company of [phpCompany, usdCompany]) {
     await createDefaultChartOfAccounts(company.id);
@@ -806,6 +879,10 @@ Seed complete.
   fixtures/work-orders-september-2026.xlsx is a sample import in your own
   layout — five good rows and three deliberately broken ones. Try it at
   Work orders -> Import from spreadsheet.
+
+  THE PICKLE FARM takes bookings at /book/the-pickle-farm — three courts,
+  7am to 11pm, off-peak 200 / peak 350 / weekend 400. desk@example.com can
+  see bookings and nothing else.
 
   Trial balance ties at
   ${tb.totalDebit.toFixed(2)} ${phpCompany.baseCurrency} on each side.

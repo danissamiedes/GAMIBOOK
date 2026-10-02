@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { APP_NAME, pageTitle } from "@/lib/brand";
 import {
   BOOK_MESSAGES,
-  createBooking,
+  createBookingGroup,
   dayGrid,
   offeredDates,
   publicVenue,
@@ -46,7 +46,7 @@ export default async function BookPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ date?: string; unit?: string; start?: string; error?: string }>;
+  searchParams: Promise<{ date?: string; pick?: string | string[]; error?: string }>;
 }) {
   const { slug } = await params;
   const query = await searchParams;
@@ -62,10 +62,45 @@ export default async function BookPage({
 
   const grid = await dayGrid({ settings, units, rates, date, timeZone: zone });
 
-  // The slot being booked, if one was picked.
-  const chosen =
-    query.unit && query.start ? grid.cells.get(`${query.unit}:${Number(query.start)}`) : undefined;
-  const chosenUnit = units.find((unit) => unit.id === query.unit);
+  // Which slots are ticked, carried in the URL as repeated `pick` params.
+  // Server-rendered state rather than client state: the page stays a server
+  // component, the back button works, and a half-filled selection survives a
+  // refresh or being sent to somebody else.
+  const picked = new Set(
+    (Array.isArray(query.pick) ? query.pick : query.pick ? [query.pick] : []).filter((key) => {
+      // A slot that has since been taken, or is not on this day's grid at all,
+      // drops out quietly rather than failing at the end of the form.
+      const cell = grid.cells.get(key);
+      return cell !== undefined && cell.unavailable === null;
+    }),
+  );
+
+  const chosenSlots = [...picked]
+    .map((key) => ({
+      key,
+      cell: grid.cells.get(key)!,
+      unit: units.find((candidate) => candidate.id === key.split(":")[0])!,
+    }))
+    .sort(
+      (a, b) =>
+        a.cell.startMinute - b.cell.startMinute || a.unit.name.localeCompare(b.unit.name),
+    );
+
+  const total = chosenSlots.reduce(
+    (sum, slot) => sum + Number(slot.cell.amount?.toFixed(2) ?? 0),
+    0,
+  );
+
+  /** This page with one slot ticked or unticked. */
+  const toggleHref = (key: string) => {
+    const next = new Set(picked);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    const params = new URLSearchParams();
+    params.set("date", date);
+    for (const value of next) params.append("pick", value);
+    return `/book/${slug}?${params.toString()}`;
+  };
 
   async function book(formData: FormData) {
     "use server";
@@ -75,11 +110,17 @@ export default async function BookPage({
     const limit = await rateLimit(`book:${forwarded.split(",")[0]!.trim()}`, 10, 900);
     if (!limit.ok) redirect(`/book/${slug}?error=throttled`);
 
-    const result = await createBooking({
+    const chosenDate = String(formData.get("date") || "");
+    const picks = formData
+      .getAll("pick")
+      .map((value) => String(value).split(":"))
+      .filter((parts) => parts.length === 2)
+      .map(([unitId, startMinute]) => ({ unitId, startMinute: Number(startMinute) }));
+
+    const result = await createBookingGroup({
       slug,
-      unitId: String(formData.get("unitId") || ""),
-      date: String(formData.get("date") || ""),
-      startMinute: Number(formData.get("startMinute") || 0),
+      picks,
+      date: chosenDate,
       customerName: String(formData.get("customerName") || ""),
       customerEmail: String(formData.get("customerEmail") || ""),
       customerPhone: String(formData.get("customerPhone") || ""),
@@ -87,11 +128,9 @@ export default async function BookPage({
     });
 
     if (!result.ok) {
-      redirect(
-        `/book/${slug}?date=${encodeURIComponent(String(formData.get("date") || ""))}&error=${result.problem}`,
-      );
+      redirect(`/book/${slug}?date=${encodeURIComponent(chosenDate)}&error=${result.problem}`);
     }
-    redirect(`/book/${slug}/${result.booking.reference}`);
+    redirect(`/book/${slug}/${result.group.reference}`);
   }
 
   const money = (amount: { toFixed: (n: number) => string } | null) =>
@@ -175,9 +214,9 @@ export default async function BookPage({
                       <span className="block text-[10px] text-slate-400">{slot.endLabel}</span>
                     </td>
                     {grid.units.map((unit) => {
-                      const cell = grid.cells.get(`${unit.id}:${slot.startMinute}`)!;
-                      const picked =
-                        query.unit === unit.id && Number(query.start) === slot.startMinute;
+                      const key = `${unit.id}:${slot.startMinute}`;
+                      const cell = grid.cells.get(key)!;
+                      const isPicked = picked.has(key);
 
                       if (cell.unavailable) {
                         return (
@@ -196,9 +235,10 @@ export default async function BookPage({
                       return (
                         <td key={unit.id} className="p-1">
                           <Link
-                            href={`/book/${slug}?date=${date}&unit=${unit.id}&start=${slot.startMinute}`}
+                            href={toggleHref(key)}
+                            aria-pressed={isPicked}
                             className={`block rounded-md border py-2 text-center text-xs font-medium transition-colors ${
-                              picked
+                              isPicked
                                 ? "border-brand-600 bg-brand-600 text-white"
                                 : "border-slate-200 text-brand-700 hover:border-brand-600 hover:bg-brand-50 dark:border-slate-700 dark:text-brand-400 dark:hover:bg-slate-800"
                             }`}
@@ -206,7 +246,7 @@ export default async function BookPage({
                             {money(cell.amount)}
                             {cell.rateLabel ? (
                               <span className="block text-[10px] font-normal opacity-80">
-                                {cell.rateLabel}
+                                {isPicked ? "Selected · tap to remove" : cell.rateLabel}
                               </span>
                             ) : null}
                           </Link>
@@ -225,31 +265,51 @@ export default async function BookPage({
           <Card>
             <h2 className="mb-1 text-sm font-semibold">Your booking</h2>
 
-            {!chosen || !chosenUnit || chosen.unavailable ? (
+            {chosenSlots.length === 0 ? (
               <p className="mt-3 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-                Pick a free time from the grid and your booking details appear here.
+                Pick one or more free times from the grid. Tap several to book them together —
+                more hours on one {settings.unitLabel.toLowerCase()}, or the same hour across
+                a few.
               </p>
             ) : (
               <form action={book} className="mt-3 space-y-3">
                 <div className="rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-900/60">
-                  <p className="font-semibold text-slate-900 dark:text-white">{chosenUnit.name}</p>
-                  <p className="text-slate-600 dark:text-slate-400">
-                    {tabLabel(date, today).day} {tabLabel(date, today).month} ·{" "}
-                    {chosen.label} – {chosen.endLabel}
+                  <p className="font-semibold text-slate-900 dark:text-white">
+                    {tabLabel(date, today).day} {tabLabel(date, today).month}
                   </p>
-                  <p className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
-                    {money(chosen.amount)}
-                    {chosen.rateLabel ? (
-                      <span className="ml-1 text-xs font-normal text-slate-500">
-                        {chosen.rateLabel}
-                      </span>
-                    ) : null}
+                  <ul className="mt-2 space-y-1">
+                    {chosenSlots.map((slot) => (
+                      <li key={slot.key} className="flex items-baseline justify-between gap-2">
+                        <span className="text-slate-600 dark:text-slate-400">
+                          {slot.unit.name} · {slot.cell.label}
+                        </span>
+                        <span className="flex items-baseline gap-2 whitespace-nowrap">
+                          <span className="tabular-nums">{money(slot.cell.amount)}</span>
+                          <Link
+                            href={toggleHref(slot.key)}
+                            aria-label={`Remove ${slot.unit.name} at ${slot.cell.label}`}
+                            className="text-xs text-slate-400 underline"
+                          >
+                            remove
+                          </Link>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-3 flex items-baseline justify-between border-t border-slate-200 pt-2 dark:border-slate-700">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">
+                      {chosenSlots.length} slot{chosenSlots.length === 1 ? "" : "s"}
+                    </span>
+                    <span className="text-lg font-bold text-slate-900 dark:text-white">
+                      {formatMoney(total.toFixed(2), company.baseCurrency)}
+                    </span>
                   </p>
                 </div>
 
-                <input type="hidden" name="unitId" value={chosenUnit.id} />
                 <input type="hidden" name="date" value={date} />
-                <input type="hidden" name="startMinute" value={chosen.startMinute} />
+                {chosenSlots.map((slot) => (
+                  <input key={slot.key} type="hidden" name="pick" value={slot.key} />
+                ))}
 
                 <Field label="Your name">
                   <Input name="customerName" required autoComplete="name" />
@@ -265,11 +325,12 @@ export default async function BookPage({
                 </Field>
 
                 <Button type="submit" className="w-full">
-                  Hold this slot
+                  Hold {chosenSlots.length === 1 ? "this slot" : `these ${chosenSlots.length} slots`}
                 </Button>
                 <p className="text-center text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                  No account needed. We hold it for {settings.holdMinutes} minutes while you pay —
-                  payment details come next.
+                  No account needed. We hold {chosenSlots.length === 1 ? "it" : "them"} for{" "}
+                  {settings.holdMinutes} minutes while you pay — payment details come next. One
+                  payment covers everything on this day; another day is booked separately.
                 </p>
               </form>
             )}

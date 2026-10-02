@@ -58,8 +58,10 @@ export default async function BookingPage({
   if (!booking) notFound();
 
   const status = STATUS_COPY[booking.status];
-  const when = `${formatAccountingDate(booking.date)} · ${formatMinute(booking.startMinute)} – ${formatMinute(booking.endMinute)}`;
   const amount = formatMoney(booking.amount.toFixed(2), booking.currency);
+  const slots = booking.bookings
+    .slice()
+    .sort((a, b) => a.startMinute - b.startMinute || a.unit.name.localeCompare(b.unit.name));
 
   async function upload(formData: FormData) {
     "use server";
@@ -100,10 +102,33 @@ export default async function BookingPage({
           <span className="mt-1 block text-sm">{status.body}</span>
         </Alert>
 
+        {/* The slots, listed. One booking can hold several — more hours on one
+            court, or the same hour across a few — and flattening them into a
+            sentence stops being readable at about three. */}
+        <div className="mt-5 rounded-lg bg-slate-50 p-3 dark:bg-slate-900/60">
+          <p className="text-xs uppercase tracking-wide text-slate-500">
+            {formatAccountingDate(booking.date)}
+          </p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {slots.map((slot) => (
+              <li key={slot.id} className="flex justify-between gap-3">
+                <span className="font-medium text-slate-900 dark:text-white">
+                  {slot.unit.name}
+                </span>
+                <span className="text-slate-600 dark:text-slate-400">
+                  {formatMinute(slot.startMinute)} – {formatMinute(slot.endMinute)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
         <dl className="mt-5 space-y-3 text-sm">
           {[
-            { term: venue.settings.unitLabel, detail: booking.unit.name },
-            { term: "When", detail: when },
+            {
+              term: slots.length === 1 ? venue.settings.unitLabel : "Slots",
+              detail: slots.length === 1 ? slots[0].unit.name : `${slots.length} booked`,
+            },
             { term: "Amount", detail: amount },
             { term: "Booked by", detail: booking.customerName },
             { term: "Reference", detail: booking.reference },

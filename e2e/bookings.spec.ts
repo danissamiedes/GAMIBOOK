@@ -21,15 +21,31 @@ test("a guest books, sends proof, and an admin confirms it", async ({ page }) =>
   // Pick a free slot a few days out, so "today" never decides the test.
   const dateTabs = page.locator('a[href*="/book/the-pickle-farm?date="]');
   await dateTabs.nth(3).click();
-  const slot = page.locator('a[href*="&unit="]').first();
-  await expect(slot).toBeVisible();
-  await slot.click();
+  // Three slots in one go: two hours on one court, plus the same hour on a
+  // second — the two shapes the venue asked for.
+  //
+  // Located by grid position rather than by nth() over every matching link:
+  // the summary panel's "remove" links match the same href pattern, and the
+  // indices shift after each click.
+  const grid = page.locator("table");
+  const cell = (row: number, column: number) =>
+    grid.locator("tbody tr").nth(row).locator("td").nth(column).locator("a");
+
+  // Each click is a navigation, so the panel is waited on between them —
+  // otherwise the next click lands on a page that is about to be replaced.
+  await cell(0, 1).click(); // Court 1, first hour
+  await expect(page.getByText("1 slot", { exact: true })).toBeVisible();
+  await cell(1, 1).click(); // Court 1, second hour — consecutive hours
+  await expect(page.getByText("2 slots", { exact: true })).toBeVisible();
+  await cell(1, 2).click(); // Court 2, same hour — across courts
+  await expect(page.getByText("3 slots", { exact: true })).toBeVisible();
+  await page.screenshot({ path: "/tmp/claude-0/-home-user-GAMIBOOK/be7517e0-545d-576f-9716-dd3de778d1b9/scratchpad/book-multi.png", fullPage: true });
 
   // ---- Booking as a guest ---------------------------------------------
-  await expect(page.getByRole("button", { name: "Hold this slot" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hold these 3 slots" })).toBeVisible();
   await page.locator('input[name="customerName"]').fill("Juan Dela Cruz");
   await page.locator('input[name="customerEmail"]').fill("juan@example.com");
-  await page.getByRole("button", { name: "Hold this slot" }).click();
+  await page.getByRole("button", { name: "Hold these 3 slots" }).click();
 
   await expect(page).toHaveURL(/\/book\/the-pickle-farm\/[A-Z0-9-]+$/, { timeout: 15000 });
   await expect(page.getByText("Held — we need your payment")).toBeVisible();

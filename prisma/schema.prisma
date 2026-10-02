@@ -349,6 +349,7 @@ model Company {
   bookableUnits   BookableUnit[]
   bookingRates    BookingRate[]
   bookings        Booking[]
+  bookingGroups   BookingGroup[]
 
   setupCompletedAt DateTime?
   createdAt        DateTime  @default(now())
@@ -413,7 +414,7 @@ model User {
   receiptUploads ReceiptUpload[]
   tasksAssigned  Task[]               @relation("TaskAssignee")
   tasksCreated   Task[]               @relation("TaskCreator")
-  bookings       Booking[]
+  bookingGroups  BookingGroup[]
   partyNotes     PartyNote[]          @relation("PartyNoteAuthor")
 }
 
@@ -1942,25 +1943,34 @@ model BookingRate {
 /// Most bookings are from strangers who will never come back, and creating a
 /// customer record — and with it a row in the books — for every guest would
 /// fill the ledger with people who once hired a court for an hour.
-model Booking {
+/// What somebody booked and is paying for, in one go (SPEC §17).
+///
+/// A group covers one day. Two hours on court 1, or the same hour across three
+/// courts, is one group and one payment; a different day is a different group,
+/// because that is how the venue wants to be paid and because a part-paid
+/// booking spanning a week is a thing nobody can reason about at the desk.
+///
+/// Deliberately holds the booker's details rather than pointing at a Customer.
+/// Most bookings are from strangers who will never come back, and creating a
+/// customer record — and with it a row in the books — for every guest would
+/// fill the ledger with people who once hired a court for an hour.
+model BookingGroup {
   id        String @id @default(cuid())
   companyId String
-  unitId    String
 
   /// Short and sayable over the phone: the booker quotes it, the admin finds it.
   reference String
 
-  /// The local calendar date, as the venue counts days.
-  date        DateTime @db.Date
-  startMinute Int
-  endMinute   Int
+  /// The day every slot in this group falls on. Denormalised from the slots so
+  /// the admin list can sort and filter without reaching through them.
+  date DateTime @db.Date
 
   status BookingStatus @default(HELD)
 
-  amount    Decimal @db.Decimal(18, 2)
-  currency  String  @db.Char(3)
-  /// Which rate priced it, kept so a later rate change does not rewrite history.
-  rateLabel String?
+  /// The sum of the slots, fixed when the booking was made so a later rate
+  /// change cannot rewrite what somebody was asked to pay.
+  amount   Decimal @db.Decimal(18, 2)
+  currency String  @db.Char(3)
 
   customerName  String
   customerEmail String
@@ -1988,12 +1998,47 @@ model Booking {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  unit    BookableUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
-  user    User?        @relation(fields: [userId], references: [id])
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user     User?     @relation(fields: [userId], references: [id])
+  bookings Booking[]
 
   @@unique([companyId, reference])
   @@index([companyId, date])
   @@index([companyId, status])
+}
+
+/// One slot inside a group (SPEC §17).
+///
+/// Still a row per slot, because the row is what the unique index guards: it is
+/// the claim on one court for one hour, and two people pressing Book in the
+/// same second must collide on exactly that.
+model Booking {
+  id        String @id @default(cuid())
+  companyId String
+  groupId   String
+  unitId    String
+
+  /// The local calendar date, as the venue counts days.
+  date        DateTime @db.Date
+  startMinute Int
+  endMinute   Int
+
+  /// Status lives on the group, and is copied here because the partial unique
+  /// index that stops double-booking has to read it on this row.
+  status BookingStatus @default(HELD)
+
+  amount    Decimal @db.Decimal(18, 2)
+  /// Which rate priced it, kept so a later rate change does not rewrite history.
+  rateLabel String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  group   BookingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  unit    BookableUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, date])
+  @@index([groupId])
   @@index([unitId, date, startMinute])
 }

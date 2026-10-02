@@ -38,14 +38,14 @@ export default async function BookingsPage({
   const active = TABS.find((candidate) => candidate.key === tab) ?? TABS[0];
 
   const [bookings, settings, counts] = await Promise.all([
-    prisma.booking.findMany({
+    prisma.bookingGroup.findMany({
       where: { ...scope.where, ...(active.status ? { status: active.status } : {}) },
-      include: { unit: true },
-      orderBy: [{ date: "asc" }, { startMinute: "asc" }],
+      include: { bookings: { include: { unit: true }, orderBy: { startMinute: "asc" } } },
+      orderBy: [{ date: "asc" }, { createdAt: "asc" }],
       take: 200,
     }),
     prisma.bookingSettings.findUnique({ where: { companyId: scope.companyId } }),
-    prisma.booking.groupBy({ by: ["status"], where: scope.where, _count: true }),
+    prisma.bookingGroup.groupBy({ by: ["status"], where: scope.where, _count: true }),
   ]);
 
   const countOf = (status?: BookingStatus) =>
@@ -58,7 +58,7 @@ export default async function BookingsPage({
     redirect(
       result.ok
         ? `/bookings?tab=${tab ?? "to-check"}&saved=${encodeURIComponent(
-            `Confirmed ${result.booking.reference}. The booker has been emailed.`,
+            `Confirmed ${result.group.reference}. The booker has been emailed.`,
           )}`
         : `/bookings?tab=${tab ?? "to-check"}&error=${encodeURIComponent(result.reason)}`,
     );
@@ -136,7 +136,7 @@ export default async function BookingsPage({
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
                 <th className="px-2 py-2">Reference</th>
                 <th className="px-2 py-2">When</th>
-                <th className="px-2 py-2">{settings?.unitLabel ?? "Unit"}</th>
+                <th className="px-2 py-2">{settings?.unitLabelPlural ?? "Units"}</th>
                 <th className="px-2 py-2">Booked by</th>
                 <th className="px-2 py-2 text-right">Amount</th>
                 <th className="px-2 py-2">Proof</th>
@@ -150,10 +150,23 @@ export default async function BookingsPage({
                   <td className="whitespace-nowrap px-2 py-2 text-sm">
                     {formatAccountingDate(booking.date)}
                     <span className="block text-xs text-slate-500">
-                      {formatMinute(booking.startMinute)} – {formatMinute(booking.endMinute)}
+                      {booking.bookings.length} slot{booking.bookings.length === 1 ? "" : "s"}
                     </span>
                   </td>
-                  <td className="px-2 py-2 text-sm">{booking.unit.name}</td>
+                  <td className="px-2 py-2 text-sm">
+                    {/* Every slot listed. A booking of six would otherwise read
+                        as one line that says nothing about what was taken. */}
+                    <ul className="space-y-0.5">
+                      {booking.bookings.map((slot) => (
+                        <li key={slot.id} className="whitespace-nowrap text-xs">
+                          <span className="font-medium">{slot.unit.name}</span>{" "}
+                          <span className="text-slate-500">
+                            {formatMinute(slot.startMinute)} – {formatMinute(slot.endMinute)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </td>
                   <td className="px-2 py-2 text-sm">
                     {booking.customerName}
                     <span className="block text-xs text-slate-500">{booking.customerEmail}</span>
@@ -163,9 +176,7 @@ export default async function BookingsPage({
                   </td>
                   <td className="px-2 py-2 text-right text-sm tabular-nums">
                     {formatMoney(booking.amount.toFixed(2), booking.currency)}
-                    {booking.rateLabel ? (
-                      <span className="block text-xs text-slate-500">{booking.rateLabel}</span>
-                    ) : null}
+
                   </td>
                   <td className="px-2 py-2 text-sm">
                     {booking.paymentProofKey ? (

@@ -29,6 +29,7 @@ export async function resetDatabase() {
       -- no foreign key at all: it is keyed by the provider's own event id and
       -- deliberately stands alone. Left out of this list it survives a reset,
       -- and a test asserting on webhook events silently depends on file order.
+      "Booking", "BookingGroup", "BookableUnit", "BookingRate", "BookingSettings",
       "Subscription", "ProviderWebhookEvent",
       "Company", "Organization"
     RESTART IDENTITY CASCADE

@@ -16,7 +16,7 @@ export async function GET(
   const scope = await sectionScope("BOOKINGS");
   const { id } = await params;
 
-  const booking = await prisma.booking.findFirst({
+  const booking = await prisma.bookingGroup.findFirst({
     where: { id, ...scope.where },
     select: { paymentProofKey: true, paymentProofName: true },
   });

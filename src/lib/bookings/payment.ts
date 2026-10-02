@@ -1,4 +1,4 @@
-import type { Booking } from "@prisma/client";
+import type { BookingGroup } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { CompanyScope } from "@/lib/company-scope";
 import { writeAudit } from "@/lib/audit";
@@ -36,7 +36,7 @@ export const PROOF_MESSAGES: Record<ProofProblem, string> = {
   already: "Payment for this booking has already been submitted.",
 };
 
-export type ProofResult = { ok: true; booking: Booking } | { ok: false; problem: ProofProblem };
+export type ProofResult = { ok: true; group: BookingGroup } | { ok: false; problem: ProofProblem };
 
 /**
  * The booker uploads evidence. Their slot stops expiring and a person is told.
@@ -58,12 +58,12 @@ export async function submitProof(options: {
   });
   if (!settings) return { ok: false, problem: "notFound" };
 
-  const booking = await prisma.booking.findFirst({
+  const booking = await prisma.bookingGroup.findFirst({
     where: {
       companyId: settings.companyId,
       reference: options.reference.trim().toUpperCase(),
     },
-    include: { unit: true },
+    include: { bookings: { include: { unit: true }, orderBy: { startMinute: "asc" } } },
   });
   if (!booking) return { ok: false, problem: "notFound" };
   if (booking.status === "CANCELLED") return { ok: false, problem: "closed" };
@@ -81,10 +81,13 @@ export async function submitProof(options: {
     storage().put(fileKey, options.file.bytes, options.file.mimeType ?? undefined),
   );
 
-  const updated = await prisma.booking.update({
+  const updated = await prisma.bookingGroup.update({
     where: { id: booking.id },
     data: {
       status: "PAYMENT_SUBMITTED",
+      // The slots carry the status too, because the unique index that stops
+      // double-booking reads it on the slot row.
+      bookings: { updateMany: { where: {}, data: { status: "PAYMENT_SUBMITTED" } } },
       paymentProofKey: fileKey,
       paymentProofName: options.file.name,
       paymentReference: options.paymentReference?.trim() || null,
@@ -95,7 +98,7 @@ export async function submitProof(options: {
     },
   });
 
-  const when = `${formatAccountingDate(booking.date)}, ${formatMinute(booking.startMinute)}–${formatMinute(booking.endMinute)}`;
+  const when = describeSlots(booking);
   const amount = formatMoney(booking.amount.toFixed(2), booking.currency);
 
   // Both emails are best-effort. A venue with no mailbox connected yet must
@@ -104,11 +107,11 @@ export async function submitProof(options: {
   await notify({
     companyId: settings.companyId,
     to: [settings.notifyEmail || settings.company.email || ""].filter(Boolean),
-    subject: `Payment to check — ${booking.reference} (${booking.unit.name})`,
+    subject: `Payment to check — ${booking.reference}`,
     body: [
-      `${booking.customerName} says they have paid for ${booking.unit.name}.`,
+      `${booking.customerName} says they have paid.`,
       "",
-      `When: ${when}`,
+      when,
       `Amount: ${amount}`,
       `Reference: ${booking.reference}`,
       options.paymentReference ? `Their payment reference: ${options.paymentReference}` : "",
@@ -127,9 +130,9 @@ export async function submitProof(options: {
     body: [
       `Hi ${booking.customerName},`,
       "",
-      `Thank you — we have received your proof of payment for ${booking.unit.name}.`,
+      `Thank you — we have received your proof of payment.`,
       "",
-      `When: ${when}`,
+      when,
       `Amount: ${amount}`,
       `Reference: ${booking.reference}`,
       "",
@@ -140,17 +143,20 @@ export async function submitProof(options: {
     relatedId: booking.id,
   });
 
-  return { ok: true, booking: updated };
+  return { ok: true, group: updated };
 }
 
 /** Confirm a payment somebody has looked at. One click, one email. */
 export async function confirmBooking(
   scope: CompanyScope,
   bookingId: string,
-): Promise<{ ok: true; booking: Booking } | { ok: false; reason: string }> {
-  const booking = await prisma.booking.findFirst({
+): Promise<{ ok: true; group: BookingGroup } | { ok: false; reason: string }> {
+  const booking = await prisma.bookingGroup.findFirst({
     where: { id: bookingId, ...scope.where },
-    include: { unit: true, company: { select: { name: true } } },
+    include: {
+      bookings: { include: { unit: true }, orderBy: { startMinute: "asc" } },
+      company: { select: { name: true } },
+    },
   });
   if (!booking) return { ok: false, reason: "That booking is no longer here." };
   if (booking.status === "CONFIRMED") {
@@ -160,13 +166,14 @@ export async function confirmBooking(
     return { ok: false, reason: "This booking was cancelled." };
   }
 
-  const updated = await prisma.booking.update({
+  const updated = await prisma.bookingGroup.update({
     where: { id: booking.id },
     data: {
       status: "CONFIRMED",
       confirmedAt: new Date(),
       confirmedByUserId: scope.userId,
       heldUntil: null,
+      bookings: { updateMany: { where: {}, data: { status: "CONFIRMED" } } },
     },
   });
 
@@ -176,10 +183,9 @@ export async function confirmBooking(
     action: "booking.confirmed",
     entityType: "Booking",
     entityId: booking.id,
-    summary: `${booking.reference} — ${booking.unit.name}`,
+    summary: `${booking.reference} — ${booking.bookings.length} slot(s)`,
   });
 
-  const when = `${formatAccountingDate(booking.date)}, ${formatMinute(booking.startMinute)}–${formatMinute(booking.endMinute)}`;
   await notify({
     companyId: scope.companyId,
     to: [booking.customerEmail],
@@ -189,8 +195,7 @@ export async function confirmBooking(
       "",
       `Your payment has been checked and your booking is confirmed.`,
       "",
-      `${booking.unit.name}`,
-      `When: ${when}`,
+      describeSlots(booking),
       `Amount: ${formatMoney(booking.amount.toFixed(2), booking.currency)}`,
       `Reference: ${booking.reference}`,
       "",
@@ -201,7 +206,7 @@ export async function confirmBooking(
     relatedId: booking.id,
   });
 
-  return { ok: true, booking: updated };
+  return { ok: true, group: updated };
 }
 
 /** Turn a booking down, with a reason the booker is told. */
@@ -210,22 +215,28 @@ export async function rejectBooking(
   bookingId: string,
   reason: string,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const booking = await prisma.booking.findFirst({
+  const booking = await prisma.bookingGroup.findFirst({
     where: { id: bookingId, ...scope.where },
-    include: { unit: true, company: { select: { name: true } } },
+    include: {
+      bookings: { include: { unit: true }, orderBy: { startMinute: "asc" } },
+      company: { select: { name: true } },
+    },
   });
   if (!booking) return { ok: false, reason: "That booking is no longer here." };
   if (booking.status === "CANCELLED") return { ok: false, reason: "Already cancelled." };
 
   const explanation = reason.trim() || "The venue could not confirm this booking.";
 
-  await prisma.booking.update({
+  await prisma.bookingGroup.update({
     where: { id: booking.id },
     data: {
       status: "CANCELLED",
       cancelledAt: new Date(),
       cancelReason: explanation,
       heldUntil: null,
+      // Cancelling releases every slot: the partial unique index ignores a
+      // cancelled row, so the courts go back on the market immediately.
+      bookings: { updateMany: { where: {}, data: { status: "CANCELLED" } } },
     },
   });
 
@@ -238,7 +249,6 @@ export async function rejectBooking(
     summary: `${booking.reference} — ${explanation}`,
   });
 
-  const when = `${formatAccountingDate(booking.date)}, ${formatMinute(booking.startMinute)}–${formatMinute(booking.endMinute)}`;
   await notify({
     companyId: scope.companyId,
     to: [booking.customerEmail],
@@ -248,8 +258,7 @@ export async function rejectBooking(
       "",
       `We are sorry — your booking has been cancelled.`,
       "",
-      `${booking.unit.name}`,
-      `When: ${when}`,
+      describeSlots(booking),
       `Reference: ${booking.reference}`,
       "",
       explanation,
@@ -296,4 +305,26 @@ async function notify(options: {
   } catch {
     // Already written to the email log by sendEmail.
   }
+}
+
+/**
+ * The slots in a group, as a line a person reads.
+ *
+ * One slot reads as one line; several are listed under the date, because
+ * "Court 1, Court 2 and Court 3, 9:00 AM – 10:00 AM" and "Court 1, 7:00 AM –
+ * 9:00 AM" are both common and neither flattens into a sentence that stays
+ * readable when there are six of them.
+ */
+function describeSlots(group: {
+  date: Date;
+  bookings: { unit: { name: string }; startMinute: number; endMinute: number }[];
+}): string {
+  const lines = group.bookings
+    .slice()
+    .sort((a, b) => a.startMinute - b.startMinute || a.unit.name.localeCompare(b.unit.name))
+    .map(
+      (slot) =>
+        `  ${slot.unit.name}: ${formatMinute(slot.startMinute)} – ${formatMinute(slot.endMinute)}`,
+    );
+  return [`When: ${formatAccountingDate(group.date)}`, ...lines].join("\n");
 }

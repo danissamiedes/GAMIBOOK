@@ -2408,3 +2408,39 @@ THE PICKLE FARM ships in the seed as a working example — three courts, 7am to
 11pm, off-peak 200 / peak 350 / a weekend rule that sits on top of both by
 priority — because a booking page with no units and no rates shows nothing at
 all and reads as broken rather than as empty.
+
+### A booking became a group of slots
+
+A booking used to *be* a slot. It is now a **group**: two hours on one court, or
+the same hour across three, is one booking and one payment. A different day is a
+different booking, because that is how the venue wants to be paid and because a
+part-paid booking spanning a week is a thing nobody can reason about at the desk.
+
+**The slot row survives**, because it is what the partial unique index guards —
+the claim on one court for one hour. Everything about the booker and the money
+moved up to the group. The status is on both: the group owns it, and the slot
+copies it because the index has to read it there.
+
+**The migration carries existing bookings across** rather than dropping the
+columns and taking them too. Each becomes a group of one, keeping its reference,
+so somebody holding a slip of paper with ABC-123 on it still finds their booking.
+Written by hand for that reason; the generated version would have been a data
+loss.
+
+**A group is written in one statement**, so losing any one slot to the unique
+index rolls the whole thing back. A booking that got three of four slots and
+failed on the fourth would be a partial booking nobody asked for and nobody
+could price.
+
+**An expired hold cancels the whole group**, not the one slot that was asked
+for. Half an expired booking is not a state anyone can act on, and the booker
+was never going to pay for part of it.
+
+**Selection lives in the URL** as repeated `pick` parameters rather than in
+client state. The page stays a server component, the back button works, and a
+half-filled selection survives a refresh or being sent to somebody else. A pick
+that has since been taken drops out quietly on the next render rather than
+failing at the end of the form.
+
+**There is a ceiling of twenty slots per booking.** A public form should not be
+able to take a venue's whole week in one request, and nobody legitimate meets it.

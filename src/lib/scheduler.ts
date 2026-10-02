@@ -3,6 +3,7 @@ import { runRecurringInvoices } from "@/lib/invoices/recurring";
 import { runRecurringBills } from "@/lib/payables/recurring-bills";
 import { runBankAutoLink } from "@/lib/bank/auto-link";
 import { pruneRateLimits } from "@/lib/rate-limit";
+import { expireStaleHolds } from "@/lib/bookings/expire";
 
 /**
  * In-process scheduler (SPEC §7.2, §8.2a, §9): the stale-shift auto-close,
@@ -59,6 +60,15 @@ export const JOBS: Job[] = [
     name: "bank-auto-link",
     everyMinutes: 60,
     run: () => runBankAutoLink(),
+  },
+  {
+    // Writes down what the booking pages already assume: a hold past its minute
+    // is not a reservation. Readers do not depend on this having run — the grid
+    // and the booker's page work it out themselves — so a host with no cron
+    // still behaves correctly, it just leaves tidier lists when it does run.
+    name: "expire-stale-holds",
+    everyMinutes: 5,
+    run: () => expireStaleHolds(),
   },
   {
     // Housekeeping. Nothing depends on it — an expired window is ignored

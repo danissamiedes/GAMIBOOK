@@ -8,6 +8,8 @@ import {
   MAX_SLOTS_PER_BOOKING,
 } from "@/lib/bookings/book";
 import { formatMinute, parseMinute, priceFor, slotsForDay } from "@/lib/bookings/slots";
+import { expireStaleHolds, isExpiredHold } from "@/lib/bookings/expire";
+import { submitProof } from "@/lib/bookings/payment";
 import { prisma, resetDatabase, makeCompanyWithChart } from "./helpers";
 
 beforeEach(async () => {
@@ -592,5 +594,98 @@ describe("the public grid (SPEC §17)", () => {
     const dates = offeredDates(venue.settings, "Asia/Manila");
     expect(dates).toHaveLength(14);
     expect(dates[0]).toBe(venueToday("Asia/Manila"));
+  });
+});
+
+describe("a hold that runs out (SPEC §17)", () => {
+  /** Book a slot and move its deadline into the past. */
+  async function lapsedHold() {
+    const { units } = await pickleFarm();
+    const date = soon();
+    const held = await createBookingGroup({
+      slug: "the-pickle-farm",
+      picks: [{ unitId: units[0].id, startMinute: 600 }],
+      date,
+      ...booker,
+    });
+    if (!held.ok) throw new Error("fixture did not book");
+    const group = await prisma.bookingGroup.update({
+      where: { id: held.group.id },
+      data: { heldUntil: new Date(Date.now() - 60_000) },
+    });
+    return { units, date, group };
+  }
+
+  it("is expired at read time, with no sweep having run", async () => {
+    const { group } = await lapsedHold();
+    expect(isExpiredHold(group)).toBe(true);
+    // Still HELD in the database — nothing has written anything yet.
+    expect(group.status).toBe("HELD");
+  });
+
+  it("refuses proof of payment for slots that are back on the market", async () => {
+    const { group } = await lapsedHold();
+    const result = await submitProof({
+      slug: "the-pickle-farm",
+      reference: group.reference,
+      file: { name: "receipt.png", bytes: Buffer.from("x"), mimeType: "image/png" },
+    });
+    expect(result).toEqual({ ok: false, problem: "expired" });
+  });
+
+  it("cancels the group and releases its slots when swept", async () => {
+    const { units, date, group } = await lapsedHold();
+
+    const swept = await expireStaleHolds();
+    expect(swept.expired).toBe(1);
+
+    const after = await prisma.bookingGroup.findUniqueOrThrow({
+      where: { id: group.id },
+      include: { bookings: true },
+    });
+    expect(after.status).toBe("CANCELLED");
+    expect(after.heldUntil).toBeNull();
+    expect(after.bookings.every((slot) => slot.status === "CANCELLED")).toBe(true);
+
+    // And the court is bookable again, rather than merely hidden from the grid.
+    const retry = await createBookingGroup({
+      slug: "the-pickle-farm",
+      picks: [{ unitId: units[0].id, startMinute: 600 }],
+      date,
+      ...booker,
+    });
+    expect(retry.ok).toBe(true);
+  });
+
+  it("leaves a hold that is still running, and a booking already paid", async () => {
+    const { units } = await pickleFarm();
+    const date = soon();
+    const live = await createBookingGroup({
+      slug: "the-pickle-farm",
+      picks: [{ unitId: units[0].id, startMinute: 600 }],
+      date,
+      ...booker,
+    });
+    const paid = await createBookingGroup({
+      slug: "the-pickle-farm",
+      picks: [{ unitId: units[1].id, startMinute: 600 }],
+      date,
+      ...booker,
+    });
+    if (!live.ok || !paid.ok) throw new Error("fixture did not book");
+    await prisma.bookingGroup.update({
+      where: { id: paid.group.id },
+      // Paid for, so the hold was cleared: a sweep must never touch it, however
+      // long it sits waiting for somebody to check the proof.
+      data: { status: "PAYMENT_SUBMITTED", heldUntil: null },
+    });
+
+    expect((await expireStaleHolds()).expired).toBe(0);
+    expect(
+      (await prisma.bookingGroup.findUniqueOrThrow({ where: { id: live.group.id } })).status,
+    ).toBe("HELD");
+    expect(
+      (await prisma.bookingGroup.findUniqueOrThrow({ where: { id: paid.group.id } })).status,
+    ).toBe("PAYMENT_SUBMITTED");
   });
 });

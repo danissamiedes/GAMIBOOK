@@ -191,7 +191,9 @@ export default async function BookPage({
         <Alert tone="error">
           {query.error === "throttled"
             ? "That is a lot of bookings at once. Please wait a few minutes and try again."
-            : (BOOK_MESSAGES[query.error as BookProblem] ?? "That booking could not be made.")}
+            : query.error === "expired"
+              ? `Your ${settings.holdMinutes}-minute hold ran out before payment arrived, so those slots are open again. Pick your times to start over.`
+              : (BOOK_MESSAGES[query.error as BookProblem] ?? "That booking could not be made.")}
         </Alert>
       ) : null}
 

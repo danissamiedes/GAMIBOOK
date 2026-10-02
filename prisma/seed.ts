@@ -180,7 +180,7 @@ async function main() {
       closesAtMinute: 23 * 60,
       slotMinutes: 60,
       horizonDays: 14,
-      holdMinutes: 120,
+      holdMinutes: 15,
       paymentInstructions:
         "GCash 0917 000 0000 (The Pickle Farm)\nor BPI 1234-5678-90\n\nSend a screenshot once you have paid and quote your booking reference.",
     },

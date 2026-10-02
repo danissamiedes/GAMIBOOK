@@ -2493,3 +2493,40 @@ one that is final is the one that reads as solid.
 The grid still refuses both: neither is a link, and the unique index that stops
 double-booking has not changed. This is about what the page says, not what it
 allows.
+
+## A clock on the hold, and what happens when it runs out
+
+A hold has always had a deadline, and the grid has always ignored an expired
+one. What was missing was everything a person could see: the booker was shown a
+pay form with no indication that it had a shelf life, and the venue's "Awaiting
+payment" list filled with people who were never coming.
+
+**The countdown is told, not enforced.** The server decides the hold: the grid
+frees the slots, the upload is refused, the sweep cancels the row. The clock on
+the page only says what is about to happen — a page that quietly stops working
+is the failure this replaces.
+
+**Its seconds come from the server, its ticking from the browser.** A device
+whose clock is ten minutes out would otherwise show a countdown that disagrees
+with the booking. The deadline is pinned at mount and read off elapsed time, so
+a backgrounded tab returns shorter by however long it was away rather than by
+one tick.
+
+**Expiry is settled at read time, and swept afterwards.** `isExpiredHold` needs
+no scheduler, so the page, the grid and the proof upload agree the instant the
+minute passes — on a serverless host with nothing running between requests, that
+is the only thing that could be true. `expireStaleHolds` then writes down what
+the readers already assume, so the lists a person works from are accurate rather
+than quietly filtered.
+
+**Nothing is emailed when a hold lapses.** The booker's own page tells them when
+they look at it. An unprompted message about a reservation somebody abandoned is
+noise, and the scheduler sends nothing to anyone outside the company by design.
+
+**Taking payment for an expired hold is refused.** The slots are back on the
+market the moment the minute passes, and somebody else may already have them —
+accepting proof of payment after that is how two parties arrive for one court.
+
+**The default hold is fifteen minutes**, and remains a per-venue setting. Only
+the default moved: a venue that has already chosen its own hold length keeps it,
+because a stored value is a decision somebody made.

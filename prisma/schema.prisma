@@ -1879,7 +1879,7 @@ model BookingSettings {
   paymentQrName       String?
   /// How long a held slot survives with no proof, so an abandoned booking
   /// does not keep a court off the market forever.
-  holdMinutes         Int     @default(120)
+  holdMinutes         Int     @default(15)
   /// Where "someone submitted proof" goes. Falls back to the company email.
   notifyEmail         String?
 

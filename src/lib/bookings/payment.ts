@@ -7,6 +7,7 @@ import { sendEmail } from "@/lib/email/send";
 import { formatMoney } from "@/lib/currency";
 import { formatAccountingDate } from "@/lib/dates";
 import { formatMinute } from "./slots";
+import { isExpiredHold } from "./expire";
 
 /**
  * Proof of payment, and the person who checks it (SPEC §17).
@@ -25,11 +26,20 @@ export const MAX_PROOF_BYTES = 10 * 1024 * 1024;
 
 const PROOF_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "application/pdf"];
 
-export type ProofProblem = "notFound" | "closed" | "file" | "type" | "size" | "already";
+export type ProofProblem =
+  | "notFound"
+  | "closed"
+  | "expired"
+  | "file"
+  | "type"
+  | "size"
+  | "already";
 
 export const PROOF_MESSAGES: Record<ProofProblem, string> = {
   notFound: "That booking reference was not found.",
   closed: "This booking is no longer waiting for payment.",
+  expired:
+    "The hold on these slots ran out, so they are open again. Please pick your times once more.",
   file: "Attach a screenshot or receipt showing the payment.",
   type: "That file type cannot be read. Use a photo, a screenshot or a PDF.",
   size: "That file is over 10 MB. A screenshot is usually well under 1 MB.",
@@ -69,6 +79,10 @@ export async function submitProof(options: {
   if (booking.status === "CANCELLED") return { ok: false, problem: "closed" };
   if (booking.status === "CONFIRMED") return { ok: false, problem: "already" };
   if (booking.status === "PAYMENT_SUBMITTED") return { ok: false, problem: "already" };
+  // Checked at read time rather than trusting a sweep to have run: the slots
+  // are already back on the grid the moment the minute passes, and taking a
+  // payment for them after that is how two people arrive for one court.
+  if (isExpiredHold(booking)) return { ok: false, problem: "expired" };
 
   if (options.file.bytes.length === 0) return { ok: false, problem: "file" };
   if (options.file.bytes.length > MAX_PROOF_BYTES) return { ok: false, problem: "size" };

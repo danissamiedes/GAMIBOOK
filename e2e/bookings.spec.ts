@@ -56,6 +56,11 @@ test("a guest books, sends proof, and an admin confirms it", async ({ page }) =>
 
   await expect(page).toHaveURL(/\/book\/the-pickle-farm\/[A-Z0-9-]+$/, { timeout: 15000 });
   await expect(page.getByText("Held — we need your payment")).toBeVisible();
+  // The clock the venue gives them, counting down. It is the page's only moving
+  // part, so a broken one is silent otherwise.
+  await expect(page.getByText("Time left to pay")).toBeVisible();
+  // Whatever the venue's hold length, it reads as minutes and seconds ticking.
+  await expect(page.getByRole("timer")).toContainText(/\d{1,3}:[0-5]\d/);
   // The payment instructions the venue set are shown.
   await expect(page.getByText(/GCash/)).toBeVisible();
 

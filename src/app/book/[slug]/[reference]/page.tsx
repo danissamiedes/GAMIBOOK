@@ -7,6 +7,8 @@ import { PROOF_MESSAGES, submitProof, type ProofProblem } from "@/lib/bookings/p
 import { formatMoney } from "@/lib/currency";
 import { formatAccountingDate } from "@/lib/dates";
 import { Alert, Button, Card, Field, Input } from "@/components/ui";
+import { HoldCountdown } from "@/components/hold-countdown";
+import { isExpiredHold } from "@/lib/bookings/expire";
 
 export const metadata = { title: pageTitle("Your booking") };
 
@@ -34,6 +36,19 @@ const STATUS_COPY = {
 };
 
 /**
+ * A hold whose time ran out reads as its own thing, not as "cancelled".
+ *
+ * Nobody cancelled it — the clock did — and the next sentence a person needs is
+ * what to do about it, which is to pick the times again while they are still
+ * free.
+ */
+const EXPIRED = {
+  tone: "error" as const,
+  title: "The hold ran out",
+  body: "Payment did not arrive in time, so these slots are open again. Pick your times once more to rebook — they may still be free.",
+};
+
+/**
  * One booking, as the person who made it sees it (SPEC §17).
  *
  * Reached by its reference, with no account. The reference is the only
@@ -57,7 +72,14 @@ export default async function BookingPage({
   const booking = await bookingByReference(slug, reference);
   if (!booking) notFound();
 
-  const status = STATUS_COPY[booking.status];
+  // Worked out here rather than trusted to the sweep: the slots are back on the
+  // grid the moment the minute passes, whatever has or has not run since.
+  const expired = isExpiredHold(booking);
+  const status = expired ? EXPIRED : STATUS_COPY[booking.status];
+  const secondsLeft =
+    booking.status === "HELD" && booking.heldUntil && !expired
+      ? Math.round((booking.heldUntil.getTime() - Date.now()) / 1000)
+      : 0;
   const amount = formatMoney(booking.amount.toFixed(2), booking.currency);
   const slots = booking.bookings
     .slice()
@@ -101,6 +123,10 @@ export default async function BookingPage({
           <strong className="block">{status.title}</strong>
           <span className="mt-1 block text-sm">{status.body}</span>
         </Alert>
+
+        {secondsLeft > 0 ? (
+          <HoldCountdown seconds={secondsLeft} returnTo={`/book/${slug}?error=expired`} />
+        ) : null}
 
         {/* The slots, listed. One booking can hold several — more hours on one
             court, or the same hour across a few — and flattening them into a
@@ -147,7 +173,7 @@ export default async function BookingPage({
         ) : null}
       </Card>
 
-      {booking.status === "HELD" ? (
+      {booking.status === "HELD" && !expired ? (
         <Card className="mt-5">
           <h2 className="mb-2 text-sm font-semibold">How to pay</h2>
 
@@ -226,8 +252,11 @@ export default async function BookingPage({
       ) : null}
 
       <p className="mt-6 text-center text-sm">
-        <Link href={`/book/${slug}`} className="text-slate-500 underline">
-          Back to the schedule
+        <Link
+          href={`/book/${slug}`}
+          className={expired ? "font-medium text-brand-700 underline dark:text-brand-400" : "text-slate-500 underline"}
+        >
+          {expired ? "Pick your times again" : "Back to the schedule"}
         </Link>
       </p>
     </main>

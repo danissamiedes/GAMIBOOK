@@ -82,7 +82,7 @@ export default async function BookingSettingsPage({
       closesAtMinute: closes,
       horizonDays: Math.min(90, Math.max(1, Number(formData.get("horizonDays") || 14))),
       paymentInstructions: String(formData.get("paymentInstructions") || "").trim() || null,
-      holdMinutes: Math.min(1440, Math.max(5, Number(formData.get("holdMinutes") || 120))),
+      holdMinutes: Math.min(1440, Math.max(5, Number(formData.get("holdMinutes") || 15))),
       notifyEmail: String(formData.get("notifyEmail") || "").trim() || null,
     };
 
@@ -336,7 +336,7 @@ export default async function BookingSettingsPage({
                   type="number"
                   min={5}
                   max={1440}
-                  defaultValue={existing?.holdMinutes ?? 120}
+                  defaultValue={existing?.holdMinutes ?? 15}
                 />
               </Field>
               <Field label="Tell us at" hint={`Blank uses ${company.email ?? "the company email"}.`}>

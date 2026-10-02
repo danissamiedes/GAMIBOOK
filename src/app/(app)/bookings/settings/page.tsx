@@ -160,7 +160,9 @@ export default async function BookingSettingsPage({
       {saved ? <Alert tone="success">Saved.</Alert> : null}
 
       <Card className="max-w-2xl">
-        <form action={save} encType="multipart/form-data" className="space-y-5">
+        {/* No encType: React sets multipart itself for a form whose action is
+            a server function, and setting it by hand only logs a warning. */}
+        <form action={save} className="space-y-5">
           <fieldset className="space-y-4">
             <legend className="text-sm font-semibold">The public page</legend>
 

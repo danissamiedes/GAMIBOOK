@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./helpers";
+import { dayHref, freeCells, signIn } from "./helpers";
 
 /** A 1×1 PNG. Enough to prove the pipe; the bytes are never inspected. */
 const PNG = Buffer.from(
@@ -43,8 +43,15 @@ test("a venue uploads a payment QR and a booker sees it", async ({ page }) => {
   await page.context().clearCookies();
   await page.goto("/book/the-pickle-farm");
 
+  // A day of its own, so this spec and the journey spec never contend for the
+  // same courts, and the first cell that is actually free on it — an earlier
+  // run of this same spec has already booked one.
+  await page.goto(await dayHref(page, 6));
   const grid = page.locator("table");
-  await grid.locator("tbody tr").nth(2).locator("td").nth(1).locator("a").click();
+  const free = await freeCells(page);
+  expect(free.length, "no free slot on the booking grid").toBeGreaterThan(0);
+  const [row, column] = free[0];
+  await grid.locator("tbody tr").nth(row).locator("td").nth(column).locator("a").click();
   await expect(page.getByText("1 slot", { exact: true })).toBeVisible();
   await page.locator('input[name="customerName"]').fill("QR Tester");
   await page.locator('input[name="customerEmail"]').fill("qr@example.com");

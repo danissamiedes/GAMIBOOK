@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./helpers";
+import { dayHref, multiSlotShape, signIn } from "./helpers";
 
 /**
  * The whole booking journey (SPEC §17): a stranger books with no account,
@@ -18,26 +18,32 @@ test("a guest books, sends proof, and an admin confirms it", async ({ page }) =>
   await expect(page.getByText("Court 3")).toBeVisible();
   await page.screenshot({ path: "/tmp/claude-0/-home-user-GAMIBOOK/be7517e0-545d-576f-9716-dd3de778d1b9/scratchpad/book-public.png", fullPage: true });
 
-  // Pick a free slot a few days out, so "today" never decides the test.
-  const dateTabs = page.locator('a[href*="/book/the-pickle-farm?date="]');
-  await dateTabs.nth(3).click();
-  // Three slots in one go: two hours on one court, plus the same hour on a
-  // second — the two shapes the venue asked for.
+  // A day a few out, so "today" and its passed hours never decide the test.
+  // Followed by a goto rather than a click: the grid re-renders under the
+  // pointer while the day loads, and a click into that is a race.
+  await page.goto(await dayHref(page, 3));
+  // Three slots in one go: two hours on one court, plus the later of those
+  // hours on a second — the two shapes the venue asked for.
   //
   // Located by grid position rather than by nth() over every matching link:
   // the summary panel's "remove" links match the same href pattern, and the
-  // indices shift after each click.
+  // indices shift after each click. The positions are searched for rather than
+  // written down, because an earlier run has already booked some of them.
   const grid = page.locator("table");
   const cell = (row: number, column: number) =>
     grid.locator("tbody tr").nth(row).locator("td").nth(column).locator("a");
 
+  const shape = await multiSlotShape(page);
+  expect(shape, "no two consecutive free hours left on this day").not.toBeNull();
+  const [first, second, across] = shape!;
+
   // Each click is a navigation, so the panel is waited on between them —
   // otherwise the next click lands on a page that is about to be replaced.
-  await cell(0, 1).click(); // Court 1, first hour
+  await cell(first[0], first[1]).click(); // one court, one hour
   await expect(page.getByText("1 slot", { exact: true })).toBeVisible();
-  await cell(1, 1).click(); // Court 1, second hour — consecutive hours
+  await cell(second[0], second[1]).click(); // the same court, the next hour
   await expect(page.getByText("2 slots", { exact: true })).toBeVisible();
-  await cell(1, 2).click(); // Court 2, same hour — across courts
+  await cell(across[0], across[1]).click(); // that hour on another court
   await expect(page.getByText("3 slots", { exact: true })).toBeVisible();
   await page.screenshot({ path: "/tmp/claude-0/-home-user-GAMIBOOK/be7517e0-545d-576f-9716-dd3de778d1b9/scratchpad/book-multi.png", fullPage: true });
 

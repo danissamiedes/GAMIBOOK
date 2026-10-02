@@ -7,9 +7,14 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import { parseMinute, toTimeInput } from "@/lib/bookings/slots";
 import { requestOrigin } from "@/lib/request-origin";
+import { storage, storageKeys, withStorage } from "@/lib/storage";
 import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
 
 export const metadata = { title: pageTitle("Booking settings") };
+
+/** A QR is a small square image. Anything larger is a photo of a wall. */
+const MAX_QR_BYTES = 5 * 1024 * 1024;
+const QR_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 /** Lowercase, hyphenated, no surprises in a URL. */
 function toSlug(value: string): string {
@@ -81,11 +86,31 @@ export default async function BookingSettingsPage({
       notifyEmail: String(formData.get("notifyEmail") || "").trim() || null,
     };
 
+    // The QR is only touched when a new one is sent or removal is ticked, so
+    // saving the form for any other reason never loses the image already there.
+    const qr = formData.get("paymentQr");
+    const removeQr = formData.get("removeQr") === "on";
+    let qrFields: { paymentQrKey?: string | null; paymentQrName?: string | null } = {};
+
+    if (qr instanceof File && qr.size > 0) {
+      if (qr.size > MAX_QR_BYTES) redirect("/bookings/settings?error=qrSize");
+      if (qr.type && !QR_TYPES.includes(qr.type)) redirect("/bookings/settings?error=qrType");
+
+      const key = storageKeys.bookingQr(inner.companyId, qr.name);
+      // Read the bytes before handing the callback over: an `await` inside the
+      // arrow would need it to be async, and withStorage takes a plain thunk.
+      const bytes = Buffer.from(await qr.arrayBuffer());
+      await withStorage("upload", () => storage().put(key, bytes, qr.type || undefined));
+      qrFields = { paymentQrKey: key, paymentQrName: qr.name };
+    } else if (removeQr) {
+      qrFields = { paymentQrKey: null, paymentQrName: null };
+    }
+
     try {
       await prisma.bookingSettings.upsert({
         where: { companyId: inner.companyId },
-        create: { companyId: inner.companyId, ...data },
-        update: data,
+        create: { companyId: inner.companyId, ...data, ...qrFields },
+        update: { ...data, ...qrFields },
       });
     } catch (fault) {
       // The slug is unique across every company: two venues cannot share a
@@ -112,6 +137,8 @@ export default async function BookingSettingsPage({
     time: "Those opening hours could not be read.",
     window: "Closing time has to be after opening time.",
     slot: "A slot is between 5 minutes and 12 hours long.",
+    qrType: "The QR has to be an image — a PNG, JPEG or WebP.",
+    qrSize: "That image is over 5 MB. A screenshot of a QR is usually far smaller.",
   };
 
   const slug = existing?.slug ?? toSlug(company.name);
@@ -133,7 +160,7 @@ export default async function BookingSettingsPage({
       {saved ? <Alert tone="success">Saved.</Alert> : null}
 
       <Card className="max-w-2xl">
-        <form action={save} className="space-y-5">
+        <form action={save} encType="multipart/form-data" className="space-y-5">
           <fieldset className="space-y-4">
             <legend className="text-sm font-semibold">The public page</legend>
 
@@ -254,6 +281,51 @@ export default async function BookingSettingsPage({
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
               />
             </Field>
+
+            <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+              <p className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                Payment QR
+              </p>
+
+              {existing?.paymentQrKey && existing.isPublished ? (
+                <div className="mb-3 flex items-start gap-4">
+                  {/* Served from the public route, which is what the booker
+                      sees — so a broken image here is a broken image there. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/book/${existing.slug}/qr`}
+                    alt="The payment QR shown to bookers"
+                    className="size-28 rounded-md border border-slate-200 object-contain dark:border-slate-700"
+                  />
+                  <label className="flex items-start gap-2 text-sm">
+                    <input type="checkbox" name="removeQr" className="mt-0.5 size-4 accent-brand-600" />
+                    <span className="text-slate-600 dark:text-slate-400">
+                      Remove this QR
+                      <span className="block text-xs">
+                        {existing.paymentQrName}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              ) : existing?.paymentQrKey ? (
+                <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                  A QR is saved. It appears here and on the booking page once the venue is
+                  published.
+                </p>
+              ) : null}
+
+              <input
+                type="file"
+                name="paymentQr"
+                accept="image/png,image/jpeg,image/webp"
+                className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-brand-600 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white"
+              />
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                A screenshot of your GCash, Maya or bank QR. Shown to the booker beside the
+                payment instructions. PNG, JPEG or WebP, up to 5 MB.{" "}
+                {existing?.paymentQrKey ? "Choosing a file replaces the one above." : ""}
+              </p>
+            </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Hold for" hint="Minutes a slot is held before payment arrives.">

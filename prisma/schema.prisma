@@ -1872,6 +1872,11 @@ model BookingSettings {
 
   /// Shown to the booker once a slot is held: where to send the money.
   paymentInstructions String?
+  /// A QR code to scan — GCash, Maya, a bank app. Stored rather than linked,
+  /// because a payment QR hotlinked from somewhere else is a payment QR
+  /// somebody else can change (SPEC §17).
+  paymentQrKey        String?
+  paymentQrName       String?
   /// How long a held slot survives with no proof, so an abandoned booking
   /// does not keep a court off the market forever.
   holdMinutes         Int     @default(120)

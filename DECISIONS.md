@@ -2444,3 +2444,31 @@ failing at the end of the form.
 
 **There is a ceiling of twenty slots per booking.** A public form should not be
 able to take a venue's whole week in one request, and nobody legitimate meets it.
+
+### A payment QR on the booking page
+
+Most Philippine payments are a scanned QR, and typing a GCash number off a
+screen into a phone is the step where bookers give up. The venue uploads its QR
+in Bookings → Settings and it appears beside the payment instructions on the
+page the booker lands on, with the amount repeated there so nobody has to
+scroll back for it.
+
+**Stored, not linked.** A payment QR hotlinked from somewhere else is a payment
+QR somebody else can change, and the thing it points at is a bank account.
+
+**Served from a public route**, because the people who need it have no account —
+that is the whole point of the booking page — and it is not a secret anyway: it
+is the same code printed on a sign at the counter. It is refused for an
+unpublished venue, so one that is not open yet gives nothing away.
+
+**The Content-Type comes from a short allow-list of image types**, never echoed
+from the uploaded filename. Otherwise an uploaded "QR" gets served as HTML and
+runs on the booking page.
+
+**The image sits on a white ground whatever the theme.** A transparent PNG over
+a dark page is a QR that will not scan, and the failure looks like the camera's
+fault rather than the page's.
+
+**Saving the settings form never loses the QR by accident.** The field is only
+touched when a new file is sent or the remove box is ticked, so editing the
+opening hours does not quietly clear it.

@@ -150,13 +150,40 @@ export default async function BookingPage({
       {booking.status === "HELD" ? (
         <Card className="mt-5">
           <h2 className="mb-2 text-sm font-semibold">How to pay</h2>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-            {venue.settings.paymentInstructions ||
-              "Please contact the venue for payment details."}
-          </p>
-          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-            Quote <strong>{booking.reference}</strong> so we can match your payment.
-          </p>
+
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            {venue.settings.paymentQrKey ? (
+              <figure className="shrink-0 text-center">
+                {/* Large enough to scan off the screen without pinching, and a
+                    white ground regardless of theme — a dark-mode page behind
+                    a transparent PNG is a QR that will not read. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/book/${slug}/qr`}
+                  alt="Scan this QR code to pay"
+                  width={200}
+                  height={200}
+                  className="size-48 rounded-lg border border-slate-200 bg-white object-contain p-2 dark:border-slate-700"
+                />
+                <figcaption className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  Scan to pay
+                </figcaption>
+              </figure>
+            ) : null}
+
+            <div className="min-w-0">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                {venue.settings.paymentInstructions ||
+                  "Please contact the venue for payment details."}
+              </p>
+              <p className="mt-3 text-sm text-slate-900 dark:text-white">
+                Amount to pay: <strong>{amount}</strong>
+              </p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Quote <strong>{booking.reference}</strong> so we can match your payment.
+              </p>
+            </div>
+          </div>
 
           <form action={upload} className="mt-5 space-y-3 border-t border-slate-200 pt-5 dark:border-slate-700">
             <h3 className="text-sm font-semibold">Send your proof of payment</h3>

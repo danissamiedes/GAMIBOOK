@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { Prisma, Role, Section } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { CompanyAccessError, RoleError, SectionError } from "@/lib/errors";
@@ -49,6 +50,29 @@ export type CompanyScope = {
 /** Roles allowed to touch financial data at all (SPEC §2). */
 export const FINANCIAL_ROLES: Role[] = ["OWNER", "BOOKKEEPER"];
 
+/**
+ * The membership row, read once per request however many callers ask.
+ *
+ * The layout resolves the active company and builds a scope; the page then does
+ * the same thing again for its section. That was the same row fetched three
+ * times, one round trip after another, before either had done any work of its
+ * own. React's `cache` is scoped to a single request and shared by nothing
+ * else, so the guarantee is unchanged — the membership is still read from the
+ * database on every request, never from the session — while the cost of asking
+ * twice drops to nothing.
+ *
+ * Only the shared client is memoised. A read inside a transaction must see that
+ * transaction's view of the row, so it goes straight to the client it was
+ * handed.
+ */
+const loadMembership = cache(
+  async (userId: string, companyId: string) =>
+    prisma.membership.findUnique({
+      where: { userId_companyId: { userId, companyId } },
+      select: { role: true, sections: true, user: { select: { isActive: true } } },
+    }),
+);
+
 export async function withCompanyScope(
   userId: string | undefined | null,
   companyId: string | undefined | null,
@@ -57,10 +81,13 @@ export async function withCompanyScope(
   if (!userId) throw new CompanyAccessError("Not signed in");
   if (!companyId) throw new CompanyAccessError("No company selected");
 
-  const membership = await client.membership.findUnique({
-    where: { userId_companyId: { userId, companyId } },
-    select: { role: true, sections: true, user: { select: { isActive: true } } },
-  });
+  const membership =
+    client === prisma
+      ? await loadMembership(userId, companyId)
+      : await client.membership.findUnique({
+          where: { userId_companyId: { userId, companyId } },
+          select: { role: true, sections: true, user: { select: { isActive: true } } },
+        });
 
   if (!membership) throw new CompanyAccessError();
   if (!membership.user.isActive) throw new CompanyAccessError("This account is disabled");
@@ -143,8 +170,13 @@ export async function withFinancialScope(
   return scope;
 }
 
-/** Companies this user may switch between, for the top-bar switcher (SPEC §3). */
-export async function listUserCompanies(userId: string) {
+/**
+ * Companies this user may switch between, for the top-bar switcher (SPEC §3).
+ *
+ * Memoised per request for the same reason as the membership above: the shell
+ * asks for it, and so does anything else that needs to name the company.
+ */
+export const listUserCompanies = cache(async (userId: string) => {
   const memberships = await prisma.membership.findMany({
     where: { userId, user: { isActive: true } },
     select: {
@@ -163,4 +195,4 @@ export async function listUserCompanies(userId: string) {
     orderBy: { company: { name: "asc" } },
   });
   return memberships.map((m) => ({ ...m.company, role: m.role }));
-}
+});

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import NextAuth, { type DefaultSession, type NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
@@ -117,8 +118,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
 });
 
-/** The signed-in user's id, or null. Never trusted for company access on its own. */
-export async function currentUserId(): Promise<string | null> {
+/**
+ * The signed-in user's id, or null. Never trusted for company access on its own.
+ *
+ * Memoised per request: the layout, the page and any server action in the same
+ * render all ask, and decrypting the session cookie three times to get the same
+ * answer is work for nobody.
+ */
+export const currentUserId = cache(async function currentUserId(): Promise<string | null> {
   const session = await auth();
   return session?.user?.id ?? null;
-}
+});

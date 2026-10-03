@@ -27,10 +27,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const userId = await currentUserId();
   if (!userId) redirect("/login");
 
-  const companies = await listUserCompanies(userId);
+  // Two independent questions — which companies, and which one is active — so
+  // they go to the database together rather than one after the other. On a
+  // host that is not sitting next to its database, a needless await is a
+  // needless round trip, and the shell is on the critical path of every page.
+  const [companies, activeCompanyId] = await Promise.all([
+    listUserCompanies(userId),
+    resolveActiveCompanyId(userId),
+  ]);
   if (companies.length === 0) redirect("/no-access");
-
-  const activeCompanyId = await resolveActiveCompanyId(userId);
   if (!activeCompanyId) redirect("/no-access");
 
   const scope = await withCompanyScope(userId, activeCompanyId);

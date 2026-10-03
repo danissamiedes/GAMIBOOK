@@ -2530,3 +2530,36 @@ accepting proof of payment after that is how two parties arrive for one court.
 **The default hold is fifteen minutes**, and remains a per-venue setting. Only
 the default moved: a venue that has already chosen its own hold length keeps it,
 because a stored value is a decision somebody made.
+
+## Making it feel fast
+
+The app was doing a surprising amount of waiting for work it had already done.
+
+**The same membership row was read three times per page view.** The shell
+resolves the active company and builds a scope; the page then does it again for
+its own section. Three sequential round trips for one row, before either had
+fetched anything of its own. They are now memoised with React's `cache`, which
+is scoped to a single request and shared with nothing else — so the guarantee
+holds exactly as written (membership is read from the database on every request,
+never from the session) while asking twice costs nothing. The shell's two
+independent questions — which companies, which one is active — now go together
+rather than one after the other.
+
+**Nothing was prefetched, because nothing had a loading state.** Next skips
+prefetching a dynamic route entirely unless the segment has a `loading` file, so
+every click sat on the old page until the server had finished the whole render,
+with no sign anything was happening. One skeleton for the app segment turns that
+into an immediate transition and lets the shell be fetched before the click.
+
+**Picking a slot was a round trip.** The selection lived in the query string, so
+ticking three courts meant three navigations and three full re-renders of the
+grid — on the one interaction every booker uses, on a phone, on mobile data. It
+is browser state now, with the URL kept in step through the history API so a
+half-made selection still survives a refresh and can still be sent to somebody
+else.
+
+None of this moved a decision to the client. The server still prices every pick
+from the stored rates and still claims the slot with a unique index, so a
+browser sending a stale, forged or impossible selection is refused exactly as
+before. The e2e test for it types a name between two picks and checks it is
+still there: a round trip would have wiped it.

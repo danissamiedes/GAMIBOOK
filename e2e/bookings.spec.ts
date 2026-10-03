@@ -32,25 +32,29 @@ test("a guest books, sends proof, and an admin confirms it", async ({ page }) =>
   // written down, because an earlier run has already booked some of them.
   const grid = page.locator("table");
   const cell = (row: number, column: number) =>
-    grid.locator("tbody tr").nth(row).locator("td").nth(column).locator("a");
+    grid.locator("tbody tr").nth(row).locator("td").nth(column).locator("button");
 
   const shape = await multiSlotShape(page);
   expect(shape, "no two consecutive free hours left on this day").not.toBeNull();
   const [first, second, across] = shape!;
 
-  // Each click is a navigation, so the panel is waited on between them —
-  // otherwise the next click lands on a page that is about to be replaced.
+  // No navigation between these any more — the selection is local — but the
+  // panel is still waited on, because that is the thing being asserted.
   await cell(first[0], first[1]).click(); // one court, one hour
   await expect(page.getByText("1 slot", { exact: true })).toBeVisible();
+  // Typed between two picks. If ticking a slot still went to the server, this
+  // page would be replaced and the field would come back empty — so this is the
+  // assertion that picking happens in the browser.
+  await page.locator('input[name="customerName"]').fill("Juan Dela Cruz");
   await cell(second[0], second[1]).click(); // the same court, the next hour
   await expect(page.getByText("2 slots", { exact: true })).toBeVisible();
+  await expect(page.locator('input[name="customerName"]')).toHaveValue("Juan Dela Cruz");
   await cell(across[0], across[1]).click(); // that hour on another court
   await expect(page.getByText("3 slots", { exact: true })).toBeVisible();
   await page.screenshot({ path: "/tmp/claude-0/-home-user-GAMIBOOK/be7517e0-545d-576f-9716-dd3de778d1b9/scratchpad/book-multi.png", fullPage: true });
 
   // ---- Booking as a guest ---------------------------------------------
   await expect(page.getByRole("button", { name: "Hold these 3 slots" })).toBeVisible();
-  await page.locator('input[name="customerName"]').fill("Juan Dela Cruz");
   await page.locator('input[name="customerEmail"]').fill("juan@example.com");
   await page.getByRole("button", { name: "Hold these 3 slots" }).click();
 
@@ -139,7 +143,9 @@ test("a slot that is not free is never clickable", async ({ page }) => {
   for (const label of ["Booked", "Pending Reservation"]) {
     const cell = page.getByText(label, { exact: true }).first();
     if ((await cell.count()) > 0) {
-      expect(await cell.evaluate((el) => el.closest("a") !== null)).toBe(false);
+      expect(
+        await cell.evaluate((el) => el.closest("a") !== null || el.closest("button") !== null),
+      ).toBe(false);
     }
   }
 });

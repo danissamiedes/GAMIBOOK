@@ -51,7 +51,7 @@ test("a venue uploads a payment QR and a booker sees it", async ({ page }) => {
   const free = await freeCells(page);
   expect(free.length, "no free slot on the booking grid").toBeGreaterThan(0);
   const [row, column] = free[0];
-  await grid.locator("tbody tr").nth(row).locator("td").nth(column).locator("a").click();
+  await grid.locator("tbody tr").nth(row).locator("td").nth(column).locator("button").click();
   await expect(page.getByText("1 slot", { exact: true })).toBeVisible();
   await page.locator('input[name="customerName"]').fill("QR Tester");
   await page.locator('input[name="customerEmail"]').fill("qr@example.com");

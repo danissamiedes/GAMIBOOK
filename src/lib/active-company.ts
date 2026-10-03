@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 
@@ -28,8 +29,14 @@ export async function clearActiveCompany(): Promise<void> {
 /**
  * Resolve the company to work in: the cookie's, if the user is still a member
  * of it, otherwise their first company. Returns null when they have none.
+ *
+ * Memoised for the length of one request. The layout and the page both need it,
+ * and asking the database the same question twice in a row is latency nobody
+ * sees a result from. Nothing is shared between requests.
  */
-export async function resolveActiveCompanyId(userId: string): Promise<string | null> {
+export const resolveActiveCompanyId = cache(async function resolveActiveCompanyId(
+  userId: string,
+): Promise<string | null> {
   const jar = await cookies();
   const requested = jar.get(COOKIE)?.value;
 
@@ -47,4 +54,4 @@ export async function resolveActiveCompanyId(userId: string): Promise<string | n
     orderBy: { company: { name: "asc" } },
   });
   return first?.companyId ?? null;
-}
+});

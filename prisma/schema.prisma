@@ -1868,7 +1868,7 @@ model BookingSettings {
   opensAtMinute  Int @default(420)
   closesAtMinute Int @default(1380)
   /// How many days ahead the public page offers.
-  horizonDays    Int @default(14)
+  horizonDays    Int @default(90)
 
   /// Shown to the booker once a slot is held: where to send the money.
   paymentInstructions String?

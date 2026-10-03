@@ -53,12 +53,19 @@ export async function multiSlotShape(page: Page): Promise<[number, number][] | n
 /**
  * The link behind one of the day tabs on a booking page, by position.
  *
- * The tabs and the grid cells share an href shape, so the cells are excluded
- * explicitly: only a cell carries a `pick`.
+ * Only the day tabs carry `data-date`; the week arrows beside them and the
+ * grid cells do not, so this cannot pick up either by accident.
  */
 export async function dayHref(page: Page, index: number): Promise<string> {
-  const tabs = page.locator('a[href*="?date="]:not([href*="pick="])');
+  const tabs = page.locator("a[data-date]");
   const href = await tabs.nth(index).getAttribute("href");
   if (!href) throw new Error(`No day tab at position ${index}`);
   return href;
+}
+
+/** The day the strip is currently showing, as `YYYY-MM-DD`. */
+export async function activeDay(page: Page): Promise<string> {
+  const active = await page.locator('a[data-date][aria-current="date"]').getAttribute("data-date");
+  if (!active) throw new Error("No day is marked active on the strip");
+  return active;
 }

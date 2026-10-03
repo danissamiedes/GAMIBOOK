@@ -80,7 +80,7 @@ export default async function BookingSettingsPage({
       slotMinutes,
       opensAtMinute: opens,
       closesAtMinute: closes,
-      horizonDays: Math.min(90, Math.max(1, Number(formData.get("horizonDays") || 14))),
+      horizonDays: Math.min(365, Math.max(1, Number(formData.get("horizonDays") || 90))),
       paymentInstructions: String(formData.get("paymentInstructions") || "").trim() || null,
       holdMinutes: Math.min(1440, Math.max(5, Number(formData.get("holdMinutes") || 15))),
       notifyEmail: String(formData.get("notifyEmail") || "").trim() || null,
@@ -254,13 +254,16 @@ export default async function BookingSettingsPage({
               </Field>
             </div>
 
-            <Field label="Days ahead" hint="How far into the future the page offers.">
+            <Field
+              label="Days ahead"
+              hint="How far into the future the page offers — up to a year. The booking page shows two weeks at a time, with arrows and a date box to reach the rest."
+            >
               <Input
                 name="horizonDays"
                 type="number"
                 min={1}
-                max={90}
-                defaultValue={existing?.horizonDays ?? 14}
+                max={365}
+                defaultValue={existing?.horizonDays ?? 90}
               />
             </Field>
           </fieldset>

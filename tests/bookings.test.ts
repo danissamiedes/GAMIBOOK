@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   createBookingGroup,
   dayGrid,
+  resolvePicks,
+  pickKey,
   offeredDates,
   publicVenue,
   venueToday,
@@ -72,6 +74,11 @@ function soon(days = 3): string {
 }
 
 const booker = { customerName: "Juan Dela Cruz", customerEmail: "juan@example.com" };
+
+/** A stored date back to the `YYYY-MM-DD` the booking pages speak in. */
+function isoOf(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
 
 describe("slots (SPEC §17)", () => {
   it("offers every whole slot between opening and closing, and no part one", () => {
@@ -687,5 +694,157 @@ describe("a hold that runs out (SPEC §17)", () => {
     expect(
       (await prisma.bookingGroup.findUniqueOrThrow({ where: { id: paid.group.id } })).status,
     ).toBe("PAYMENT_SUBMITTED");
+  });
+});
+
+describe("booking several days at once (SPEC §17)", () => {
+  it("puts days in one group, priced on each day's own weekday", async () => {
+    const { units } = await pickleFarm();
+    const first = soon(3);
+    const second = soon(4);
+
+    const result = await createBookingGroup({
+      slug: "the-pickle-farm",
+      // Same court, same hour, two different days: one arrangement, one payment.
+      picks: [
+        { unitId: units[0].id, startMinute: 600, date: first },
+        { unitId: units[0].id, startMinute: 600, date: second },
+      ],
+      date: first,
+      ...booker,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.group.bookings).toHaveLength(2);
+    const days = result.group.bookings.map((slot) => isoOf(slot.date)).sort();
+    expect(days).toEqual([first, second].sort());
+    // The group's own date is the first day it covers — what the admin list
+    // sorts by — not the day the form happened to be showing.
+    expect(isoOf(result.group.date)).toBe([first, second].sort()[0]);
+    expect(result.group.amount.toFixed(2)).toBe("400.00");
+    // One reference for the lot, so there is one payment to check.
+    expect(result.group.reference).toMatch(/^[0-9A-Z]{3}-[0-9A-Z]{3}$/);
+  });
+
+  it("writes nothing at all when one day of several is already taken", async () => {
+    const { units } = await pickleFarm();
+    const first = soon(3);
+    const second = soon(4);
+
+    const taken = await createBookingGroup({
+      slug: "the-pickle-farm",
+      picks: [{ unitId: units[0].id, startMinute: 600 }],
+      date: second,
+      ...booker,
+    });
+    expect(taken.ok).toBe(true);
+
+    const clash = await createBookingGroup({
+      slug: "the-pickle-farm",
+      picks: [
+        { unitId: units[0].id, startMinute: 600, date: first },
+        { unitId: units[0].id, startMinute: 600, date: second },
+      ],
+      date: first,
+      ...booker,
+    });
+    expect(clash).toEqual({ ok: false, problem: "taken" });
+
+    // And the free day was not quietly booked on its own.
+    const onFirstDay = await prisma.booking.count({
+      where: { date: new Date(`${first}T00:00:00.000Z`) },
+    });
+    expect(onFirstDay).toBe(0);
+  });
+
+  it("refuses a day past the horizon even alongside one inside it", async () => {
+    const { units } = await pickleFarm();
+    const result = await createBookingGroup({
+      slug: "the-pickle-farm",
+      picks: [
+        { unitId: units[0].id, startMinute: 600, date: soon(3) },
+        // A venue offering 90 days cannot be made to take one a year out by
+        // sending it along with a day it does offer.
+        { unitId: units[0].id, startMinute: 600, date: soon(400) },
+      ],
+      date: soon(3),
+      ...booker,
+    });
+    expect(result).toEqual({ ok: false, problem: "past" });
+  });
+
+  it("a day's slot takes the same hour on another day as a separate slot", async () => {
+    const { units } = await pickleFarm();
+    const first = soon(3);
+    const second = soon(4);
+    const booked = await createBookingGroup({
+      slug: "the-pickle-farm",
+      picks: [{ unitId: units[0].id, startMinute: 600, date: first }],
+      date: first,
+      ...booker,
+    });
+    expect(booked.ok).toBe(true);
+
+    const venue = (await publicVenue("the-pickle-farm"))!;
+    const taken = await dayGrid({
+      settings: venue.settings,
+      units: venue.units,
+      rates: venue.rates,
+      date: first,
+      timeZone: "Asia/Manila",
+    });
+    const free = await dayGrid({
+      settings: venue.settings,
+      units: venue.units,
+      rates: venue.rates,
+      date: second,
+      timeZone: "Asia/Manila",
+    });
+    expect(taken.cells.get(`${units[0].id}:600`)?.unavailable).toBe("pending");
+    expect(free.cells.get(`${units[0].id}:600`)?.unavailable).toBeNull();
+  });
+});
+
+describe("resolving a selection that spans days (SPEC §17)", () => {
+  it("prices picks on any day and drops ones that have been taken", async () => {
+    const { units } = await pickleFarm();
+    const first = soon(3);
+    const second = soon(4);
+    const venue = (await publicVenue("the-pickle-farm"))!;
+
+    const gone = await createBookingGroup({
+      slug: "the-pickle-farm",
+      picks: [{ unitId: units[1].id, startMinute: 600, date: second }],
+      date: second,
+      ...booker,
+    });
+    expect(gone.ok).toBe(true);
+
+    const resolved = await resolvePicks({
+      settings: venue.settings,
+      units: venue.units,
+      rates: venue.rates,
+      timeZone: "Asia/Manila",
+      keys: [
+        pickKey({ date: first, unitId: units[0].id, startMinute: 600 }),
+        pickKey({ date: second, unitId: units[0].id, startMinute: 1140 }),
+        // Somebody else has this one, so it must not reach the summary.
+        pickKey({ date: second, unitId: units[1].id, startMinute: 600 }),
+        // Nonsense, a day outside the horizon, and a slot that does not exist.
+        "not-a-key",
+        pickKey({ date: soon(400), unitId: units[0].id, startMinute: 600 }),
+        pickKey({ date: first, unitId: units[0].id, startMinute: 613 }),
+      ],
+    });
+
+    expect(resolved.map((pick) => pick.key)).toEqual([
+      pickKey({ date: first, unitId: units[0].id, startMinute: 600 }),
+      pickKey({ date: second, unitId: units[0].id, startMinute: 1140 }),
+    ]);
+    // Priced per slot, peak and off-peak alike.
+    expect(resolved[0].amount).toBe("200.00");
+    expect(resolved[1].amount).toBe("350.00");
+    expect(resolved[0].unitName).toBe(units[0].name);
   });
 });

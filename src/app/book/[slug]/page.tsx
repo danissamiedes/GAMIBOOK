@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { APP_NAME, pageTitle } from "@/lib/brand";
 import {
@@ -6,6 +5,7 @@ import {
   dayGrid,
   offeredDates,
   publicVenue,
+  resolvePicks,
   venueToday,
   type BookProblem,
 } from "@/lib/bookings/book";
@@ -64,25 +64,32 @@ export default async function BookPage({
 
   const grid = await dayGrid({ settings, units, rates, date, timeZone: zone });
 
-  // A selection restored from the URL — a refresh, a bookmark, a link somebody
-  // was sent. A slot that has since been taken drops out quietly rather than
-  // failing at the end of the form.
-  const initialPicks = (
-    Array.isArray(query.pick) ? query.pick : query.pick ? [query.pick] : []
-  ).filter((key) => grid.cells.get(key)?.unavailable === null);
+  // The selection, which is not confined to the day on screen: it survives
+  // moving along the date strip, because picking Monday and Wednesday is one
+  // arrangement and one payment. Slots taken since are dropped here, quietly,
+  // rather than failing at the end of the form.
+  const picked = await resolvePicks({
+    settings,
+    units,
+    rates,
+    timeZone: zone,
+    keys: Array.isArray(query.pick) ? query.pick : query.pick ? [query.pick] : [],
+  });
 
   // Decimal does not cross to the browser, and nor does anything the grid does
   // not draw: the client gets strings it can print and a key it can send back.
+  // Keyed by day as well as unit and minute: the selection spans days now, so a
+  // key that only said "court and hour" would mean a different slot tomorrow.
   const cells: GridCell[] = [...grid.cells.entries()].map(([key, cell]) => ({
-    key,
+    key: `${date}:${key}`,
     startMinute: cell.startMinute,
     label: cell.label,
+    endLabel: cell.endLabel,
     amount: cell.amount ? cell.amount.toFixed(2) : null,
     rateLabel: cell.rateLabel,
     unavailable: cell.unavailable,
   }));
 
-  const label = tabLabel(date, today);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
@@ -115,36 +122,11 @@ export default async function BookPage({
         </Alert>
       ) : null}
 
-      {/* ---- Dates ------------------------------------------------------ */}
-      <div className="mb-5 flex gap-2 overflow-x-auto pb-2">
-        {dates.map((option) => {
-          const optionLabel = tabLabel(option, today);
-          const active = option === date;
-          return (
-            <Link
-              key={option}
-              href={`/book/${slug}?date=${option}`}
-              className={`flex min-w-[4.5rem] shrink-0 flex-col items-center rounded-lg border px-3 py-2 text-center transition-colors ${
-                active
-                  ? "border-brand-600 bg-brand-600 text-white"
-                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-              }`}
-            >
-              <span className="text-[10px] font-semibold uppercase tracking-wide opacity-80">
-                {optionLabel.top}
-              </span>
-              <span className="text-lg font-bold leading-tight">{optionLabel.day}</span>
-              <span className="text-[10px] opacity-80">{optionLabel.month}</span>
-            </Link>
-          );
-        })}
-      </div>
-
       <BookingGrid
         action={bookSlots}
         slug={slug}
         date={date}
-        dateLabel={`${label.day} ${label.month}`}
+        dates={dates.map((option) => ({ date: option, ...tabLabel(option, today) }))}
         currency={company.baseCurrency}
         units={grid.units.map((unit) => ({ id: unit.id, name: unit.name }))}
         slots={grid.slots.map((slot) => ({
@@ -153,7 +135,7 @@ export default async function BookPage({
           endLabel: slot.endLabel,
         }))}
         cells={cells}
-        initialPicks={initialPicks}
+        initialPicks={picked}
         unitLabel={settings.unitLabel}
         unitLabelPlural={settings.unitLabelPlural}
         holdMinutes={settings.holdMinutes}

@@ -2563,3 +2563,40 @@ from the stored rates and still claims the slot with a unique index, so a
 browser sending a stale, forged or impossible selection is refused exactly as
 before. The e2e test for it types a name between two picks and checks it is
 still there: a round trip would have wiped it.
+
+## One booking, several days
+
+A booking was one day by design, on the reasoning that a part-paid booking
+spanning a week is hard to reason about at the desk. In use that was wrong: a
+booker who wants Monday and Wednesday was being asked to pay twice for one
+decision, and the venue to check two payments from one customer.
+
+**The day belongs to the slot, not to the booking.** `Booking.date` already
+existed, so nothing had to be migrated — only the assumption that every slot in
+a group shares a date. `BookingGroup.date` is now the *first* day the booking
+covers, which is what the admin list sorts by and what "when does this start"
+means.
+
+**Every day is priced on its own weekday.** A Saturday slot inside a booking
+that starts on Friday is charged at the Saturday rate, because that is the rate
+the venue set for Saturday.
+
+**The horizon is checked per day, not per booking.** A venue offering ninety
+days cannot be made to take a day a year out by sending it alongside one it does
+offer.
+
+**The selection survives moving between days**, which is what makes any of this
+reachable. Changing day is a real navigation — only the server knows what is
+free on a day it has not drawn — so the picks ride along in the query string,
+and each day tab carries a count badge, because the strip is a window and the
+rest of the selection is off-screen.
+
+**The strip shows two weeks at a time whatever the horizon.** Ninety tabs is a
+scroll nobody finishes. Arrows move a week, and a date box reaches any day
+inside the horizon directly. The default horizon is ninety days; a venue that
+has already chosen its own keeps it.
+
+**What a day's slots cost is still decided by the server**, per slot, from the
+stored rates — the browser only says which times it would like, and a selection
+that has gone stale is dropped before the form is sent rather than failing at
+the end of it.

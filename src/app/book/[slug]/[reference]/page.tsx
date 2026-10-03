@@ -83,7 +83,19 @@ export default async function BookingPage({
   const amount = formatMoney(booking.amount.toFixed(2), booking.currency);
   const slots = booking.bookings
     .slice()
-    .sort((a, b) => a.startMinute - b.startMinute || a.unit.name.localeCompare(b.unit.name));
+    .sort(
+      (a, b) =>
+        a.date.getTime() - b.date.getTime() ||
+        a.startMinute - b.startMinute ||
+        a.unit.name.localeCompare(b.unit.name),
+    );
+  // A booking can cover more than one day, so the slots are grouped under their
+  // own dates rather than under the booking's.
+  const byDay = slots.reduce<Map<string, typeof slots>>((map, slot) => {
+    const day = formatAccountingDate(slot.date);
+    map.set(day, [...(map.get(day) ?? []), slot]);
+    return map;
+  }, new Map());
 
   async function upload(formData: FormData) {
     "use server";
@@ -132,28 +144,33 @@ export default async function BookingPage({
             court, or the same hour across a few — and flattening them into a
             sentence stops being readable at about three. */}
         <div className="mt-5 rounded-lg bg-slate-50 p-3 dark:bg-slate-900/60">
-          <p className="text-xs uppercase tracking-wide text-slate-500">
-            {formatAccountingDate(booking.date)}
-          </p>
-          <ul className="mt-2 space-y-1 text-sm">
-            {slots.map((slot) => (
-              <li key={slot.id} className="flex justify-between gap-3">
-                <span className="font-medium text-slate-900 dark:text-white">
-                  {slot.unit.name}
-                </span>
-                <span className="text-slate-600 dark:text-slate-400">
-                  {formatMinute(slot.startMinute)} – {formatMinute(slot.endMinute)}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {[...byDay.entries()].map(([day, daySlots], index) => (
+            <div key={day} className={index === 0 ? "" : "mt-3 border-t border-slate-200 pt-3 dark:border-slate-700"}>
+              <p className="text-xs uppercase tracking-wide text-slate-500">{day}</p>
+              <ul className="mt-2 space-y-1 text-sm">
+                {daySlots.map((slot) => (
+                  <li key={slot.id} className="flex justify-between gap-3">
+                    <span className="font-medium text-slate-900 dark:text-white">
+                      {slot.unit.name}
+                    </span>
+                    <span className="text-slate-600 dark:text-slate-400">
+                      {formatMinute(slot.startMinute)} – {formatMinute(slot.endMinute)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
 
         <dl className="mt-5 space-y-3 text-sm">
           {[
             {
               term: slots.length === 1 ? venue.settings.unitLabel : "Slots",
-              detail: slots.length === 1 ? slots[0].unit.name : `${slots.length} booked`,
+              detail:
+                slots.length === 1
+                  ? slots[0].unit.name
+                  : `${slots.length} booked${byDay.size > 1 ? ` across ${byDay.size} days` : ""}`,
             },
             { term: "Amount", detail: amount },
             { term: "Booked by", detail: booking.customerName },

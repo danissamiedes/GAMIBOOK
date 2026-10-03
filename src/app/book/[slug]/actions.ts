@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { createBookingGroup } from "@/lib/bookings/book";
+import { createBookingGroup, parsePickKey } from "@/lib/bookings/book";
 import { rateLimit } from "@/lib/rate-limit";
 
 /**
@@ -28,11 +28,11 @@ export async function bookSlots(formData: FormData): Promise<void> {
   const limit = await rateLimit(`book:${forwarded.split(",")[0]!.trim()}`, 10, 900);
   if (!limit.ok) redirect(`/book/${slug}?error=throttled`);
 
+  // Each pick carries its own day, because one booking may span several.
   const picks = formData
     .getAll("pick")
-    .map((value) => String(value).split(":"))
-    .filter((parts) => parts.length === 2)
-    .map(([unitId, startMinute]) => ({ unitId, startMinute: Number(startMinute) }));
+    .map((value) => parsePickKey(String(value)))
+    .filter((pick): pick is NonNullable<typeof pick> => pick !== null);
 
   const result = await createBookingGroup({
     slug,

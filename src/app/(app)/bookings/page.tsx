@@ -12,6 +12,11 @@ import { Alert, Button, Card, DataTable, EmptyState, Input, PageHeader } from "@
 
 export const metadata = { title: pageTitle("Bookings") };
 
+/** How many separate days a booking's slots fall on. */
+function daysCovered(slots: { date: Date }[]): number {
+  return new Set(slots.map((slot) => slot.date.getTime())).size;
+}
+
 const TABS: { key: string; label: string; status?: BookingStatus }[] = [
   { key: "to-check", label: "To check", status: "PAYMENT_SUBMITTED" },
   { key: "held", label: "Awaiting payment", status: "HELD" },
@@ -40,7 +45,7 @@ export default async function BookingsPage({
   const [bookings, settings, counts] = await Promise.all([
     prisma.bookingGroup.findMany({
       where: { ...scope.where, ...(active.status ? { status: active.status } : {}) },
-      include: { bookings: { include: { unit: true }, orderBy: { startMinute: "asc" } } },
+      include: { bookings: { include: { unit: true }, orderBy: [{ date: "asc" }, { startMinute: "asc" }] } },
       orderBy: [{ date: "asc" }, { createdAt: "asc" }],
       take: 200,
     }),
@@ -151,6 +156,12 @@ export default async function BookingsPage({
                     {formatAccountingDate(booking.date)}
                     <span className="block text-xs text-slate-500">
                       {booking.bookings.length} slot{booking.bookings.length === 1 ? "" : "s"}
+                      {/* A booking can span days now; the column shows the first
+                          and says how many more, so the list still sorts by when
+                          it starts. */}
+                      {daysCovered(booking.bookings) > 1
+                        ? ` · ${daysCovered(booking.bookings)} days`
+                        : ""}
                     </span>
                   </td>
                   <td className="px-2 py-2 text-sm">
@@ -159,6 +170,11 @@ export default async function BookingsPage({
                     <ul className="space-y-0.5">
                       {booking.bookings.map((slot) => (
                         <li key={slot.id} className="whitespace-nowrap text-xs">
+                          {daysCovered(booking.bookings) > 1 ? (
+                            <span className="mr-1 text-slate-400">
+                              {formatAccountingDate(slot.date)}
+                            </span>
+                          ) : null}
                           <span className="font-medium">{slot.unit.name}</span>{" "}
                           <span className="text-slate-500">
                             {formatMinute(slot.startMinute)} – {formatMinute(slot.endMinute)}

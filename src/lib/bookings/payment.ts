@@ -73,7 +73,7 @@ export async function submitProof(options: {
       companyId: settings.companyId,
       reference: options.reference.trim().toUpperCase(),
     },
-    include: { bookings: { include: { unit: true }, orderBy: { startMinute: "asc" } } },
+    include: { bookings: { include: { unit: true }, orderBy: [{ date: "asc" }, { startMinute: "asc" }] } },
   });
   if (!booking) return { ok: false, problem: "notFound" };
   if (booking.status === "CANCELLED") return { ok: false, problem: "closed" };
@@ -168,7 +168,7 @@ export async function confirmBooking(
   const booking = await prisma.bookingGroup.findFirst({
     where: { id: bookingId, ...scope.where },
     include: {
-      bookings: { include: { unit: true }, orderBy: { startMinute: "asc" } },
+      bookings: { include: { unit: true }, orderBy: [{ date: "asc" }, { startMinute: "asc" }] },
       company: { select: { name: true } },
     },
   });
@@ -232,7 +232,7 @@ export async function rejectBooking(
   const booking = await prisma.bookingGroup.findFirst({
     where: { id: bookingId, ...scope.where },
     include: {
-      bookings: { include: { unit: true }, orderBy: { startMinute: "asc" } },
+      bookings: { include: { unit: true }, orderBy: [{ date: "asc" }, { startMinute: "asc" }] },
       company: { select: { name: true } },
     },
   });
@@ -322,23 +322,36 @@ async function notify(options: {
 }
 
 /**
- * The slots in a group, as a line a person reads.
+ * The slots in a group, as a person reads them.
  *
- * One slot reads as one line; several are listed under the date, because
- * "Court 1, Court 2 and Court 3, 9:00 AM – 10:00 AM" and "Court 1, 7:00 AM –
- * 9:00 AM" are both common and neither flattens into a sentence that stays
- * readable when there are six of them.
+ * Listed under each day, because a booking is no longer one day: somebody who
+ * took Monday and Wednesday needs to see both, and a flat list of times that
+ * has lost which day it belongs to is worse than useless to the person turning
+ * up. One slot on one day still reads as two short lines.
  */
 function describeSlots(group: {
-  date: Date;
-  bookings: { unit: { name: string }; startMinute: number; endMinute: number }[];
+  bookings: { unit: { name: string }; date: Date; startMinute: number; endMinute: number }[];
 }): string {
-  const lines = group.bookings
+  const sorted = group.bookings
     .slice()
-    .sort((a, b) => a.startMinute - b.startMinute || a.unit.name.localeCompare(b.unit.name))
-    .map(
-      (slot) =>
-        `  ${slot.unit.name}: ${formatMinute(slot.startMinute)} – ${formatMinute(slot.endMinute)}`,
+    .sort(
+      (a, b) =>
+        a.date.getTime() - b.date.getTime() ||
+        a.startMinute - b.startMinute ||
+        a.unit.name.localeCompare(b.unit.name),
     );
-  return [`When: ${formatAccountingDate(group.date)}`, ...lines].join("\n");
+
+  const out: string[] = [];
+  let currentDay = "";
+  for (const slot of sorted) {
+    const day = formatAccountingDate(slot.date);
+    if (day !== currentDay) {
+      out.push(`${out.length === 0 ? "When: " : "      "}${day}`);
+      currentDay = day;
+    }
+    out.push(
+      `  ${slot.unit.name}: ${formatMinute(slot.startMinute)} – ${formatMinute(slot.endMinute)}`,
+    );
+  }
+  return out.join("\n");
 }

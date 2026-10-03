@@ -238,20 +238,53 @@ export type BookingGroupWithSlots = Prisma.BookingGroupGetPayload<{
   include: { bookings: { include: { unit: true } } };
 }>;
 
-/** One slot the booker ticked, as it arrives from the form. */
-export type SlotPick = { unitId: string; startMinute: number };
+/**
+ * One slot the booker ticked, as it arrives from the form.
+ *
+ * The date belongs to the slot, not to the booking: somebody who wants Court 1
+ * at 9am on Monday and the same court on Wednesday is making one arrangement
+ * and expects to pay for it once. `date` may be left off, in which case the
+ * booking's own date is used — which is what a single-day booking sends.
+ */
+export type SlotPick = { unitId: string; startMinute: number; date?: string };
+
+/** A pick with its day resolved, which is how everything below treats it. */
+type DatedPick = { unitId: string; startMinute: number; date: string };
+
+/** `2026-10-05:unit123:540` — one slot, as the URL and the form carry it. */
+export function pickKey(pick: DatedPick): string {
+  return `${pick.date}:${pick.unitId}:${pick.startMinute}`;
+}
+
+/** The other direction. Returns null for anything that is not a pick. */
+export function parsePickKey(key: string): DatedPick | null {
+  const parts = key.split(":");
+  if (parts.length !== 3) return null;
+  const [date, unitId, minute] = parts;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !unitId) return null;
+  const startMinute = Number(minute);
+  if (!Number.isInteger(startMinute) || startMinute < 0 || startMinute > 1440) return null;
+  return { date, unitId, startMinute };
+}
 
 /**
- * Book one or more slots on one day, as a single thing to be paid for.
+ * Book one or more slots, on one day or several, as a single thing to be paid
+ * for (SPEC §17).
  *
- * All on one day deliberately. Two hours on one court, or the same hour across
- * three, is one payment; a different day is a different booking, because that
- * is how the venue wants to be paid and because a part-paid booking spanning a
- * week is a thing nobody can reason about at the desk.
+ * It was one day only to begin with, on the reasoning that a part-paid booking
+ * spanning a week is hard to reason about at the desk. In practice a booker who
+ * wants Monday and Wednesday was being asked to pay twice for one decision, and
+ * the venue to check two payments for one customer. The group is now whatever
+ * they picked; `date` on the group is the first day of it, which is what the
+ * admin list sorts by.
+ *
+ * Every day is priced on its own weekday, so a Saturday slot inside a booking
+ * that starts on Friday is charged at the Saturday rate.
  */
 export async function createBookingGroup(options: {
   slug: string;
   picks: SlotPick[];
+  /** The day a pick without one belongs to. */
   date: string;
   customerName: string;
   customerEmail: string;
@@ -274,15 +307,11 @@ export async function createBookingGroup(options: {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, problem: "email" };
 
   // The same slot ticked twice is one slot, not a double charge.
-  const picks = dedupe(options.picks);
+  const picks = dedupe(options.picks.map((pick) => ({ ...pick, date: pick.date || options.date })));
   if (picks.length === 0) return { ok: false, problem: "empty" };
   if (picks.length > MAX_SLOTS_PER_BOOKING) return { ok: false, problem: "too-many" };
 
-  const date = parseAccountingDate(options.date);
-  if (!date) return { ok: false, problem: "bad-slot" };
-
   const horizon = offeredDates(settings, company.operatingTimeZone, now);
-  if (!horizon.includes(options.date)) return { ok: false, problem: "past" };
 
   const slots = slotsForDay({
     opensAtMinute: settings.opensAtMinute,
@@ -297,6 +326,7 @@ export async function createBookingGroup(options: {
   // nobody asked for.
   const priced: {
     unitId: string;
+    date: Date;
     startMinute: number;
     endMinute: number;
     amount: Money;
@@ -307,25 +337,33 @@ export async function createBookingGroup(options: {
     const unit = units.find((candidate) => candidate.id === pick.unitId);
     if (!unit) return { ok: false, problem: "unknown-unit" };
 
+    const day = parseAccountingDate(pick.date);
+    if (!day) return { ok: false, problem: "bad-slot" };
+    // Each day is checked against the horizon on its own. A booking is not
+    // allowed to reach past it by riding along with a day that is inside it.
+    if (!horizon.includes(pick.date)) return { ok: false, problem: "past" };
+
     const slot = slots.find((candidate) => candidate.startMinute === pick.startMinute);
     if (!slot) return { ok: false, problem: "bad-slot" };
 
-    if (options.date === today && slot.startMinute <= minuteNow) {
+    if (pick.date === today && slot.startMinute <= minuteNow) {
       return { ok: false, problem: "past" };
     }
 
     // Priced from the stored rates, never from the request. A posted amount is
-    // a number a stranger chose.
+    // a number a stranger chose. The weekday is this slot's own, so a Saturday
+    // inside a booking made on Friday is charged at the Saturday rate.
     const price = priceFor({
       rates,
       unitId: unit.id,
-      dayOfWeek: date.getUTCDay(),
+      dayOfWeek: day.getUTCDay(),
       startMinute: slot.startMinute,
     });
     if (!price) return { ok: false, problem: "no-price" };
 
     priced.push({
       unitId: unit.id,
+      date: day,
       startMinute: slot.startMinute,
       endMinute: slot.endMinute,
       amount: price.amount,
@@ -335,11 +373,13 @@ export async function createBookingGroup(options: {
 
   // Expired holds on any of these slots are cleared first, so the unique index
   // does not refuse a slot nobody is actually holding.
-  await releaseExpiredHolds(
-    priced.map((slot) => ({ unitId: slot.unitId, startMinute: slot.startMinute })),
-    date,
-    now,
-  );
+  await releaseExpiredHolds(picks, now);
+
+  // The group's own date is the first day it covers: the admin list sorts and
+  // filters by it, and "when does this start" is the question that answers.
+  const firstDate = priced
+    .map((slot) => slot.date)
+    .reduce((earliest, day) => (day < earliest ? day : earliest));
 
   const total = priced.reduce<Money>((sum, slot) => sum.plus(slot.amount), money(0));
 
@@ -348,7 +388,7 @@ export async function createBookingGroup(options: {
       data: {
         companyId: settings.companyId,
         reference: bookingReference(),
-        date,
+        date: firstDate,
         status: "HELD",
         amount: total.toFixed(2),
         currency: company.baseCurrency,
@@ -362,7 +402,7 @@ export async function createBookingGroup(options: {
           create: priced.map((slot) => ({
             companyId: settings.companyId,
             unitId: slot.unitId,
-            date,
+            date: slot.date,
             startMinute: slot.startMinute,
             endMinute: slot.endMinute,
             status: "HELD" as const,
@@ -386,23 +426,27 @@ export async function createBookingGroup(options: {
   }
 }
 
-/** The same unit and minute ticked twice is one slot, not a double charge. */
-function dedupe(picks: SlotPick[]): SlotPick[] {
+/** The same unit, day and minute ticked twice is one slot, not a double charge. */
+function dedupe(picks: DatedPick[]): DatedPick[] {
   const seen = new Set<string>();
   return picks.filter((pick) => {
-    const key = `${pick.unitId}:${pick.startMinute}`;
+    const key = pickKey(pick);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-async function releaseExpiredHolds(picks: SlotPick[], date: Date, now: Date): Promise<void> {
+async function releaseExpiredHolds(picks: DatedPick[], now: Date): Promise<void> {
   const stale = await prisma.booking.findMany({
     where: {
-      date,
       status: "HELD",
-      OR: picks.map((pick) => ({ unitId: pick.unitId, startMinute: pick.startMinute })),
+      OR: picks.flatMap((pick) => {
+        const day = parseAccountingDate(pick.date);
+        return day
+          ? [{ unitId: pick.unitId, date: day, startMinute: pick.startMinute }]
+          : [];
+      }),
       group: { heldUntil: { lte: now } },
     },
     select: { groupId: true },
@@ -424,6 +468,121 @@ async function releaseExpiredHolds(picks: SlotPick[], date: Date, now: Date): Pr
   ]);
 }
 
+/**
+ * What a selection spanning several days actually is, resolved for display.
+ *
+ * The grid the booker is looking at covers one day; the selection may not. The
+ * picks for the other days still have to be priced and named in the summary,
+ * and a slot somebody else took while this one was being made has to drop out
+ * of it — quietly, before the form is sent, rather than failing at the end.
+ *
+ * Rates and units are already in memory, so pricing costs nothing; a single
+ * query covers availability across every day picked.
+ */
+export type ResolvedPick = {
+  key: string;
+  date: string;
+  unitId: string;
+  unitName: string;
+  startMinute: number;
+  label: string;
+  endLabel: string;
+  /** Plain string; the figure that counts is the one written at booking time. */
+  amount: string;
+  rateLabel: string | null;
+};
+
+export async function resolvePicks(options: {
+  settings: BookingSettings;
+  units: BookableUnit[];
+  rates: BookingRate[];
+  timeZone: string;
+  keys: string[];
+  now?: Date;
+}): Promise<ResolvedPick[]> {
+  const now = options.now ?? new Date();
+  const horizon = new Set(offeredDates(options.settings, options.timeZone, now));
+  const today = venueToday(options.timeZone, now);
+  const minuteNow = venueMinuteNow(options.timeZone, now);
+  const slots = slotsForDay({
+    opensAtMinute: options.settings.opensAtMinute,
+    closesAtMinute: options.settings.closesAtMinute,
+    slotMinutes: options.settings.slotMinutes,
+  });
+
+  const wanted: (ResolvedPick & { day: Date })[] = [];
+  for (const key of [...new Set(options.keys)]) {
+    const pick = parsePickKey(key);
+    if (!pick || !horizon.has(pick.date)) continue;
+
+    const unit = options.units.find((candidate) => candidate.id === pick.unitId);
+    const slot = slots.find((candidate) => candidate.startMinute === pick.startMinute);
+    const day = parseAccountingDate(pick.date);
+    if (!unit || !slot || !day) continue;
+    if (pick.date === today && slot.startMinute <= minuteNow) continue;
+
+    const price = priceFor({
+      rates: options.rates,
+      unitId: unit.id,
+      dayOfWeek: day.getUTCDay(),
+      startMinute: slot.startMinute,
+    });
+    if (!price) continue;
+
+    wanted.push({
+      key,
+      day,
+      date: pick.date,
+      unitId: unit.id,
+      unitName: unit.name,
+      startMinute: slot.startMinute,
+      label: slot.label,
+      endLabel: slot.endLabel,
+      amount: price.amount.toFixed(2),
+      rateLabel: price.label,
+    });
+  }
+  if (wanted.length === 0) return [];
+
+  const taken = await prisma.booking.findMany({
+    where: {
+      companyId: options.settings.companyId,
+      status: { not: "CANCELLED" },
+      OR: wanted.map((pick) => ({
+        unitId: pick.unitId,
+        date: pick.day,
+        startMinute: pick.startMinute,
+      })),
+    },
+    select: { unitId: true, date: true, startMinute: true, group: { select: { heldUntil: true } } },
+  });
+  const takenKeys = new Set(
+    taken
+      .filter((row) => !row.group.heldUntil || row.group.heldUntil > now)
+      .map((row) => `${isoDate(row.date)}:${row.unitId}:${row.startMinute}`),
+  );
+
+  const free = wanted.filter((pick) => !takenKeys.has(pick.key));
+  free.sort(
+    (a, b) =>
+      a.date.localeCompare(b.date) ||
+      a.startMinute - b.startMinute ||
+      a.unitName.localeCompare(b.unitName),
+  );
+  // `day` was only ever for the availability query above.
+  return free.map((pick) => ({
+    key: pick.key,
+    date: pick.date,
+    unitId: pick.unitId,
+    unitName: pick.unitName,
+    startMinute: pick.startMinute,
+    label: pick.label,
+    endLabel: pick.endLabel,
+    amount: pick.amount,
+    rateLabel: pick.rateLabel,
+  }));
+}
+
 /** One booking by its reference, for the page the booker lands on. */
 export async function bookingByReference(slug: string, reference: string) {
   const settings = await prisma.bookingSettings.findUnique({ where: { slug } });
@@ -431,7 +590,7 @@ export async function bookingByReference(slug: string, reference: string) {
   return prisma.bookingGroup.findFirst({
     where: { companyId: settings.companyId, reference: reference.trim().toUpperCase() },
     include: {
-      bookings: { include: { unit: true }, orderBy: [{ startMinute: "asc" }] },
+      bookings: { include: { unit: true }, orderBy: [{ date: "asc" }, { startMinute: "asc" }] },
       company: { select: { name: true, baseCurrency: true } },
     },
   });

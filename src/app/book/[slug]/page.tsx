@@ -2,18 +2,18 @@ import { notFound } from "next/navigation";
 import { APP_NAME, pageTitle } from "@/lib/brand";
 import {
   BOOK_MESSAGES,
-  dayGrid,
   offeredDates,
   publicVenue,
   resolvePicks,
   venueToday,
   type BookProblem,
 } from "@/lib/bookings/book";
+import { dayPayload } from "@/lib/bookings/day-payload";
 import { formatMinute } from "@/lib/bookings/slots";
 import { parseAccountingDate } from "@/lib/dates";
 import { Alert } from "@/components/ui";
 import { bookSlots } from "./actions";
-import { BookingGrid, type GridCell } from "./grid";
+import { BookingGrid } from "./grid";
 
 export const metadata = { title: pageTitle("Book") };
 
@@ -62,8 +62,6 @@ export default async function BookPage({
   const today = venueToday(zone);
   const date = query.date && dates.includes(query.date) ? query.date : dates[0];
 
-  const grid = await dayGrid({ settings, units, rates, date, timeZone: zone });
-
   // The selection, which is not confined to the day on screen: it survives
   // moving along the date strip, because picking Monday and Wednesday is one
   // arrangement and one payment. Slots taken since are dropped here, quietly,
@@ -76,20 +74,9 @@ export default async function BookPage({
     keys: Array.isArray(query.pick) ? query.pick : query.pick ? [query.pick] : [],
   });
 
-  // Decimal does not cross to the browser, and nor does anything the grid does
-  // not draw: the client gets strings it can print and a key it can send back.
-  // Keyed by day as well as unit and minute: the selection spans days now, so a
-  // key that only said "court and hour" would mean a different slot tomorrow.
-  const cells: GridCell[] = [...grid.cells.entries()].map(([key, cell]) => ({
-    key: `${date}:${key}`,
-    startMinute: cell.startMinute,
-    label: cell.label,
-    endLabel: cell.endLabel,
-    amount: cell.amount ? cell.amount.toFixed(2) : null,
-    rateLabel: cell.rateLabel,
-    unavailable: cell.unavailable,
-  }));
-
+  // The same shape the day route serves, so the first paint and every day the
+  // browser fetches afterwards are built by one piece of code.
+  const day = await dayPayload({ settings, units, rates, date, timeZone: zone });
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
@@ -125,16 +112,9 @@ export default async function BookPage({
       <BookingGrid
         action={bookSlots}
         slug={slug}
-        date={date}
         dates={dates.map((option) => ({ date: option, ...tabLabel(option, today) }))}
         currency={company.baseCurrency}
-        units={grid.units.map((unit) => ({ id: unit.id, name: unit.name }))}
-        slots={grid.slots.map((slot) => ({
-          startMinute: slot.startMinute,
-          label: slot.label,
-          endLabel: slot.endLabel,
-        }))}
-        cells={cells}
+        day={day}
         initialPicks={picked}
         unitLabel={settings.unitLabel}
         unitLabelPlural={settings.unitLabelPlural}

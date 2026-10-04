@@ -75,3 +75,29 @@ test("the date strip reaches days beyond the two weeks it shows", async ({ page 
   );
   expect(daysAhead).toBeGreaterThan(14);
 });
+
+test("changing day swaps the grid without reloading the page", async ({ page }) => {
+  await page.goto("/book/the-pickle-farm");
+
+  // A mark that only survives if the document is never replaced.
+  await page.evaluate(() => {
+    (window as unknown as { marker?: string }).marker = "same-document";
+  });
+
+  const current = await activeDay(page);
+  const next = new Date(`${current}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  const nextDay = next.toISOString().slice(0, 10);
+
+  await page.locator(`a[data-date="${nextDay}"]`).click();
+  await expect(page.locator(`a[data-date="${nextDay}"]`)).toHaveAttribute("aria-current", "date");
+
+  // The day on screen changed...
+  expect(await activeDay(page)).toBe(nextDay);
+  // ...and the URL followed, so a refresh lands on the same day...
+  await expect(page).toHaveURL(new RegExp(`date=${nextDay}`));
+  // ...but the page itself was never reloaded.
+  expect(
+    await page.evaluate(() => (window as unknown as { marker?: string }).marker),
+  ).toBe("same-document");
+});

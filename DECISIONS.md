@@ -2600,3 +2600,31 @@ has already chosen its own keeps it.
 stored rates — the browser only says which times it would like, and a selection
 that has gone stale is dropped before the form is sent rather than failing at
 the end of it.
+
+## Changing the day should not reload the page
+
+Moving along the date strip was a navigation: a click re-rendered the entire
+booking page on the server — header, strip, summary panel, form — to change the
+one table that had actually changed. On a phone, a second of nothing happening
+on the control bookers touch most.
+
+**The browser asks the one question that changed.** `/book/[slug]/day?date=…`
+answers with that day's grid and nothing else: 8 KB against the 67 KB of a full
+page render. The page swaps the table in place, so the selection, the scroll
+position and anything half-typed in the form all stay where they were.
+
+**Days either side are fetched before they are asked for**, as is any day the
+pointer rests on. Walking the strip is what people actually do, so by the time
+the click lands the answer is usually already here and nothing waits at all.
+
+**One piece of code draws a day.** `dayPayload` serves both the first paint and
+every day fetched afterwards, so the two cannot drift into disagreeing about
+what a day looks like.
+
+**The tabs are still real links.** Without JavaScript they navigate as before,
+and the click is only taken over when there is something to take it over with —
+which is also what makes "open in a new tab" keep working.
+
+**A cached day is for drawing, not for deciding.** Availability can change
+underneath it, so a slot acted on is still checked by the server when the
+booking is written; the cache only decides what is on screen.

@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { formatMoney } from "@/lib/currency";
 import { Button, Field, Input } from "@/components/ui";
 import type { bookSlots } from "./actions";
 import type { ResolvedPick } from "@/lib/bookings/book";
+import type { DayCell, DayPayload } from "@/lib/bookings/day-payload";
 
 /**
  * Picking slots, in the browser (SPEC §17).
@@ -24,23 +24,19 @@ import type { ResolvedPick } from "@/lib/bookings/book";
  *
  * The URL is still kept in step — through the history API, which updates the
  * address bar without a navigation — so a half-made selection survives a
- * refresh and can still be sent to somebody else. It is also what carries the
- * selection from one day to the next: moving along the date strip is a real
- * navigation, because only the server knows what is free on a day it has not
- * drawn yet, and the picks ride along in the query string.
+ * refresh and can still be sent to somebody else.
+ *
+ * Changing day is not a navigation either. The server is still the only thing
+ * that knows what is free on a day it has not drawn, but that is one small
+ * question, so the browser asks it directly and swaps the table: the page, the
+ * selection and the scroll position all stay where they were. Days either side
+ * are fetched before they are asked for, which is what makes the common case —
+ * stepping along the strip — feel like nothing happened at all.
+ *
+ * The tabs stay real links. Without JavaScript they navigate, as they always
+ * did; with it, the click is taken over.
  */
 
-export type GridCell = {
-  key: string;
-  /** Minutes from midnight, for ordering the summary. */
-  startMinute: number;
-  label: string;
-  endLabel: string;
-  /** The price as a plain string; the server's figure is the one that counts. */
-  amount: string | null;
-  rateLabel: string | null;
-  unavailable: "taken" | "pending" | "past" | "no-price" | null;
-};
 
 /** What a cell nobody can book says, and how it is drawn. */
 const UNAVAILABLE: Record<
@@ -73,12 +69,9 @@ const STRIP_DAYS = 14;
 export function BookingGrid({
   action,
   slug,
-  date,
   dates,
   currency,
-  units,
-  slots,
-  cells,
+  day: initialDay,
   initialPicks,
   unitLabel,
   unitLabelPlural,
@@ -86,19 +79,26 @@ export function BookingGrid({
 }: {
   action: typeof bookSlots;
   slug: string;
-  date: string;
   /** Every day on offer, in order, with its tab labels. */
   dates: { date: string; top: string; day: string; month: string }[];
   currency: string;
-  units: { id: string; name: string }[];
-  slots: { startMinute: number; label: string; endLabel: string }[];
-  cells: GridCell[];
+  /** The day the server drew; every later one is fetched. */
+  day: DayPayload;
   initialPicks: ResolvedPick[];
   unitLabel: string;
   unitLabelPlural: string;
   holdMinutes: number;
 }) {
-  const router = useRouter();
+  const [day, setDay] = useState<DayPayload>(initialDay);
+  const [loadingDay, setLoadingDay] = useState<string | null>(null);
+  // Days already fetched, kept for the length of the visit. Availability can
+  // change underneath a cached day, so anything acted on is checked again by
+  // the server when the booking is made — this only decides what is drawn.
+  const cache = useRef(new Map<string, DayPayload>([[initialDay.date, initialDay]]));
+
+  const { units, slots, cells } = day;
+  const date = day.date;
+
   // The whole selection, across every day — not just the one on screen. Each
   // entry carries what it needs to be listed, because the grid for another day
   // is not loaded and asking the server again would be a round trip per tap.
@@ -118,12 +118,70 @@ export function BookingGrid({
     0,
   );
 
-  const hrefFor = (day: string) => {
-    const params = new URLSearchParams();
-    params.set("date", day);
-    for (const pick of picked) params.append("pick", pick.key);
-    return `/book/${slug}?${params.toString()}`;
-  };
+  // Every link on the strip carries the selection, so a tab still works as a
+  // plain link — for a browser with no JavaScript, and for anyone who opens one
+  // in a new window.
+  const hrefFor = useCallback(
+    (wanted: string) => {
+      const params = new URLSearchParams();
+      params.set("date", wanted);
+      for (const pick of picked) params.append("pick", pick.key);
+      return `/book/${slug}?${params.toString()}`;
+    },
+    [picked, slug],
+  );
+
+  const fetchDay = useCallback(
+    async (wanted: string): Promise<DayPayload | null> => {
+      const held = cache.current.get(wanted);
+      if (held) return held;
+      try {
+        const response = await fetch(
+          `/book/${slug}/day?date=${encodeURIComponent(wanted)}`,
+          { headers: { accept: "application/json" } },
+        );
+        if (!response.ok) return null;
+        const payload: DayPayload = await response.json();
+        cache.current.set(payload.date, payload);
+        return payload;
+      } catch {
+        // Offline, or the request was cut off. The caller falls back to a real
+        // navigation, which is what the link would have done anyway.
+        return null;
+      }
+    },
+    [slug],
+  );
+
+  const showDay = useCallback(
+    async (wanted: string) => {
+      if (wanted === date) return;
+      const held = cache.current.get(wanted);
+      if (held) {
+        setDay(held);
+        return;
+      }
+      // Only the *pending* day is marked, so the grid on screen stays usable
+      // and the tab being waited on is the one that looks busy.
+      setLoadingDay(wanted);
+      const payload = await fetchDay(wanted);
+      setLoadingDay(null);
+      if (payload) setDay(payload);
+      else window.location.href = hrefFor(wanted);
+    },
+    [date, fetchDay, hrefFor],
+  );
+
+  useEffect(() => {
+    // The next day and the one before, fetched while nobody is waiting. Walking
+    // the strip is what people actually do, so by the time they click, the
+    // answer is already here.
+    const index = dates.findIndex((option) => option.date === date);
+    for (const step of [1, -1]) {
+      const neighbour = dates[index + step];
+      if (neighbour && !cache.current.has(neighbour.date)) void fetchDay(neighbour.date);
+    }
+  }, [date, dates, fetchDay]);
 
   useEffect(() => {
     // Keeps the address bar honest without navigating: a refresh, a bookmark or
@@ -139,7 +197,7 @@ export function BookingGrid({
     window.history.replaceState(null, "", `/book/${slug}?${params.toString()}`);
   }, [picked, date, slug]);
 
-  const toggle = (cell: GridCell, unitId: string, unitName: string) =>
+  const toggle = (cell: DayCell, unitId: string, unitName: string) =>
     setPicked((current) =>
       current.some((pick) => pick.key === cell.key)
         ? current.filter((pick) => pick.key !== cell.key)
@@ -180,6 +238,11 @@ export function BookingGrid({
         <Link
           href={hrefFor(earlier.date)}
           aria-label="A week earlier"
+          onClick={(event) => {
+            event.preventDefault();
+            void showDay(earlier.date);
+          }}
+          onMouseEnter={() => void fetchDay(earlier.date)}
           className="rounded-lg border border-slate-200 px-2 py-4 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300"
         >
           ‹
@@ -195,10 +258,22 @@ export function BookingGrid({
                 href={hrefFor(option.date)}
                 data-date={option.date}
                 aria-current={active ? "date" : undefined}
+                aria-busy={loadingDay === option.date || undefined}
+                // Taken over when there is JavaScript; a real link without it.
+                onClick={(event) => {
+                  event.preventDefault();
+                  void showDay(option.date);
+                }}
+                // Asked for on the way to the click. By the time the finger
+                // lands, most of the time the answer is already here.
+                onMouseEnter={() => void fetchDay(option.date)}
+                onFocus={() => void fetchDay(option.date)}
                 className={`relative flex min-w-[4.5rem] shrink-0 flex-col items-center rounded-lg border px-3 py-2 text-center transition-colors ${
                   active
                     ? "border-brand-600 bg-brand-600 text-white"
-                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    : loadingDay === option.date
+                      ? "border-brand-400 bg-brand-50 text-brand-700 dark:border-brand-700 dark:bg-slate-800 dark:text-brand-300"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                 }`}
               >
                 <span className="text-[10px] font-semibold uppercase tracking-wide opacity-80">
@@ -225,6 +300,11 @@ export function BookingGrid({
         <Link
           href={hrefFor(later.date)}
           aria-label="A week later"
+          onClick={(event) => {
+            event.preventDefault();
+            void showDay(later.date);
+          }}
+          onMouseEnter={() => void fetchDay(later.date)}
           className="rounded-lg border border-slate-200 px-2 py-4 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300"
         >
           ›
@@ -240,7 +320,7 @@ export function BookingGrid({
             max={dates[dates.length - 1]?.date}
             onChange={(event) => {
               const wanted = event.target.value;
-              if (dates.some((option) => option.date === wanted)) router.push(hrefFor(wanted));
+              if (dates.some((option) => option.date === wanted)) void showDay(wanted);
             }}
             className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
           />
@@ -249,7 +329,12 @@ export function BookingGrid({
 
     <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
       {/* ---- The grid ---------------------------------------------------- */}
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div
+        aria-busy={loadingDay !== null || undefined}
+        className={`overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-opacity dark:border-slate-800 dark:bg-slate-900 ${
+          loadingDay ? "opacity-60" : ""
+        }`}
+      >
         {units.length === 0 ? (
           <p className="text-sm text-slate-500">
             This venue has not set up its {unitLabelPlural.toLowerCase()} yet.

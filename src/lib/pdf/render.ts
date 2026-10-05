@@ -1,11 +1,10 @@
 import { createElement, type ReactElement } from "react";
-import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
+import type { DocumentProps } from "@react-pdf/renderer";
 import { prisma } from "@/lib/db";
 import { storage, storageKeys, withStorage } from "@/lib/storage";
 import { formatMoney } from "@/lib/currency";
 import { formatAccountingDate } from "@/lib/dates";
 import { money } from "@/lib/money";
-import { DocumentPdf } from "./document";
 import type { BrandingData, DocumentPdfData } from "./types";
 
 /**
@@ -56,7 +55,20 @@ export async function brandingFor(companyId: string): Promise<BrandingData> {
   };
 }
 
+/**
+ * Loaded when a PDF is actually wanted, not when the module is first touched.
+ *
+ * `@react-pdf/renderer` is a renderer, a font subsetter and a layout engine,
+ * and evaluating it costs most of a second. It used to be pulled in by anything
+ * that could send an email — which, through the booking confirmations, meant
+ * the Bookings screen paid for it on every cold start without ever rendering a
+ * page of anything.
+ */
 async function render(branding: BrandingData, data: DocumentPdfData): Promise<Buffer> {
+  const [{ renderToBuffer }, { DocumentPdf }] = await Promise.all([
+    import("@react-pdf/renderer"),
+    import("./document"),
+  ]);
   // react-pdf types renderToBuffer as taking a <Document> element directly,
   // though it renders any tree that produces one. The cast is the whole cost
   // of keeping the template a normal component.

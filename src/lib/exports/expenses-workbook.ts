@@ -1,4 +1,3 @@
-import ExcelJS from "exceljs";
 import { APP_NAME } from "@/lib/brand";
 import { money } from "@/lib/money";
 import { safeExternalUrl } from "@/lib/links";
@@ -29,6 +28,7 @@ export async function buildExpensesWorkbook(options: {
   rows: ExpenseRow[];
 }): Promise<Buffer> {
   const isBill = options.kind === "BILL";
+  const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = APP_NAME;
   workbook.created = new Date();

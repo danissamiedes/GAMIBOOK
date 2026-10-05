@@ -1,6 +1,5 @@
 import type { EmailTemplateKind } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { cachedPdf } from "@/lib/pdf/render";
 import { formatMoney } from "@/lib/currency";
 import { formatAccountingDate } from "@/lib/dates";
 import { buildMimeMessage, toGmailRaw, type Attachment } from "./mime";
@@ -164,6 +163,7 @@ export async function prepareInvoiceEmail(options: {
   });
   const company = await prisma.company.findUniqueOrThrow({ where: { id: options.companyId } });
   const template = await templateFor(options.companyId, options.kind ?? "INVOICE");
+  const { cachedPdf } = await import("@/lib/pdf/render");
   const pdf = await cachedPdf(options.companyId, "invoice", invoice.id, { force: true });
 
   const values: Record<string, string> = {
@@ -214,6 +214,7 @@ export async function prepareWorkOrderEmail(options: {
   });
   const company = await prisma.company.findUniqueOrThrow({ where: { id: options.companyId } });
   const template = await templateFor(options.companyId, "WORK_ORDER");
+  const { cachedPdf } = await import("@/lib/pdf/render");
   const pdf = await cachedPdf(options.companyId, "work-order", workOrder.id, { force: true });
   const recipients = workOrderRecipients(workOrder.vendor);
 
@@ -249,6 +250,7 @@ export async function preparePaymentReceiptEmail(options: {
   });
   const company = await prisma.company.findUniqueOrThrow({ where: { id: options.companyId } });
   const template = await templateFor(options.companyId, "PAYMENT_RECEIPT");
+  const { cachedPdf } = await import("@/lib/pdf/render");
   const pdf = await cachedPdf(options.companyId, "receipt", payment.id, { force: true });
 
   const values: Record<string, string> = {

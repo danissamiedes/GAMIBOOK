@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/db";
 import { PostingError } from "@/lib/errors";
 import { writeAudit } from "@/lib/audit";
-import { cachedPdf } from "@/lib/pdf/render";
 import { formatMoney } from "@/lib/currency";
 import { formatAccountingDate } from "@/lib/dates";
 import { money, sum } from "@/lib/money";
@@ -173,6 +172,9 @@ async function composeMessage(options: {
 
   const attachments: Attachment[] = [];
   if (options.withAttachments) {
+    // Loaded here rather than at the top of the file: the renderer is heavy,
+    // and a batch raised without attachments must not pay for it.
+    const { cachedPdf } = await import("@/lib/pdf/render");
     for (const workOrder of workOrders) {
       // Rendered at send time from the current document, never from a stale
       // cache (SPEC §10.1).

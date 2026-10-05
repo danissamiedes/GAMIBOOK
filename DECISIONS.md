@@ -2628,3 +2628,31 @@ which is also what makes "open in a new tab" keep working.
 **A cached day is for drawing, not for deciding.** Availability can change
 underneath it, so a slot acted on is still checked by the server when the
 booking is written; the cache only decides what is on screen.
+
+## Two reasons a page took seconds to open
+
+**Nothing in the header was ever fetched before it was clicked.** Next prefetches
+links it can see, and a link inside a closed dropdown is not one — so the first
+request for every page in this app was made at the instant somebody clicked it.
+Reaching a group now warms its pages: hovering, focusing or touching the group
+button fetches all of them, once each per visit. That is the earliest honest
+signal that one of them is wanted, and it buys the width of the menu plus
+however long it takes to read it. Measured on a production build: the new page's
+frame appears in 70–90 ms instead of after the whole round trip.
+
+**Two heavy libraries were being loaded by screens that never used them.**
+`@react-pdf/renderer` is a renderer, a font subsetter and a layout engine;
+`exceljs` is a zip writer, an XML parser and a spreadsheet model. Both were
+imported at the top of modules that other things import for unrelated reasons —
+the booking confirmation email pulled in the PDF renderer, so the Bookings
+screen paid to evaluate it on every cold start without ever rendering a page of
+anything; the Banking screen did the same with ExcelJS. Both are now loaded
+where a document is actually produced. The server chunks came down from 55 MB to
+50 MB, and the routes that never make a PDF or a spreadsheet no longer evaluate
+the code that does.
+
+Neither of these is the whole story on a serverless host: a function that has
+gone cold still has to start, connect and warm its query engine before it can
+answer at all. That is a platform setting rather than a line of code, and it is
+worth looking at next if pages still stall after a few minutes of not being
+used.

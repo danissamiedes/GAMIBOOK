@@ -1,4 +1,4 @@
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 import { APP_NAME } from "@/lib/brand";
 import { formatAccountingDate } from "@/lib/dates";
 import { money } from "@/lib/money";
@@ -46,6 +46,7 @@ export async function buildAccountWorkbook(options: {
   closing: string;
   rows: AccountLedgerRow[];
 }): Promise<Buffer> {
+  const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = APP_NAME;
   workbook.created = new Date();

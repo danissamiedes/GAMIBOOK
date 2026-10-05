@@ -1,4 +1,4 @@
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 import { mapHeaders, type ColumnKey } from "./columns";
 
 /**
@@ -96,6 +96,7 @@ export async function readWorkbook(options: {
     );
   }
 
+  const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
   const isCsv = options.fileName.toLowerCase().endsWith(".csv");
 

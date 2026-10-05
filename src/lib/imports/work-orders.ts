@@ -1,7 +1,6 @@
 import { APP_NAME } from "@/lib/brand";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
-import ExcelJS from "exceljs";
 import { prisma } from "@/lib/db";
 import { storage, storageKeys } from "@/lib/storage";
 import { writeAudit } from "@/lib/audit";
@@ -321,6 +320,7 @@ export async function buildTemplateWorkbook(options: {
   consultants: { name: string; externalRef: string | null }[];
   accounts: { code: string; name: string }[];
 }): Promise<Buffer> {
+  const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = APP_NAME;
 
@@ -381,6 +381,7 @@ export async function buildRejectWorkbook(companyId: string, batchId: string): P
     include: { rows: { where: { status: { in: ["ERROR", "SKIPPED"] } }, orderBy: { rowNumber: "asc" } } },
   });
 
+  const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Rejected rows");
 

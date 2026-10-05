@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useId, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 export type NavItem = { href: string; label: string };
 /** A group with no items is a plain link — Dashboard is the only one. */
@@ -21,6 +21,22 @@ export type NavGroup = { label: string; href?: string; items: NavItem[] };
  */
 export function NavMenu({ groups }: { groups: NavGroup[] }) {
   const pathname = usePathname();
+  const router = useRouter();
+  // Fetched once each, for the length of the visit. Next's own prefetching
+  // only sees links that are on screen, and a link inside a closed menu is not
+  // — so every destination in this header was fetched for the first time at the
+  // moment it was clicked, which is the wait this removes.
+  const prefetched = useRef(new Set<string>());
+  const warm = useCallback(
+    (hrefs: string[]) => {
+      for (const href of hrefs) {
+        if (prefetched.current.has(href)) continue;
+        prefetched.current.add(href);
+        router.prefetch(href);
+      }
+    },
+    [router],
+  );
   // The open group is remembered with the path it was opened on, so navigating
   // closes it by derivation rather than by an effect that fires after the new
   // page has already painted with the menu still over it.
@@ -62,7 +78,12 @@ export function NavMenu({ groups }: { groups: NavGroup[] }) {
     <nav ref={navRef} className="flex flex-1 flex-wrap items-center gap-1">
       {groups.map((group) =>
         group.items.length === 0 && group.href ? (
-          <NavAnchor key={group.label} href={group.href} current={currentHref === group.href}>
+          <NavAnchor
+            key={group.label}
+            href={group.href}
+            current={currentHref === group.href}
+            onWarm={() => warm([group.href!])}
+          >
             {group.label}
           </NavAnchor>
         ) : (
@@ -73,6 +94,10 @@ export function NavMenu({ groups }: { groups: NavGroup[] }) {
             open={open === group.label}
             onToggle={() => setOpen(open === group.label ? null : group.label)}
             onClose={() => setOpen(null)}
+            // Reaching the group is the earliest honest signal that one of its
+            // pages is wanted, and it buys the width of the menu plus however
+            // long it takes to read it.
+            onWarm={() => warm(group.items.map((item) => item.href))}
           />
         ),
       )}
@@ -93,12 +118,14 @@ function NavDropdown({
   open,
   onToggle,
   onClose,
+  onWarm,
 }: {
   group: NavGroup;
   currentHref: string | undefined;
   open: boolean;
   onToggle: () => void;
   onClose: () => void;
+  onWarm: () => void;
 }) {
   const panelId = useId();
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -113,6 +140,9 @@ function NavDropdown({
         aria-haspopup="true"
         aria-controls={panelId}
         onClick={onToggle}
+        onMouseEnter={onWarm}
+        onFocus={onWarm}
+        onTouchStart={onWarm}
         onKeyDown={(event) => {
           if (event.key === "Escape" && open) {
             event.preventDefault();
@@ -166,15 +196,19 @@ function NavAnchor({
   href,
   current,
   children,
+  onWarm,
 }: {
   href: string;
   current: boolean;
   children: React.ReactNode;
+  onWarm?: () => void;
 }) {
   return (
     <Link
       href={href}
       aria-current={current ? "page" : undefined}
+      onMouseEnter={onWarm}
+      onFocus={onWarm}
       className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
         current
           ? "font-medium text-brand-700 dark:text-brand-400"

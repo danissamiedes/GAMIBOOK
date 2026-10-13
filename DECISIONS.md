@@ -2656,3 +2656,30 @@ gone cold still has to start, connect and warm its query engine before it can
 answer at all. That is a platform setting rather than a line of code, and it is
 worth looking at next if pages still stall after a few minutes of not being
 used.
+
+## Being findable
+
+The site had no sitemap, no robots file, no canonical URLs and no structured
+data, and its fallback description was the product's internal one-liner —
+"Small-business accounting with consultant time tracking", written for whoever
+was reading the repository rather than for anyone deciding whether to hire.
+
+**Private by default.** `robots.txt` is `Disallow: /` with a short allow-list,
+not a blocklist of app screens. A blocklist needs editing every time a screen is
+added, and the day somebody forgets is the day `/invoices` turns up in a search
+result. `/_next/` stays allowed, because a crawler that cannot fetch the CSS
+judges the page as unstyled soup.
+
+**The gate was blocking the files that matter.** `/robots.txt`, `/sitemap.xml`
+and the social image all answered with a redirect to `/login`, because the
+middleware treats anything unlisted as private. A crawler reads that as a site
+with no sitemap, and a shared link shows no image. Both failures are silent,
+which is exactly why they survive.
+
+**The practice is marked up as `ProfessionalService`, not `LocalBusiness`.** The
+work is remote, so there is no shopfront to give an address for, and inventing
+one is a lie a search engine is entitled to act on.
+
+**The testimonials are deliberately not marked up.** Reviews a business
+publishes about itself are not eligible for review rich results; tagging them as
+though they were earns a penalty rather than a star rating.

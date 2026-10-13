@@ -39,6 +39,13 @@ const PUBLIC_PREFIXES = [
   "/api/health",
   "/_next",
   "/favicon.ico",
+  // The files search engines and link previews fetch before anything else.
+  // Behind the gate they answered with a redirect to /login, which is a
+  // crawler being told the site has no sitemap and a shared link showing no
+  // image — both silent, and both fatal to the thing they exist for.
+  "/robots.txt",
+  "/sitemap.xml",
+  "/og.png",
 ];
 
 /** The only routes a CONSULTANT may reach. */

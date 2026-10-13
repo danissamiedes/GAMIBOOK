@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { organizationJsonLd } from "@/lib/seo";
 import {
   CONTACT_DETAILS,
   CONTACT_EMAIL,
@@ -188,6 +189,15 @@ function UpworkCard({ item }: { item: UpworkReview }) {
 export function Landing() {
   return (
     <div className="bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      {/* What the practice is, as data rather than as prose a crawler has to
+          infer it from. Rendered on the server, so it is in the HTML a search
+          engine fetches rather than something it has to run JavaScript to see. */}
+      <script
+        type="application/ld+json"
+        // The value is built from our own content file, not from anything a
+        // request supplies, so there is nothing here for a stranger to inject.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd()) }}
+      />
       {/* ---- Navigation ---------------------------------------------- */}
       <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
         <nav className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3.5">

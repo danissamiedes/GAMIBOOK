@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Button, Input, Select } from "@/components/ui";
 import { LINE_GRID_HINT, useLineGrid } from "@/components/line-grid";
+import { RowMover } from "@/components/row-mover";
 
 type AccountOption = { id: string; code: string; name: string };
 type ItemOption = {
@@ -57,7 +58,7 @@ export function DocumentLineEditor({
   const [lines, setLines] = useState<Line[]>(
     initialLines && initialLines.length > 0 ? initialLines : [blank()],
   );
-  const { gridProps, addRow, removeRow } = useLineGrid({
+  const { gridProps, addRow, removeRow, moveRow } = useLineGrid({
     setLines,
     blank,
     minLines: 1,
@@ -183,11 +184,13 @@ export function DocumentLineEditor({
                     ))}
                   </Select>
                 </td>
-                <td className="py-1 text-right">
+                <td className="py-1 text-right whitespace-nowrap">
+                  <RowMover index={index} count={lines.length} onMove={moveRow} />
                   {lines.length > 1 ? (
                     <Button
                       type="button"
                       variant="ghost"
+                      aria-label={`Remove line ${index + 1}`}
                       onClick={() => removeRow(index)}
                     >
                       ×

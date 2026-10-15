@@ -2683,3 +2683,29 @@ one is a lie a search engine is entitled to act on.
 **The testimonials are deliberately not marked up.** Reviews a business
 publishes about itself are not eligible for review rich results; tagging them as
 though they were earns a penalty rather than a star rating.
+
+## Lines can be moved
+
+The order of lines on a document is information — a work order reads by date, an
+invoice groups charges the way the customer thinks about them — and the rows
+arrive in whatever order a spreadsheet import or a day's typing produced. Until
+now the only way to move one was to retype four, which is the kind of work
+people stop doing, and then the document reads wrongly forever.
+
+**Two ways to do the same thing, on purpose.** Alt+↑/↓ moves the row under the
+cursor and is the fast way; the small arrows on each row are the discoverable
+way. A shortcut nobody has been told about is not a feature, and a bookkeeper on
+a trackpad should not have to know it exists.
+
+**The cursor travels with the row.** Moving a line while mid-edit and landing
+somewhere else defeats the point, so the same column keeps focus in the row's
+new position.
+
+**The arrows are skipped by Tab and disabled at the ends.** Tab through a
+document walks the fields; stopping twice a row at a control with a keyboard
+shortcut of its own would slow down the thing the line editor exists to be fast
+at. Disabled rather than hidden, so the column does not jump as rows move.
+
+**Nothing changed on the server.** Lines are written with `lineNumber` from
+their position in the submitted form and read back in that order, so the order
+on screen is already the order that is stored.

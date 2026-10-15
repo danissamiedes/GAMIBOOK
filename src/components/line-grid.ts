@@ -44,6 +44,25 @@ export function useLineGrid<T>(options: {
       ),
     ).filter((field) => !field.disabled);
 
+  /**
+   * Put the cursor back where it was, one row along.
+   *
+   * Moving a row with the keyboard and losing your place in it defeats the
+   * point: the typist is mid-edit, and the whole value of Alt+Arrow is that
+   * they do not have to find the field again.
+   */
+  const focusCell = useCallback(
+    (rowIndex: number, column: number) => {
+      const row = rows()[rowIndex];
+      if (!row) return;
+      const fields = fieldsIn(row);
+      const field = fields[Math.min(Math.max(column, 0), fields.length - 1)];
+      field?.focus();
+      if (field instanceof HTMLInputElement) field.select();
+    },
+    [rows],
+  );
+
   const focusRow = useCallback(
     (index: number, position: "first" | "last" = "first") => {
       const row = rows()[index];
@@ -84,6 +103,45 @@ export function useLineGrid<T>(options: {
     [focusRow, minLines, setLines],
   );
 
+  /**
+   * Reorder, because the order of lines on a document is information.
+   *
+   * A work order listing shifts by date, an invoice grouping charges the way
+   * the customer thinks about them — and the rows arrive in whatever order a
+   * spreadsheet import or a day's typing produced. Rebuilding four rows to move
+   * one is the kind of work people stop doing, and then the document reads
+   * wrongly forever.
+   *
+   * Out-of-range targets are ignored rather than clamped: the caller asking to
+   * move the top row up has nothing to do, and silently moving something else
+   * would be worse than nothing.
+   */
+  const moveRow = useCallback(
+    (from: number, to: number) => {
+      // Where the cursor is now, so it can travel with the row.
+      const active = document.activeElement;
+      const row = rows()[from];
+      const column =
+        active && row?.contains(active)
+          ? fieldsIn(row).indexOf(active as HTMLInputElement | HTMLSelectElement)
+          : -1;
+
+      let moved = false;
+      flushSync(() => {
+        setLines((current) => {
+          if (from === to || to < 0 || to >= current.length) return current;
+          moved = true;
+          const next = [...current];
+          const [line] = next.splice(from, 1);
+          next.splice(to, 0, line);
+          return next;
+        });
+      });
+      if (moved && column >= 0) focusCell(to, column);
+    },
+    [focusCell, rows, setLines],
+  );
+
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
@@ -106,6 +164,14 @@ export function useLineGrid<T>(options: {
         return;
       }
 
+      // Alt+Arrow moves the row itself. Plain arrows still move the cursor
+      // inside a field, which is what anyone typing a number expects.
+      if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        event.preventDefault();
+        moveRow(index, event.key === "ArrowUp" ? index - 1 : index + 1);
+        return;
+      }
+
       if (event.key === "Enter") {
         // Without this, Enter submits the document halfway through typing its
         // lines — the most expensive keystroke on the screen.
@@ -123,11 +189,11 @@ export function useLineGrid<T>(options: {
         }
       }
     },
-    [addRow, focusRow, removeRow, rows],
+    [addRow, focusRow, moveRow, removeRow, rows],
   );
 
-  return { gridProps: { ref: gridRef, onKeyDown }, addRow, removeRow };
+  return { gridProps: { ref: gridRef, onKeyDown }, addRow, removeRow, moveRow };
 }
 
 export const LINE_GRID_HINT =
-  "Tab from the last field adds a line · Enter moves down · Ctrl/⌘ + Backspace removes a line";
+  "Tab from the last field adds a line · Enter moves down · Alt + ↑/↓ moves a line · Ctrl/⌘ + Backspace removes a line";

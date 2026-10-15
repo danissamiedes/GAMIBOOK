@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Button, Input, Select } from "@/components/ui";
 import { LINE_GRID_HINT, useLineGrid } from "@/components/line-grid";
+import { RowMover } from "@/components/row-mover";
 
 type AccountOption = { id: string; code: string; name: string };
 
@@ -24,7 +25,7 @@ const EMPTY: Line = { accountId: "", description: "", debit: "", credit: "" };
 export function JournalLineEditor({ accounts }: { accounts: AccountOption[] }) {
   const [lines, setLines] = useState<Line[]>([{ ...EMPTY }, { ...EMPTY }]);
   // Two lines is the floor: an entry with one line cannot balance (SPEC §4.2).
-  const { gridProps, addRow, removeRow } = useLineGrid({
+  const { gridProps, addRow, removeRow, moveRow } = useLineGrid({
     setLines,
     blank: () => ({ ...EMPTY }),
     minLines: 2,
@@ -115,11 +116,13 @@ export function JournalLineEditor({ accounts }: { accounts: AccountOption[] }) {
                     }
                   />
                 </td>
-                <td className="py-1 text-right">
+                <td className="py-1 text-right whitespace-nowrap">
+                  <RowMover index={index} count={lines.length} onMove={moveRow} />
                   {lines.length > 2 ? (
                     <Button
                       type="button"
                       variant="ghost"
+                      aria-label={`Remove line ${index + 1}`}
                       onClick={() => removeRow(index)}
                     >
                       ×

@@ -274,6 +274,79 @@ describe("committing the import (SPEC §8.3)", () => {
     await expect(commitExpenseChunk(options)).rejects.toThrow(/already been imported/);
   });
 
+  it("stops on the clock, not on a row count, and picks up where it stopped", async () => {
+    const cash = fixture.code("1010");
+    const staged = await stageExpenseImport({
+      companyId: fixture.company.id,
+      fileName: "KASAGAMI 2025.xlsx",
+      bytes: await workbook(REAL_ROWS),
+    });
+    const options = {
+      companyId: fixture.company.id,
+      batchId: staged.batchId,
+      accountMap: await mapping(),
+      paymentAccountId: cash.id,
+      createVendors: true,
+      // No time at all: one row goes, and the request hands back rather than
+      // running until the host kills it.
+      budgetMs: 0,
+    };
+
+    const one = await commitExpenseChunk(options);
+    expect(one).toMatchObject({ imported: 1, remaining: 4, done: false });
+
+    let guard = 0;
+    let progress = one;
+    while (!progress.done && guard++ < 10) progress = await commitExpenseChunk(options);
+    expect(progress.done).toBe(true);
+    expect(await prisma.expense.count({ where: { companyId: fixture.company.id } })).toBe(5);
+  });
+
+  it("writes a refusal on the row rather than meeting it again every chunk", async () => {
+    const cash = fixture.code("1010");
+    // The books are closed over the whole sheet, and an import carries no
+    // owner's authority, so every row is refused by the ledger.
+    await prisma.company.update({
+      where: { id: fixture.company.id },
+      data: { booksClosedThrough: new Date("2025-12-31") },
+    });
+    const staged = await stageExpenseImport({
+      companyId: fixture.company.id,
+      fileName: "KASAGAMI 2025.xlsx",
+      bytes: await workbook(REAL_ROWS.slice(0, 2)),
+    });
+    const options = {
+      companyId: fixture.company.id,
+      batchId: staged.batchId,
+      accountMap: await mapping(),
+      paymentAccountId: cash.id,
+      createVendors: true,
+    };
+
+    const first = await commitExpenseChunk({ ...options, limit: 1 });
+    expect(first.imported).toBe(0);
+    expect(first.failed[0].message).toMatch(/books are closed/);
+
+    // The second call moves on to the next row instead of failing at the
+    // first one all over again.
+    const second = await commitExpenseChunk({ ...options, limit: 1 });
+    expect(second.failed.map((row) => row.rowNumber)).toEqual([3]);
+    expect(second.done).toBe(true);
+
+    const rows = await prisma.importRow.findMany({
+      where: { importBatchId: staged.batchId },
+      orderBy: { rowNumber: "asc" },
+    });
+    expect(rows.every((row) => row.status === "ERROR")).toBe(true);
+    expect(JSON.stringify(rows[0].issues)).toContain("postingFailed");
+
+    const batch = await prisma.importBatch.findUniqueOrThrow({ where: { id: staged.batchId } });
+    expect(batch.status).toBe("COMMITTED");
+    expect(batch.createdCount).toBe(0);
+    expect(batch.skippedCount).toBe(2);
+    expect(await prisma.expense.count({ where: { companyId: fixture.company.id } })).toBe(0);
+  });
+
   it("leaves the payee off rather than inventing a vendor when told not to", async () => {
     const cash = fixture.code("1010");
     const staged = await stageExpenseImport({

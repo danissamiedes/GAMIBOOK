@@ -409,12 +409,38 @@ export async function stageExpenseImport(options: {
 /** How many rows one commit request will attempt before handing back. */
 export const COMMIT_CHUNK = 60;
 
+/**
+ * How long one request keeps posting before handing back, whatever it has
+ * reached by then.
+ *
+ * A row costs a handful of round trips, and how long those take depends on
+ * the distance to the database and what else it is doing — so a fixed number
+ * of rows per request is a guess that is wrong on a bad day, and being wrong
+ * means the host kills the function mid-file (FUNCTION_INVOCATION_TIMEOUT).
+ * Counting the clock instead cannot be wrong: the request stops with time to
+ * spare and the next one carries on from the same place.
+ */
+export const COMMIT_BUDGET_MS = 45_000;
+
 export type CommitProgress = {
   imported: number;
   remaining: number;
   failed: { rowNumber: number; message: string }[];
   done: boolean;
 };
+
+/** A row the ledger refused once; it is not attempted again. */
+const POSTING_FAILED = "postingFailed";
+
+function hasPostingFailure(issues: unknown): boolean {
+  return (
+    Array.isArray(issues) &&
+    issues.some(
+      (issue) =>
+        typeof issue === "object" && issue !== null && (issue as { code?: string }).code === POSTING_FAILED,
+    )
+  );
+}
 
 /**
  * Post a chunk of the batch, and say what is left.
@@ -440,7 +466,11 @@ export async function commitExpenseChunk(options: {
   dateFormat?: "MDY" | "DMY" | "ISO";
   userId?: string | null;
   limit?: number;
+  /** Stop and hand back after this long. Zero means one row and no more. */
+  budgetMs?: number;
 }): Promise<CommitProgress> {
+  const startedAt = Date.now();
+  const budgetMs = options.budgetMs ?? COMMIT_BUDGET_MS;
   const batch = await prisma.importBatch.findFirst({
     where: { id: options.batchId, companyId: options.companyId, kind: "EXPENSE" },
     include: { rows: { orderBy: { rowNumber: "asc" } } },
@@ -461,8 +491,12 @@ export async function commitExpenseChunk(options: {
   });
   if (!paymentAccount) throw new PostingError("Choose the account the money came out of");
 
-  // Rows that have not been imported yet, oldest first.
-  const pending = batch.rows.filter((row) => row.status !== "IMPORTED");
+  // Rows that have not been imported yet, oldest first. A row the ledger has
+  // already refused is left out: retrying it at the head of every chunk would
+  // spend the whole budget failing in the same way.
+  const pending = batch.rows.filter(
+    (row) => row.status !== "IMPORTED" && !hasPostingFailure(row.issues),
+  );
   const validation = await validateExpenseRows({
     companyId: options.companyId,
     rows: pending.map((row) => ({
@@ -477,42 +511,52 @@ export async function commitExpenseChunk(options: {
   const ready = validation.rows.filter((row) => row.planned);
   const slice = ready.slice(0, options.limit ?? COMMIT_CHUNK);
 
-  // Vendors first, outside the per-row work: a payee appears on dozens of rows
-  // and must become one vendor, not dozens.
+  // A payee appears on dozens of rows and must become one vendor, not dozens,
+  // so each name is looked up once and kept. It happens as the rows are
+  // reached rather than up front, so the clock below covers it too.
   const vendorIds = new Map<string, string>();
-  if (options.createVendors) {
-    for (const row of slice) {
-      const name = row.planned?.vendorName;
-      if (!name || row.planned?.vendorId || vendorIds.has(normaliseName(name))) continue;
-      const existing = await prisma.vendor.findFirst({
-        where: { companyId: options.companyId, kind: "REGULAR", name },
+  const vendorFor = async (name: string): Promise<string | null> => {
+    const key = normaliseName(name);
+    const known = vendorIds.get(key);
+    if (known) return known;
+    const existing = await prisma.vendor.findFirst({
+      where: { companyId: options.companyId, kind: "REGULAR", name },
+      select: { id: true },
+    });
+    const vendor =
+      existing ??
+      (await prisma.vendor.create({
+        // The sheet gives a name and nothing else, which is all a vendor
+        // needs here; the rest is filled in when somebody has a reason to.
+        data: {
+          companyId: options.companyId,
+          kind: "REGULAR",
+          name,
+          defaultCurrency: currency,
+        },
         select: { id: true },
-      });
-      const vendor =
-        existing ??
-        (await prisma.vendor.create({
-          // The sheet gives a name and nothing else, which is all a vendor
-          // needs here; the rest is filled in when somebody has a reason to.
-          data: {
-            companyId: options.companyId,
-            kind: "REGULAR",
-            name,
-            defaultCurrency: currency,
-          },
-          select: { id: true },
-        }));
-      vendorIds.set(normaliseName(name), vendor.id);
-    }
-  }
+      }));
+    vendorIds.set(key, vendor.id);
+    return vendor.id;
+  };
 
   const failed: CommitProgress["failed"] = [];
   let imported = 0;
 
+  let attempted = 0;
+
   for (const row of slice) {
+    // Always do one row, so a budget of nothing still makes progress and the
+    // import cannot stall; after that, stop while there is time left to
+    // answer. The caller comes straight back for the next chunk.
+    if (attempted > 0 && Date.now() - startedAt >= budgetMs) break;
+    attempted += 1;
+
     const planned = row.planned!;
-    const vendorId =
-      planned.vendorId ??
-      (planned.vendorName ? (vendorIds.get(normaliseName(planned.vendorName)) ?? null) : null);
+    let vendorId = planned.vendorId;
+    if (!vendorId && planned.vendorName && options.createVendors) {
+      vendorId = await vendorFor(planned.vendorName);
+    }
 
     try {
       const { expense } = await recordExpense({
@@ -537,14 +581,25 @@ export async function commitExpenseChunk(options: {
       });
       imported += 1;
     } catch (error) {
-      failed.push({
-        rowNumber: row.rowNumber,
-        message: error instanceof Error ? error.message : String(error),
+      const message = error instanceof Error ? error.message : String(error);
+      failed.push({ rowNumber: row.rowNumber, message });
+      // Written down on the row, both so the rejects file can say why and so
+      // the next chunk does not spend its budget on a row that will refuse
+      // again for the same reason.
+      await prisma.importRow.updateMany({
+        where: { importBatchId: batch.id, rowNumber: row.rowNumber },
+        data: {
+          status: "ERROR",
+          issues: [
+            ...row.issues,
+            { column: "amount", message, severity: "error", code: POSTING_FAILED },
+          ] as unknown as Prisma.InputJsonValue,
+        },
       });
     }
   }
 
-  const remaining = Math.max(0, ready.length - slice.length);
+  const remaining = Math.max(0, ready.length - attempted);
   const done = remaining === 0;
 
   if (done) {

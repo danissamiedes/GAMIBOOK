@@ -6,6 +6,32 @@ import { Alert, Button, Field, Select } from "@/components/ui";
 
 type AccountOption = { id: string; code: string; name: string };
 type Category = { category: string; rowCount: number; accountId: string | null };
+type CommitProgress = {
+  imported: number;
+  remaining: number;
+  failed: { rowNumber: number; message: string }[];
+  done: boolean;
+};
+
+/** The server's own no — not worth asking twice. */
+class Refused extends Error {}
+
+/**
+ * What to show when the answer was not ours.
+ *
+ * A host that kills a function answers with its own page, and a wall of HTML
+ * in a red box tells a reader nothing. The status is what matters.
+ */
+function readableError(body: string, status: number): string {
+  const text = body.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  if (status === 504 || /TIMEOUT/i.test(text)) {
+    return "That batch of rows took too long and the server cut it off";
+  }
+  if (!text || text.length > 200 || /^<|<!doctype/i.test(body.trim())) {
+    return `The server answered ${status}`;
+  }
+  return text;
+}
 
 /**
  * Mapping the sheet's categories, and running the commit (SPEC §8.3).
@@ -59,34 +85,64 @@ export function CommitPanel({
   const [remaining, setRemaining] = useState<number | null>(null);
   const [failed, setFailed] = useState<{ rowNumber: number; message: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(0);
+  const [stalled, setStalled] = useState(false);
   const [done, setDone] = useState(false);
 
   const unmapped = categories.filter((entry) => !map[entry.category]);
   const ready = unmapped.length === 0 && paymentAccountId !== "" && importableCount > 0;
 
-  const run = async () => {
-    setRunning(true);
-    setError(null);
-    setFailed([]);
-    let total = 0;
-    try {
-      // Keep asking for another chunk until the server says it is finished.
-      for (;;) {
+  /**
+   * One chunk, retried if the request itself fails.
+   *
+   * A chunk can die for reasons that have nothing to do with the file: the
+   * host killing a function that ran long, a phone changing network, a
+   * gateway hiccup. None of that undoes what posted — rows are marked as they
+   * go — so the right answer is to ask again rather than to stop a job that
+   * is half done and make somebody work out where it got to.
+   */
+  const chunk = async (): Promise<CommitProgress> => {
+    let lastMessage = "The server could not be reached";
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) {
+        setRetrying(attempt);
+        await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+      }
+      try {
         const response = await fetch(`/expenses/import/${batchId}/commit`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ accountMap: map, paymentAccountId, createVendors }),
         });
-        if (!response.ok) {
-          setError(await response.text());
-          break;
+        if (response.ok) {
+          setRetrying(0);
+          return (await response.json()) as CommitProgress;
         }
-        const progress: {
-          imported: number;
-          remaining: number;
-          failed: { rowNumber: number; message: string }[];
-          done: boolean;
-        } = await response.json();
+        const message = readableError(await response.text(), response.status);
+        // A refusal is the server's answer and asking again will not change
+        // it; anything else is the plumbing, and worth another go.
+        if (response.status < 500) throw new Refused(message);
+        lastMessage = message;
+      } catch (caught) {
+        if (caught instanceof Refused) throw caught;
+        lastMessage = caught instanceof Error ? caught.message : String(caught);
+      }
+    }
+    throw new Error(`${lastMessage} — nothing was lost; press Resume to carry on.`);
+  };
+
+  const run = async () => {
+    setRunning(true);
+    setError(null);
+    setStalled(false);
+    setFailed([]);
+    // Resuming continues the count rather than starting it again: what is
+    // recorded is recorded, whatever happened to the connection.
+    let total = imported;
+    try {
+      // Keep asking for another chunk until the server says it is finished.
+      for (;;) {
+        const progress = await chunk();
 
         total += progress.imported;
         setImported(total);
@@ -94,16 +150,19 @@ export function CommitPanel({
         if (progress.failed.length > 0) {
           setFailed((current) => [...current, ...progress.failed]);
         }
-        // A chunk that imported nothing and has rows left would loop forever.
-        if (progress.done || progress.imported === 0) {
+        // A chunk that neither imported nor refused a row made no progress at
+        // all, and asking again would loop forever.
+        if (progress.done || (progress.imported === 0 && progress.failed.length === 0)) {
           setDone(progress.done);
           break;
         }
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
+      setStalled(true);
     } finally {
       setRunning(false);
+      setRetrying(0);
       router.refresh();
     }
   };
@@ -187,7 +246,15 @@ export function CommitPanel({
         </label>
       ) : null}
 
-      {error ? <Alert tone="error">{error}</Alert> : null}
+      {error ? (
+        <Alert tone="error">
+          <strong className="block">{error}</strong>
+          <span className="mt-1 block text-sm">
+            {imported > 0 ? `${imported} expenses are already recorded and will not be imported twice. ` : ""}
+            Press Resume to carry on from where it stopped.
+          </span>
+        </Alert>
+      ) : null}
 
       {failed.length > 0 ? (
         <Alert tone="warning">
@@ -208,8 +275,12 @@ export function CommitPanel({
       <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
         <Button type="button" onClick={run} disabled={!ready || running}>
           {running
-            ? `Importing… ${imported} done${remaining !== null ? `, ${remaining} to go` : ""}`
-            : `Import ${importableCount} expense${importableCount === 1 ? "" : "s"} · ${currency} ${total}`}
+            ? retrying > 0
+              ? `Interrupted — trying again (${retrying} of 3)`
+              : `Importing… ${imported} done${remaining !== null ? `, ${remaining} to go` : ""}`
+            : stalled
+              ? `Resume — ${remaining ?? 0} still to import`
+              : `Import ${importableCount} expense${importableCount === 1 ? "" : "s"} · ${currency} ${total}`}
         </Button>
         {!ready && !running ? (
           <span className="text-xs text-slate-500">

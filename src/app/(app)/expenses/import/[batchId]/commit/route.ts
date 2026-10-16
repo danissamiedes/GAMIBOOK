@@ -16,7 +16,21 @@ import { PostingError } from "@/lib/errors";
  * found rather than refused.
  */
 export const dynamic = "force-dynamic";
+/**
+ * Sixty seconds is what every Vercel plan allows a function without further
+ * configuration. Raise it here if the project is on a plan that permits more
+ * (Fluid compute allows several minutes) — the budget below follows, and
+ * nothing else needs changing.
+ */
 export const maxDuration = 60;
+
+/**
+ * The function stops posting with time in hand, so it answers rather than
+ * being killed. A killed request loses nothing — every row is marked as it
+ * posts — but it costs the browser a round trip and shows the reader an
+ * error, which is a poor way to spend a minute.
+ */
+const BUDGET_MS = (maxDuration - 15) * 1000;
 
 export async function POST(
   request: Request,
@@ -46,6 +60,7 @@ export async function POST(
       createVendors: body.createVendors !== false,
       dateFormat: body.dateFormat,
       userId: scope.userId,
+      budgetMs: BUDGET_MS,
     });
     return Response.json(progress);
   } catch (error) {

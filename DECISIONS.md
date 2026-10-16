@@ -2765,3 +2765,36 @@ be wrong, and silently taking it twice worse.
 nothing else until somebody presses the button, and every posting goes through
 `recordExpense` — the same path the manual form uses — so the ledger cannot
 tell an imported expense from a typed one.
+
+## An import that cannot be killed by a clock
+
+The first real file — 483 rows of KASAGAMI's year — stopped with
+`FUNCTION_INVOCATION_TIMEOUT`. Sixty rows a request was a guess at how much
+work fits in a minute, and a guess about other people's hardware is wrong
+eventually.
+
+**The chunk stops on the clock, not on a row count.** A request posts until
+its budget is spent (fifteen seconds short of the function's limit, derived
+from `maxDuration` so raising one raises the other) and hands back whatever it
+reached. It always does at least one row, so no budget can stall the import.
+Timing cannot be wrong the way a row count can: a slow day means fewer rows
+this request, not a killed one.
+
+**A killed request was never a lost one, and now it is not a stopped one
+either.** Rows are marked as they post, so the only cost of a dead request is
+the round trip. The browser now retries a chunk up to three times, with the
+host's own timeout page translated into a sentence rather than printed as
+HTML, and the button becomes "Resume" if it eventually gives up. Nothing is
+imported twice — the server skips rows already done.
+
+**A row the ledger refuses is written down on the row.** Previously a refusal
+— a closed period, most often — left the row untouched, so every later chunk
+met it again at the head of the queue and spent its budget failing in the same
+way. The reason is now stored against the row, which both keeps the chunk
+moving and puts the real cause in the rejects file.
+
+**Rows are posted one at a time on purpose.** Journal numbering allocates
+through a per-company lock, so posting in parallel would queue on that lock
+anyway while making a failure far harder to reason about. The way to make the
+import faster is to shorten the distance between the function and the
+database, not to run more of it at once.

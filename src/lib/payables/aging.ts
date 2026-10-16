@@ -7,7 +7,7 @@ import { toBase } from "@/lib/ledger/fx";
 import { openPayablesAsOf } from "@/lib/reports/as-of";
 
 /**
- * A/P aging (SPEC §12.6) — per vendor, and filterable by kind so the
+ * A/P aging (SPEC §18) — per vendor, and filterable by kind so the
  * consultant side and the regular-vendor side read separately. A user holding
  * only VENDORS sees the regular-vendor rows and nothing else (SPEC §2.1).
  *

@@ -2798,3 +2798,56 @@ through a per-company lock, so posting in parallel would queue on that lock
 anyway while making a failure far harder to reason about. The way to make the
 import faster is to shorten the distance between the function and the
 database, not to run more of it at once.
+
+## Postings move by being answered, not by being edited
+
+Miscoding is the commonest thing to fix in these books, and fixing it one
+document at a time is why it does not get fixed. The screen is bulk — filter
+an account and a period, tick the rows, name the account they belong in — but
+what it does underneath is single file, and deliberately plain.
+
+**No line is ever edited.** A reclassification posts a new balanced entry for
+each line: the destination takes the amount on the same side the original had
+it, the source gives it back on the other. A credit sitting in an expense
+account moves as a credit. The original stays exactly where it was written,
+which is what keeps a signed trial balance true and what lets the correction
+be read as a correction rather than discovered as a discrepancy.
+
+**One entry per line, dated to that line.** A July error fixed in October
+belongs in July, the same rule `amendPosting` already follows. The cost is a
+batch of 200 producing 200 entries rather than one summary entry — which is
+the right cost: a summary entry cannot be traced back to the posting it
+answers, and tracing is the whole point. A single date for the whole batch is
+offered, and recorded as a choice that was made.
+
+**A closed period stops everything, not just the closed rows.** Posting the
+open half of a selection and silently dropping the rest leaves somebody
+believing a correction is done when half of it is not. An owner can still post
+through, because that gate is theirs to open (SPEC §4.2 rule 4).
+
+**Control accounts are refused.** A/R, A/P and retained earnings reconcile
+against documents and the year's close; a hand-moved line out of one breaks
+that silently. The error says to correct the document instead.
+
+**Reconciled lines are refused, and say so in place.** Moving cash that has
+been ticked on a signed statement would make the reconciliation claim to
+balance while no longer doing so (SPEC §8.4a rule 3). The row still appears in
+the list, greyed, with the statement date on it — a row that simply vanished
+would leave somebody hunting for it.
+
+**"A posting is in one place at a time" is a unique index.** `activeSourceLineId`
+holds the line's id while the move stands and is cleared on reversal. A
+double-clicked button, or two tabs racing, loses on the index rather than on
+our checking — and clearing it is what allows a line to be moved again after a
+reversal, which is exactly what somebody does when the first destination was
+also wrong.
+
+**The confirmation step is not politeness.** The button does not post: it
+produces a summary — how many, out of where, into where, dated how, why — and
+that summary carries the button that posts. Everything on this screen is a
+hundred postings against months that have already been reported on.
+
+**Documents keep their own account.** An imported expense still says Supplies
+even after its posting moved to Fuel. Editing it as well would mean the thing
+that is signed and filed no longer matches what was signed and filed; the
+ledger is where the meaning lives, and the ledger is right.

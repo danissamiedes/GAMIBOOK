@@ -584,7 +584,7 @@ describe("expenses (SPEC §8.2)", () => {
   });
 });
 
-describe("A/P aging (SPEC §12.6)", () => {
+describe("A/P aging (SPEC §18)", () => {
   let fixture: Fixture;
 
   beforeEach(async () => {

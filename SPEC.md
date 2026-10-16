@@ -1381,3 +1381,49 @@ the first's work rather than opening a rival copy. Its statement date and
 closing balance stay editable while it is open — a mistyped closing balance is
 the commonest reason a difference will not close.
 
+
+## 18. Reclassifying postings
+
+A posting in the wrong account is the commonest correction in these books: a
+bookkeeper codes three months of fuel to Repairs and finds out in March. The
+correction is needed by the hundred, and the one thing it must not be is an
+edit — a posted line is immutable (§4.2 rule 3), and rewriting its account
+would change a month somebody has already reported on, with no trace that
+anything moved.
+
+So a reclassification is a posting of its own. For each line selected, a
+balanced entry takes the amount out of the account it is in and puts it in the
+account it belongs to, **on the same side as the original**: a credit moves as
+a credit. The original line is never touched; the two are joined by a record
+of who moved it, when, and why.
+
+Rules:
+
+1. **Each entry is dated to the line it corrects**, so a July error fixed in
+   October lands in July and neither month is left wrong. A single date for
+   the whole batch is offered for the cases where an accountant wants the
+   correction to show in the current period, and is recorded as a deliberate
+   choice.
+2. **A closed period refuses the whole batch**, not the lines that fall in it.
+   An owner may post through it, as they may through any closed-period gate
+   (§4.2 rule 4); for anyone else, nothing posts until the selection changes
+   or the period reopens.
+3. **The ledger's own accounts are out of bounds.** A/R, A/P and retained
+   earnings are built from documents and the year's close; a line moved out of
+   one by hand breaks the thing that reconciles them. Correct the document.
+4. **A reconciled line cannot be moved.** It has been ticked off against a
+   statement somebody signed (§8.4a rule 3); reopen the reconciliation first.
+5. **A posting is in one place at a time.** A line already moved cannot be
+   moved again until its reclassification is reversed — enforced by a unique
+   index, so a double-clicked button posts one batch, not two.
+6. **Reversal, never deletion.** A reclassification is undone by reversing
+   every entry it posted, each dated to the entry it reverses. The record of
+   the move stays, now marked reversed, and the original lines are free to be
+   moved somewhere else.
+7. **The documents are not rewritten.** An expense whose posting has been
+   reclassified still names the account it was booked to; the ledger, the
+   trial balance and every report show the corrected one. The document is what
+   happened, the ledger is what it means.
+
+The whole batch runs in one database transaction: half a correction is worse
+than none, because nobody can tell which half.

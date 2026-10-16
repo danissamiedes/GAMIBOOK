@@ -130,6 +130,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         scope.hasSection("REPORTS") && { href: "/reports/balance-sheet", label: "Balance Sheet" },
         scope.hasSection("REPORTS") && { href: "/reports/trial-balance", label: "Trial Balance" },
         scope.hasSection("REPORTS") && { href: "/reports/general-ledger", label: "General Ledger" },
+        // Correcting the coding is reporting work: it is done by whoever
+        // reads the accounts, not by whoever typed the document (SPEC §18).
+        scope.hasSection("REPORTS") && { href: "/reclassify", label: "Reclassify" },
       ]),
     },
     {

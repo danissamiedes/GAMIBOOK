@@ -27,7 +27,7 @@ const INLINE_DOCUMENTS = 5;
 const FOCUSED_DOCUMENTS = 200;
 
 /**
- * A/P aging (SPEC §12.6). Which kinds a viewer may see is decided by their
+ * A/P aging (SPEC §18). Which kinds a viewer may see is decided by their
  * sections, not by a dropdown: a VENDORS-only user gets the regular-vendor
  * rows and cannot widen the filter (SPEC §2.1).
  */

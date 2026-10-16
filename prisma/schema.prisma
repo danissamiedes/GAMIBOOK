@@ -65,6 +65,8 @@ enum AccountSubtype {
 /// SPEC §4.2, extended with MIGRATION by SPEC §4.4.
 enum JournalSourceType {
   MANUAL
+  /// A line moved from one account to another (SPEC §18).
+  RECLASSIFICATION
   INVOICE
   INVOICE_PAYMENT
   WORK_ORDER
@@ -386,6 +388,7 @@ model Company {
   receiptUploads            ReceiptUpload[]
   tasks                     Task[]
   partyNotes                PartyNote[]
+  reclassifications         Reclassification[]
 
   @@index([organizationId])
 }
@@ -407,16 +410,18 @@ model User {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  memberships    Membership[]
-  invitesSent    Invitation[]         @relation("InvitedBy")
-  resetTokens    PasswordResetToken[]
-  auditLogs      AuditLog[]
-  vendors        Vendor[]
-  receiptUploads ReceiptUpload[]
-  tasksAssigned  Task[]               @relation("TaskAssignee")
-  tasksCreated   Task[]               @relation("TaskCreator")
-  bookingGroups  BookingGroup[]
-  partyNotes     PartyNote[]          @relation("PartyNoteAuthor")
+  memberships     Membership[]
+  invitesSent     Invitation[]         @relation("InvitedBy")
+  resetTokens     PasswordResetToken[]
+  auditLogs       AuditLog[]
+  vendors         Vendor[]
+  receiptUploads  ReceiptUpload[]
+  tasksAssigned   Task[]               @relation("TaskAssignee")
+  tasksCreated    Task[]               @relation("TaskCreator")
+  bookingGroups   BookingGroup[]
+  partyNotes      PartyNote[]          @relation("PartyNoteAuthor")
+  reclassified    Reclassification[]   @relation("ReclassificationCreatedBy")
+  reclassReversed Reclassification[]   @relation("ReclassificationReversedBy")
 }
 
 model Membership {
@@ -526,7 +531,7 @@ model Account {
   /// (SPEC §8.3). "Materials" in a client's sheet is this company's 5100; the
   /// mapping is chosen once in an import preview and kept here, so the next
   /// upload of the same sheet needs no mapping at all.
-  importAliases String[]
+  importAliases String[]       @default([])
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -538,6 +543,8 @@ model Account {
 
   recurringBillExpenseFor RecurringBillTemplate[] @relation("RecurringBillExpenseAccount")
   recurringBillPaymentFor RecurringBillTemplate[] @relation("RecurringBillPaymentAccount")
+  reclassifiedFrom        Reclassification[]      @relation("ReclassificationFrom")
+  reclassifiedTo          Reclassification[]      @relation("ReclassificationTo")
 
   @@unique([companyId, code])
   @@unique([companyId, systemKey])
@@ -562,9 +569,12 @@ model JournalEntry {
   reversedBy        JournalEntry? @relation("Reversal", fields: [reversedByEntryId], references: [id])
   reverses          JournalEntry? @relation("Reversal")
 
-  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  lines            JournalLine[]
-  bankTransactions BankTransaction[]
+  company                Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines                  JournalLine[]
+  bankTransactions       BankTransaction[]
+  /// SPEC §18: this entry moved a line, or moved one back.
+  reclassificationLines  ReclassificationLine[] @relation("ReclassificationEntry")
+  reclassificationUndoes ReclassificationLine[] @relation("ReclassificationReversalEntry")
 
   @@unique([companyId, entryNumber])
   @@index([companyId, date])
@@ -593,12 +603,14 @@ model JournalLine {
   fxRate        Decimal? @db.Decimal(18, 8)
   foreignAmount Decimal? @db.Decimal(18, 2)
 
-  entry      JournalEntry            @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
-  account    Account                 @relation(fields: [accountId], references: [id])
-  customer   Customer?               @relation(fields: [customerId], references: [id])
-  vendor     Vendor?                 @relation(fields: [vendorId], references: [id])
+  entry          JournalEntry            @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account        Account                 @relation(fields: [accountId], references: [id])
+  customer       Customer?               @relation(fields: [customerId], references: [id])
+  vendor         Vendor?                 @relation(fields: [vendorId], references: [id])
   /// Set once this line has been ticked on a bank statement (SPEC §8.4a).
-  reconciled BankReconciliationLine?
+  reconciled     BankReconciliationLine?
+  /// Every time this line has been moved to another account (SPEC §18).
+  reclassifiedBy ReclassificationLine[]
 
   @@unique([journalEntryId, lineNumber])
   @@index([accountId])
@@ -823,7 +835,7 @@ model Vendor {
   sendEmails    Boolean  @default(true)
   /// How a spreadsheet naming people by name alone is matched (SPEC §8.3).
   externalRef   String?
-  importAliases String[]
+  importAliases String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2054,4 +2066,67 @@ model Booking {
   @@index([companyId, date])
   @@index([groupId])
   @@index([unitId, date, startMinute])
+}
+
+/// SPEC §18. One act of moving postings from one account to another.
+///
+/// Nothing here changes what was posted: the original lines stay where they
+/// were written, and each one is answered by a new balanced entry that takes
+/// the amount out of the wrong account and puts it in the right one. This row
+/// is the record of who decided that, when, and why.
+model Reclassification {
+  id               String    @id @default(cuid())
+  companyId        String
+  fromAccountId    String
+  toAccountId      String
+  /// Why it was moved. Shown on the entries and kept for the auditor.
+  reason           String?
+  /// Set only when the whole batch was posted on one date instead of each
+  /// line's own date, which is what the form does by default.
+  postedOnDate     DateTime? @db.Date
+  createdByUserId  String?
+  createdAt        DateTime  @default(now())
+  /// Set when every entry in the batch has been reversed.
+  reversedAt       DateTime?
+  reversedByUserId String?
+
+  company     Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fromAccount Account                @relation("ReclassificationFrom", fields: [fromAccountId], references: [id])
+  toAccount   Account                @relation("ReclassificationTo", fields: [toAccountId], references: [id])
+  createdBy   User?                  @relation("ReclassificationCreatedBy", fields: [createdByUserId], references: [id])
+  reversedBy  User?                  @relation("ReclassificationReversedBy", fields: [reversedByUserId], references: [id])
+  lines       ReclassificationLine[]
+
+  @@index([companyId, createdAt])
+}
+
+/// One original posting and the entry that moved it (SPEC §18).
+model ReclassificationLine {
+  id                  String  @id @default(cuid())
+  reclassificationId  String
+  /// The posting that was moved. Never altered — only pointed at.
+  sourceJournalLineId String
+  /// The same id while the move stands, and null once it has been reversed.
+  ///
+  /// A unique column is how "a posting is in one place at a time" becomes a
+  /// rule the database keeps rather than one the application hopes for: a
+  /// double-clicked button, or two requests racing on the same line, lose on
+  /// the index. Clearing it on reversal is what lets a line be moved again
+  /// afterwards — which is exactly what somebody does when they reversed
+  /// because the target account was wrong.
+  activeSourceLineId  String? @unique
+  /// The entry that moved it, and the one that moved it back.
+  journalEntryId      String
+  reversalEntryId     String?
+  /// What was moved, in base currency, as it stood on the original line.
+  debit               Decimal @default(0) @db.Decimal(18, 2)
+  credit              Decimal @default(0) @db.Decimal(18, 2)
+
+  reclassification  Reclassification @relation(fields: [reclassificationId], references: [id], onDelete: Cascade)
+  sourceJournalLine JournalLine      @relation(fields: [sourceJournalLineId], references: [id])
+  journalEntry      JournalEntry     @relation("ReclassificationEntry", fields: [journalEntryId], references: [id])
+  reversalEntry     JournalEntry?    @relation("ReclassificationReversalEntry", fields: [reversalEntryId], references: [id])
+
+  @@index([reclassificationId])
+  @@index([sourceJournalLineId])
 }

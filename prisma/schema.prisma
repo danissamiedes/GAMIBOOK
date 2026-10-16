@@ -125,6 +125,7 @@ enum ImportBatchKind {
   WORK_ORDER
   BANK
   MIGRATION
+  EXPENSE
 }
 
 /// SPEC §8.3. Upload never writes documents directly: rows are staged,
@@ -507,22 +508,27 @@ model AuditLog {
 
 /// Chart of accounts (SPEC §4.1). Per company — nothing is shared.
 model Account {
-  id          String         @id @default(cuid())
-  companyId   String
-  code        String
-  name        String
-  type        AccountType
-  subtype     AccountSubtype
-  parentId    String?
+  id            String         @id @default(cuid())
+  companyId     String
+  code          String
+  name          String
+  type          AccountType
+  subtype       AccountSubtype
+  parentId      String?
   /// Soft-disable. An account with postings is never hard-deleted (SPEC §13).
-  isActive    Boolean        @default(true)
+  isActive      Boolean        @default(true)
   /// The app posts to these automatically; they cannot be deleted or retyped.
-  isSystem    Boolean        @default(false)
+  isSystem      Boolean        @default(false)
   /// Set on system accounts so code can find them without matching on name.
-  systemKey   String?
-  description String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  systemKey     String?
+  description   String?
+  /// How a spreadsheet naming an account by a category of its own is matched
+  /// (SPEC §8.3). "Materials" in a client's sheet is this company's 5100; the
+  /// mapping is chosen once in an import preview and kept here, so the next
+  /// upload of the same sheet needs no mapping at all.
+  importAliases String[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   parent       Account?      @relation("AccountTree", fields: [parentId], references: [id])
@@ -1209,8 +1215,10 @@ model ImportRow {
   status        ImportRowStatus @default(VALID)
   /// [{ column, message, severity }]
   issues        Json?
-  /// Which document this row ended up on, once committed.
+  /// Which document this row ended up on, once committed. A row makes one or
+  /// the other, never both: which one depends on the batch's kind.
   workOrderId   String?
+  expenseId     String?
 
   batch ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
 

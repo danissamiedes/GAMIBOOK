@@ -2719,3 +2719,49 @@ thing the line editor exists to be fast at.
 **Nothing changed on the server.** Lines are written with `lineNumber` from
 their position in the submitted form and read back in that order, so the order
 on screen is already the order that is stored.
+
+## A month of a client's spreadsheet, imported in one upload
+
+Clients keep their expenses in their own workbook long before they keep them
+here: a KASAGAMI sheet arrives as MONTH | DATE | NUM | NAME | DESCRIPTION |
+AMOUNT | ACCOUNT | LINK TO FILE, five hundred rows to a year. Retyping that is
+the work people pay to avoid, so the sheet is read as it is.
+
+**The sheet's words are not this company's accounts.** "Materials", "Tools &
+Equipments" and "Labor" are the client's vocabulary; the chart of accounts is
+ours. The preview exists for exactly that gap — each distinct category is
+listed once, mapped once, and the answer is remembered on the account
+(`Account.importAliases`), so next month's sheet maps itself.
+
+**A category nobody has mapped yet is a question, not a fault.** The first
+version counted an unmapped category as a broken row, which made the preview
+open at "Import 0 expenses · PHP 0.00" with the button disabled and no way to
+tell a sheet that needs mapping from a sheet that is wrong. Rows now count
+towards what is about to import, and towards the file's total, while that is
+all that stands in their way; only a missing date, an unreadable amount or a
+missing payee reads as red.
+
+**MONTH is not imported.** It restates the date, and a column that duplicates
+another is a column that will one day disagree with it.
+
+**One payment account for the file.** The sheet does not say what each row was
+paid from, so the preview asks once and every row posts as paid — `DIRECT`,
+status `PAID` — out of that account. Inventing a per-row answer would be
+guessing at other people's money.
+
+**Committed in chunks of sixty, from the browser.** Five hundred postings do
+not fit in the sixty seconds a serverless function is given. Each call takes a
+chunk, marks the rows it imported and reports what is left; the page keeps
+asking until it is finished and shows how far it has got. Rows already imported
+are skipped, so a reload, a dropped connection or a second press continues
+rather than duplicating.
+
+**The same file twice is warned about, not blocked.** The upload is hashed and
+a previous committed batch with the same hash is named on the preview. A client
+re-sending July with three rows added is ordinary; refusing it outright would
+be wrong, and silently taking it twice worse.
+
+**Nothing is recorded by uploading.** The staged rows are an `ImportBatch` and
+nothing else until somebody presses the button, and every posting goes through
+`recordExpense` — the same path the manual form uses — so the ledger cannot
+tell an imported expense from a typed one.

@@ -378,7 +378,10 @@ export default async function ExpensesPage({
         <a href="/expenses?tab=bill">
           <Button variant={tab === "bill" ? "primary" : "secondary"}>Bills</Button>
         </a>
-        <a href={`/expenses/export?tab=${tab}`} className="ml-auto">
+        <Link href="/expenses/import" className="ml-auto">
+          <Button variant="secondary">Import from spreadsheet</Button>
+        </Link>
+        <a href={`/expenses/export?tab=${tab}`}>
           <Button variant="secondary">Export to Excel</Button>
         </a>
       </div>

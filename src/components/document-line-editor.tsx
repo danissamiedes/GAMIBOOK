@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Button, Input, Select } from "@/components/ui";
 import { LINE_GRID_HINT, useLineGrid } from "@/components/line-grid";
-import { RowMover } from "@/components/row-mover";
+import { RowGrip } from "@/components/row-grip";
 
 type AccountOption = { id: string; code: string; name: string };
 type ItemOption = {
@@ -58,7 +58,7 @@ export function DocumentLineEditor({
   const [lines, setLines] = useState<Line[]>(
     initialLines && initialLines.length > 0 ? initialLines : [blank()],
   );
-  const { gridProps, addRow, removeRow, moveRow } = useLineGrid({
+  const { gridProps, addRow, removeRow, dragHandleProps, draggingIndex } = useLineGrid({
     setLines,
     blank,
     minLines: 1,
@@ -116,7 +116,14 @@ export function DocumentLineEditor({
           </thead>
           <tbody>
             {lines.map((line, index) => (
-              <tr key={index}>
+              <tr
+                key={index}
+                className={
+                  draggingIndex === index
+                    ? "bg-brand-50 shadow-sm dark:bg-slate-800/70"
+                    : undefined
+                }
+              >
                 {items.length > 0 ? (
                   <td className="py-1 pr-2">
                     <Select
@@ -185,7 +192,12 @@ export function DocumentLineEditor({
                   </Select>
                 </td>
                 <td className="py-1 text-right whitespace-nowrap">
-                  <RowMover index={index} count={lines.length} onMove={moveRow} />
+                  <RowGrip
+                    index={index}
+                    count={lines.length}
+                    dragging={draggingIndex === index}
+                    handleProps={dragHandleProps(index)}
+                  />
                   {lines.length > 1 ? (
                     <Button
                       type="button"

@@ -31,7 +31,7 @@ test.describe("invoice line editor keyboard", () => {
     await expect(page.locator('[name="line-1-description"]')).toBeFocused();
   });
 
-  test("rows can be reordered with the buttons and with the keyboard", async ({
+  test("rows can be dragged into a new order, and moved with the keyboard", async ({
     page,
   }) => {
     // Three lines, so a move has somewhere to go in both directions.
@@ -44,24 +44,35 @@ test.describe("invoice line editor keyboard", () => {
     await page.locator('[name="line-2-description"]').fill("Third");
     await expect(rows(page)).toHaveCount(3);
 
-    // The button: the first row moves down past the second.
-    await page.getByRole("button", { name: "Move line 1 down" }).click();
+    // ---- Drag the first row to the bottom -----------------------------
+    const grip = page.getByRole("button", { name: /reorder line 1/i });
+    const target = rows(page).nth(2);
+    // At phone width the table scrolls sideways and the grip starts off
+    // screen, where a synthetic pointer would land on nothing.
+    await grip.scrollIntoViewIfNeeded();
+    const from = (await grip.boundingBox())!;
+    const to = (await target.boundingBox())!;
+
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    // Moved in steps: the row reorders as the pointer passes each midpoint,
+    // and one jump would skip the rows in between.
+    await page.mouse.move(from.x + from.width / 2, to.y + to.height / 2, { steps: 12 });
+    await page.mouse.up();
+
     await expect(page.locator('[name="line-0-description"]')).toHaveValue("Second");
-    await expect(page.locator('[name="line-1-description"]')).toHaveValue("First");
-
-    // The keyboard: the typist is mid-edit and keeps their place in the row.
-    const third = page.locator('[name="line-2-description"]');
-    await third.click();
-    await third.press("Alt+ArrowUp");
     await expect(page.locator('[name="line-1-description"]')).toHaveValue("Third");
-    await expect(page.locator('[name="line-1-description"]')).toBeFocused();
+    await expect(page.locator('[name="line-2-description"]')).toHaveValue("First");
 
-    // Nothing may run off the ends.
-    await expect(page.getByRole("button", { name: "Move line 1 up" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Move line 3 down" })).toBeDisabled();
+    // ---- And the keyboard still moves a row, keeping its place ---------
+    const second = page.locator('[name="line-1-description"]');
+    await second.click();
+    await second.press("Alt+ArrowUp");
+    await expect(page.locator('[name="line-0-description"]')).toHaveValue("Third");
+    await expect(page.locator('[name="line-0-description"]')).toBeFocused();
 
     // The order on screen is the order the form will send.
-    await expect(page.locator('[name="line-0-description"]')).toHaveValue("Second");
+    await expect(page.locator('[name="line-1-description"]')).toHaveValue("Second");
     await expect(page.locator('[name="line-2-description"]')).toHaveValue("First");
   });
 

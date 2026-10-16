@@ -2692,19 +2692,29 @@ arrive in whatever order a spreadsheet import or a day's typing produced. Until
 now the only way to move one was to retype four, which is the kind of work
 people stop doing, and then the document reads wrongly forever.
 
-**Two ways to do the same thing, on purpose.** Alt+↑/↓ moves the row under the
-cursor and is the fast way; the small arrows on each row are the discoverable
-way. A shortcut nobody has been told about is not a feature, and a bookkeeper on
-a trackpad should not have to know it exists.
+**Two ways to do the same thing, on purpose.** A row is dragged by its grip, and
+Alt+↑/↓ moves the row under the cursor. The drag is what people reach for; the
+shortcut is faster for anyone already typing, and it is the one that works with
+no pointer at all.
+
+**Pointer events, not HTML5 drag-and-drop.** The HTML5 API does not fire on a
+touchscreen, and its drag image of a table row is a ghost of one cell. Dragging
+here reorders as the pointer passes each row's midpoint, so what is on screen
+during the drag is the result and there is nothing to interpret when the finger
+lifts.
+
+**Only the grip starts a drag.** These rows are full of text fields, and a row
+that moved when somebody tried to select a word in it would be unusable. The
+grip also carries `touch-action: none`, without which a drag on a phone scrolls
+the page instead of moving the row.
 
 **The cursor travels with the row.** Moving a line while mid-edit and landing
 somewhere else defeats the point, so the same column keeps focus in the row's
 new position.
 
-**The arrows are skipped by Tab and disabled at the ends.** Tab through a
-document walks the fields; stopping twice a row at a control with a keyboard
-shortcut of its own would slow down the thing the line editor exists to be fast
-at. Disabled rather than hidden, so the column does not jump as rows move.
+**The grip is skipped by Tab.** Tab through a document walks the fields;
+stopping at a control with a keyboard shortcut of its own would slow down the
+thing the line editor exists to be fast at.
 
 **Nothing changed on the server.** Lines are written with `lineNumber` from
 their position in the submitted form and read back in that order, so the order

@@ -3,8 +3,10 @@
 import {
   useCallback,
   useRef,
+  useState,
   type Dispatch,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from "react";
 import { flushSync } from "react-dom";
@@ -142,6 +144,70 @@ export function useLineGrid<T>(options: {
     [focusCell, rows, setLines],
   );
 
+  /**
+   * Dragging a row by its handle (SPEC §8.1).
+   *
+   * Pointer events rather than HTML5 drag-and-drop, for two reasons: the HTML5
+   * API does not fire at all on a touchscreen, and its drag image of a table
+   * row is a ghost of one cell. This reorders as the pointer passes each row's
+   * midpoint, so what is on screen during the drag is the result, and there is
+   * nothing to interpret when the finger lifts.
+   *
+   * Only the handle starts a drag. A row full of text fields that moves when
+   * you try to select a word in it would be unusable.
+   */
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const dragFrom = useRef<number | null>(null);
+
+  /** Which row the pointer is over, by the rows' own positions on screen. */
+  const rowAt = useCallback(
+    (clientY: number) => {
+      const all = rows();
+      for (let index = 0; index < all.length; index++) {
+        const box = all[index].getBoundingClientRect();
+        // The midpoint, so a row swaps when the pointer is more than half way
+        // into it rather than the instant it touches the edge.
+        if (clientY < box.top + box.height / 2) return index;
+      }
+      return all.length - 1;
+    },
+    [rows],
+  );
+
+  const dragHandleProps = useCallback(
+    (index: number) => ({
+      onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+        if (event.button !== 0 && event.pointerType === "mouse") return;
+        // Keeps the gesture on the handle even when the pointer runs off it,
+        // and stops a touch drag scrolling the page instead.
+        event.preventDefault();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        dragFrom.current = index;
+        setDraggingIndex(index);
+      },
+      onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+        if (dragFrom.current === null) return;
+        const to = rowAt(event.clientY);
+        if (to === dragFrom.current) return;
+        moveRow(dragFrom.current, to);
+        dragFrom.current = to;
+        setDraggingIndex(to);
+      },
+      onPointerUp: (event: ReactPointerEvent<HTMLElement>) => {
+        event.currentTarget.releasePointerCapture?.(event.pointerId);
+        dragFrom.current = null;
+        setDraggingIndex(null);
+      },
+      onPointerCancel: () => {
+        dragFrom.current = null;
+        setDraggingIndex(null);
+      },
+    }),
+    // moveRow is defined above; referenced here rather than inlined so the
+    // keyboard and the pointer do the same thing to the same state.
+    [moveRow, rowAt],
+  );
+
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement;
@@ -192,8 +258,15 @@ export function useLineGrid<T>(options: {
     [addRow, focusRow, moveRow, removeRow, rows],
   );
 
-  return { gridProps: { ref: gridRef, onKeyDown }, addRow, removeRow, moveRow };
+  return {
+    gridProps: { ref: gridRef, onKeyDown },
+    addRow,
+    removeRow,
+    moveRow,
+    dragHandleProps,
+    draggingIndex,
+  };
 }
 
 export const LINE_GRID_HINT =
-  "Tab from the last field adds a line · Enter moves down · Alt + ↑/↓ moves a line · Ctrl/⌘ + Backspace removes a line";
+  "Drag ⠿ to reorder, or Alt + ↑/↓ · Tab from the last field adds a line · Enter moves down · Ctrl/⌘ + Backspace removes a line";

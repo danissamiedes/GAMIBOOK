@@ -5,7 +5,7 @@ import { pageTitle } from "@/lib/brand";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { PostingError } from "@/lib/errors";
-import { findReclassifiableLines, reclassifyLines, LINE_LIMIT } from "@/lib/ledger/reclassify";
+import { findReclassifiableLines, planReclassification, LINE_LIMIT } from "@/lib/ledger/reclassify";
 import {
   fiscalYearStart,
   formatAccountingDate,
@@ -40,7 +40,6 @@ type Params = {
   reference?: string;
   description?: string;
   error?: string;
-  moved?: string;
 };
 
 /**
@@ -111,8 +110,12 @@ export default async function ReclassifyPage({
       ...(params.description ? { description: params.description } : {}),
     });
 
+    // Planning settles every question and reserves the lines; the posting
+    // itself happens on the batch's own page, a chunk at a time, because a
+    // few hundred entries fit in neither one transaction nor one request.
+    let plannedId: string;
     try {
-      const result = await reclassifyLines({
+      const planned = await planReclassification({
         companyId: inner.companyId,
         fromAccountId,
         toAccountId,
@@ -122,8 +125,7 @@ export default async function ReclassifyPage({
         userId: inner.userId,
         role: inner.role,
       });
-      back.set("moved", String(result.movedCount));
-      redirect(`/reclassify?${back.toString()}`);
+      plannedId = planned.reclassificationId;
     } catch (thrown) {
       if (thrown instanceof PostingError) {
         back.set("error", thrown.message);
@@ -131,6 +133,7 @@ export default async function ReclassifyPage({
       }
       throw thrown;
     }
+    redirect(`/reclassify/${plannedId}?run=1&back=${encodeURIComponent(back.toString())}`);
   }
 
   return (
@@ -146,16 +149,6 @@ export default async function ReclassifyPage({
       </div>
 
       {params.error ? <Alert tone="error">{params.error}</Alert> : null}
-      {params.moved ? (
-        <Alert tone="success">
-          {params.moved} {Number(params.moved) === 1 ? "transaction" : "transactions"} reclassified.
-          The entries are posted — see the{" "}
-          <Link href="/reclassify/history" className="underline">
-            history
-          </Link>{" "}
-          to review or reverse them.
-        </Alert>
-      ) : null}
 
       <Card className="my-4">
         <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

@@ -2851,3 +2851,34 @@ hundred postings against months that have already been reported on.
 even after its posting moved to Fuel. Editing it as well would mean the thing
 that is signed and filed no longer matches what was signed and filed; the
 ledger is where the meaning lives, and the ledger is right.
+
+
+### Revised: the batch is decided whole, then posted in pieces
+
+The first version put the whole batch in one transaction, on the grounds that
+half a correction is worse than none. The first real use — a few hundred lines
+— proved that reasoning was answering the wrong question: the batch did not
+post half, it posted *nothing*, because a posting is a couple of dozen round
+trips and the interactive-transaction ceiling is twenty seconds. All the user
+saw was "Something went wrong".
+
+The decision and the work are now separate things. **Planning** runs every
+check against every line, then writes the batch down with its lines
+*reserved* — claimed by the same unique index that stops a line being moved
+twice — and no entries on them. Nothing has moved in the ledger at that point.
+**Posting** then works through the reservation in chunks, each entry in its
+own small transaction, stopping fifteen seconds short of the function's limit
+and handing back what is left. The batch's page is where that runs, shows how
+far it has got, and picks it up again if a laptop closes mid-run.
+
+What this gives up, and what replaces it: a batch can now be part-posted. It
+cannot be half-decided — the closed period, the control accounts, the
+reconciled lines and the already-moved lines are all settled before the first
+entry — and it cannot be taken by somebody else while it waits, because the
+lines are reserved. A part-posted batch says so on its own page and in the
+history, and undoing it reverses what posted and releases what did not. "Half
+a correction" was never the real risk; a correction nobody could make was.
+
+**Undoing is chunked for the same reason.** Reversing three hundred entries is
+three hundred postings. A batch being undone is a state it sits in, so the
+work can stop and resume, and no new entries can be posted into it meanwhile.

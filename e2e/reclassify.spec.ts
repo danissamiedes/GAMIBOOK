@@ -54,14 +54,20 @@ test("a miscoded expense is found, moved, and can be moved back", async ({ page 
   await expect(page.getByText("About to post 1 reclassification entries")).toBeVisible();
   await page.getByRole("button", { name: /Confirm and post/ }).click();
 
-  await expect(page.getByText(/1 transaction reclassified/)).toBeVisible({ timeout: 30000 });
+  // The batch lands on its own page and posts itself, a chunk at a time.
+  await expect(page).toHaveURL(/\/reclassify\/[a-z0-9]+/, { timeout: 30000 });
+  await expect(page.getByText(/All 1 postings moved/)).toBeVisible({ timeout: 60000 });
+
   // The posting is still listed where it was written, now marked as moved.
+  await page.goto("/reclassify");
+  await filters.getByLabel("From account").selectOption({ label: wrong });
+  await filters.getByLabel("Description contains").fill(DESCRIPTION);
+  await filters.getByRole("button", { name: "Search" }).click();
   await expect(page.getByText(/Already moved to/).first()).toBeVisible();
 
   // ---- And it can be undone -------------------------------------------
   await page.goto("/reclassify/history");
-  await page.getByRole("row").filter({ hasText: `Miscoded ${stamp}` }).getByRole("link").click();
-  await expect(page.getByText(/postings moved/i).first()).toBeVisible();
-  await page.getByRole("button", { name: /Reverse this reclassification/ }).click();
-  await expect(page.getByText(/^Reversed on/)).toBeVisible({ timeout: 30000 });
+  await page.getByRole("row").filter({ hasText: `Miscoded ${stamp}` }).getByRole("link").first().click();
+  await page.getByRole("button", { name: /Undo this reclassification/ }).click();
+  await expect(page.getByText(/^Undone on/)).toBeVisible({ timeout: 60000 });
 });

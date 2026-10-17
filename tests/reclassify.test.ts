@@ -2,8 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   findReclassifiableLines,
   listReclassifications,
+  planReclassification,
+  postReclassificationChunk,
+  reclassificationProgress,
   reclassifyLines,
+  requestReclassificationReversal,
   reverseReclassification,
+  reverseReclassificationChunk,
 } from "@/lib/ledger/reclassify";
 import { postJournalEntry } from "@/lib/ledger/post";
 import { completeReconciliation, openReconciliation, setAllCleared } from "@/lib/bank/reconcile";
@@ -622,5 +627,195 @@ describe("reversing a reclassification (SPEC §18)", () => {
     expect(history).toHaveLength(2);
     expect(history[0].reason).toBe("August");
     expect(history[0].toAccount.code).toBe("6200");
+  });
+});
+
+describe("a batch too big for one request (SPEC §18)", () => {
+  /** Four postings in the wrong account, oldest first. */
+  async function fourLines() {
+    for (const [index, amount] of ["100.00", "200.00", "300.00", "400.00"].entries()) {
+      await spend(amount, new Date(`2025-07-0${index + 1}`), `Fuel ${index + 1}`);
+    }
+    return prisma.journalLine.findMany({
+      where: { accountId: wrong.id, entry: { companyId: fixture.company.id } },
+      orderBy: { entry: { date: "asc" } },
+    });
+  }
+
+  it("decides everything up front and posts nothing", async () => {
+    const lines = await fourLines();
+
+    const planned = await planReclassification({
+      companyId: fixture.company.id,
+      fromAccountId: wrong.id,
+      toAccountId: right.id,
+      journalLineIds: lines.map((line) => line.id),
+      reason: "Q3 fuel",
+    });
+
+    expect(planned.plannedCount).toBe(4);
+    expect(planned.totalDebit.toFixed(2)).toBe("1000.00");
+    // Planning moves nothing: the accounts read exactly as they did.
+    expect(await balanceOf(wrong.id)).toBe("1000.00");
+    expect(await balanceOf(right.id)).toBe("0.00");
+    expect(
+      await prisma.journalEntry.count({
+        where: { companyId: fixture.company.id, sourceType: "RECLASSIFICATION" },
+      }),
+    ).toBe(0);
+
+    // But the postings are reserved, so a second batch cannot take them.
+    await expect(
+      planReclassification({
+        companyId: fixture.company.id,
+        fromAccountId: wrong.id,
+        toAccountId: fixture.code("6300").id,
+        journalLineIds: [lines[0].id],
+      }),
+    ).rejects.toThrow(/already been reclassified/i);
+  });
+
+  it("posts in chunks, and picks up exactly where it stopped", async () => {
+    const lines = await fourLines();
+    const planned = await planReclassification({
+      companyId: fixture.company.id,
+      fromAccountId: wrong.id,
+      toAccountId: right.id,
+      journalLineIds: lines.map((line) => line.id),
+    });
+    const chunk = {
+      companyId: fixture.company.id,
+      reclassificationId: planned.reclassificationId,
+    };
+
+    const first = await postReclassificationChunk({ ...chunk, limit: 2 });
+    expect(first).toMatchObject({ done: 2, remaining: 2, finished: false });
+    // Half moved is half moved — and visible as such.
+    expect(await balanceOf(right.id)).toBe("300.00");
+    expect(await reclassificationProgress(fixture.company.id, planned.reclassificationId)).toEqual({
+      planned: 2,
+      posted: 2,
+      reversed: 0,
+    });
+
+    const second = await postReclassificationChunk({ ...chunk, limit: 2 });
+    expect(second).toMatchObject({ done: 2, remaining: 0, finished: true });
+    expect(await balanceOf(wrong.id)).toBe("0.00");
+    expect(await balanceOf(right.id)).toBe("1000.00");
+
+    // Asking again after it is done is safe and posts nothing more.
+    const again = await postReclassificationChunk(chunk);
+    expect(again).toMatchObject({ done: 0, remaining: 0, finished: true });
+    expect(
+      await prisma.journalEntry.count({
+        where: { companyId: fixture.company.id, sourceType: "RECLASSIFICATION" },
+      }),
+    ).toBe(4);
+
+    const batch = await prisma.reclassification.findUniqueOrThrow({
+      where: { id: planned.reclassificationId },
+    });
+    expect(batch.completedAt).not.toBeNull();
+  });
+
+  it("stops on the clock rather than running until it is killed", async () => {
+    const lines = await fourLines();
+    const planned = await planReclassification({
+      companyId: fixture.company.id,
+      fromAccountId: wrong.id,
+      toAccountId: right.id,
+      journalLineIds: lines.map((line) => line.id),
+    });
+
+    // No time at all: one posting goes, and the request hands back.
+    const first = await postReclassificationChunk({
+      companyId: fixture.company.id,
+      reclassificationId: planned.reclassificationId,
+      budgetMs: 0,
+    });
+    expect(first).toMatchObject({ done: 1, remaining: 3, finished: false });
+
+    let guard = 0;
+    let progress = first;
+    while (!progress.finished && guard++ < 10) {
+      progress = await postReclassificationChunk({
+        companyId: fixture.company.id,
+        reclassificationId: planned.reclassificationId,
+        budgetMs: 0,
+      });
+    }
+    expect(progress.finished).toBe(true);
+    expect(await balanceOf(right.id)).toBe("1000.00");
+  });
+
+  it("undoes a part-posted batch: reverses what posted, releases what did not", async () => {
+    const lines = await fourLines();
+    const planned = await planReclassification({
+      companyId: fixture.company.id,
+      fromAccountId: wrong.id,
+      toAccountId: right.id,
+      journalLineIds: lines.map((line) => line.id),
+    });
+    await postReclassificationChunk({
+      companyId: fixture.company.id,
+      reclassificationId: planned.reclassificationId,
+      limit: 2,
+    });
+
+    const asked = await requestReclassificationReversal({
+      companyId: fixture.company.id,
+      reclassificationId: planned.reclassificationId,
+    });
+    expect(asked).toEqual({ toReverse: 2, released: 2 });
+
+    // Posting is refused while the batch is being undone.
+    await expect(
+      postReclassificationChunk({
+        companyId: fixture.company.id,
+        reclassificationId: planned.reclassificationId,
+      }),
+    ).rejects.toThrow(/being undone/i);
+
+    const undone = await reverseReclassificationChunk({
+      companyId: fixture.company.id,
+      reclassificationId: planned.reclassificationId,
+    });
+    expect(undone).toMatchObject({ done: 2, remaining: 0, finished: true });
+
+    // Everything is back where it was, and the books balance.
+    expect(await balanceOf(wrong.id)).toBe("1000.00");
+    expect(await balanceOf(right.id)).toBe("0.00");
+    const tb = await trialBalance({ companyId: fixture.company.id, asOf: YEAR_END });
+    expect(tb.totalDebit.toFixed(2)).toBe(tb.totalCredit.toFixed(2));
+
+    // And all four postings are free to be moved again.
+    const retry = await reclassifyLines({
+      companyId: fixture.company.id,
+      fromAccountId: wrong.id,
+      toAccountId: fixture.code("6300").id,
+      journalLineIds: lines.map((line) => line.id),
+    });
+    expect(retry.movedCount).toBe(4);
+    expect(await balanceOf(fixture.code("6300").id)).toBe("1000.00");
+  });
+
+  it("finishes a batch that posted nothing the moment undo is asked for", async () => {
+    const lines = await fourLines();
+    const planned = await planReclassification({
+      companyId: fixture.company.id,
+      fromAccountId: wrong.id,
+      toAccountId: right.id,
+      journalLineIds: lines.map((line) => line.id),
+    });
+
+    const asked = await requestReclassificationReversal({
+      companyId: fixture.company.id,
+      reclassificationId: planned.reclassificationId,
+    });
+    expect(asked).toEqual({ toReverse: 0, released: 4 });
+    const batch = await prisma.reclassification.findUniqueOrThrow({
+      where: { id: planned.reclassificationId },
+    });
+    expect(batch.reversedAt).not.toBeNull();
   });
 });

@@ -1425,5 +1425,15 @@ Rules:
    trial balance and every report show the corrected one. The document is what
    happened, the ledger is what it means.
 
-The whole batch runs in one database transaction: half a correction is worse
-than none, because nobody can tell which half.
+8. **Decided whole, posted in pieces.** Every check above runs against every
+   selected line before anything posts, and the lines are then *reserved* —
+   claimed by the unique index in rule 5 — as a batch with no entries on it
+   yet. The entries are written in chunks after that, each in its own small
+   transaction, because a few hundred postings fit in neither one interactive
+   transaction (20s) nor one serverless function (60s).
+
+   The guarantee this replaces one-big-transaction with: a batch can be
+   part-posted, but it can never be half-decided, nobody else can take its
+   lines while it is unfinished, and the batch's own page says how far it got
+   and offers to finish it or undo it as a unit. Undoing a part-posted batch
+   reverses what posted and releases what did not.

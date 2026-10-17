@@ -75,10 +75,21 @@ export default async function ReclassificationHistoryPage() {
                   <td className="py-2 text-sm">
                     {batch.reversedAt ? (
                       <span className="text-amber-700 dark:text-amber-500">
-                        Reversed {formatAccountingDate(batch.reversedAt)}
+                        Undone {formatAccountingDate(batch.reversedAt)}
                       </span>
-                    ) : (
+                    ) : batch.reversalRequestedAt ? (
+                      <span className="text-amber-700 dark:text-amber-500">Being undone</span>
+                    ) : batch.completedAt ? (
                       <span className="text-emerald-700 dark:text-emerald-500">Posted</span>
+                    ) : (
+                      // A batch that was planned and never finished is not a
+                      // failure to hide: it is work somebody can pick up.
+                      <Link
+                        href={`/reclassify/${batch.id}`}
+                        className="text-amber-700 underline dark:text-amber-500"
+                      >
+                        Unfinished — continue
+                      </Link>
                     )}
                   </td>
                 </tr>

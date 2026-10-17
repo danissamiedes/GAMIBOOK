@@ -2075,20 +2075,28 @@ model Booking {
 /// the amount out of the wrong account and puts it in the right one. This row
 /// is the record of who decided that, when, and why.
 model Reclassification {
-  id               String    @id @default(cuid())
-  companyId        String
-  fromAccountId    String
-  toAccountId      String
+  id                  String    @id @default(cuid())
+  companyId           String
+  fromAccountId       String
+  toAccountId         String
   /// Why it was moved. Shown on the entries and kept for the auditor.
-  reason           String?
+  reason              String?
   /// Set only when the whole batch was posted on one date instead of each
   /// line's own date, which is what the form does by default.
-  postedOnDate     DateTime? @db.Date
-  createdByUserId  String?
-  createdAt        DateTime  @default(now())
+  postedOnDate        DateTime? @db.Date
+  createdByUserId     String?
+  createdAt           DateTime  @default(now())
+  /// Set once every line in the batch has been posted. A batch is planned
+  /// first and posted in chunks, so an interrupted run is a batch with this
+  /// still null and some lines still waiting.
+  completedAt         DateTime?
+  /// Set when somebody asked for the batch to be undone. Like posting,
+  /// reversing a few hundred entries runs in chunks, so "being undone" is a
+  /// state the batch sits in until the last one is done.
+  reversalRequestedAt DateTime?
   /// Set when every entry in the batch has been reversed.
-  reversedAt       DateTime?
-  reversedByUserId String?
+  reversedAt          DateTime?
+  reversedByUserId    String?
 
   company     Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   fromAccount Account                @relation("ReclassificationFrom", fields: [fromAccountId], references: [id])
@@ -2115,8 +2123,9 @@ model ReclassificationLine {
   /// afterwards — which is exactly what somebody does when they reversed
   /// because the target account was wrong.
   activeSourceLineId  String? @unique
-  /// The entry that moved it, and the one that moved it back.
-  journalEntryId      String
+  /// The entry that moved it, and the one that moved it back. The first is
+  /// null while the line is planned and not yet posted.
+  journalEntryId      String?
   reversalEntryId     String?
   /// What was moved, in base currency, as it stood on the original line.
   debit               Decimal @default(0) @db.Decimal(18, 2)
@@ -2124,7 +2133,7 @@ model ReclassificationLine {
 
   reclassification  Reclassification @relation(fields: [reclassificationId], references: [id], onDelete: Cascade)
   sourceJournalLine JournalLine      @relation(fields: [sourceJournalLineId], references: [id])
-  journalEntry      JournalEntry     @relation("ReclassificationEntry", fields: [journalEntryId], references: [id])
+  journalEntry      JournalEntry?    @relation("ReclassificationEntry", fields: [journalEntryId], references: [id])
   reversalEntry     JournalEntry?    @relation("ReclassificationReversalEntry", fields: [reversalEntryId], references: [id])
 
   @@index([reclassificationId])

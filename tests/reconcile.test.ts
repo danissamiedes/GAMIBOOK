@@ -265,6 +265,7 @@ describe("bank reconciliation", () => {
         expenseAccountId: fixture.code("6000").id,
         paymentAccountId: fixture.code("1000").id,
         description: "Paint",
+        reference: "REF-0022",
         userId: owner.id,
         role: "OWNER",
       });
@@ -297,6 +298,7 @@ describe("bank reconciliation", () => {
           expenseAccountId: fixture.code("6000").id,
           paymentAccountId: fixture.code("1000").id,
           description: "Paint",
+          reference: "REF-0024",
           userId: owner.id,
           role: "OWNER",
         }),
@@ -333,6 +335,7 @@ describe("bank reconciliation", () => {
         expenseAccountId: fixture.code("6000").id,
         paymentAccountId: fixture.code("1000").id,
         description: "Paint",
+        reference: "REF-0025",
         userId: owner.id,
         role: "OWNER",
       });
@@ -349,6 +352,7 @@ describe("bank reconciliation", () => {
         expenseAccountId: fixture.code("6000").id,
         paymentAccountId: fixture.code("1000").id,
         description: "Paint",
+        reference: "REF-0023",
         userId: owner.id,
         role: "OWNER",
       });
@@ -366,6 +370,7 @@ describe("bank reconciliation", () => {
         expenseAccountId: fixture.code("6000").id,
         paymentAccountId: fixture.code("1000").id,
         description: "Paint",
+        reference: "REF-0026",
         userId: owner.id,
         role: "OWNER",
       });

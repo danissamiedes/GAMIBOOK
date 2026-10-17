@@ -41,9 +41,11 @@ export const EXPENSE_IMPORT_COLUMNS: ExpenseColumnDefinition[] = [
   {
     key: "num",
     header: "NUM",
-    required: false,
+    // Required, like the ledger itself requires it: a sheet with no NUM
+    // column is refused at the upload rather than row by row at the commit.
+    required: true,
     aliases: ["no", "number", "ref", "reference", "or no", "receipt no", "invoice no"],
-    note: "The receipt or voucher number. Kept as the expense's reference, leading zeros and all.",
+    note: "The receipt or voucher number. Required, and kept as the expense's reference, leading zeros and all.",
   },
   {
     key: "name",

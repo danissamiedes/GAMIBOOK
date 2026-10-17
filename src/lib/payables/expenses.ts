@@ -24,6 +24,29 @@ import { isBaseCurrency, toBase } from "@/lib/ledger/fx";
  * is how a bill gets recorded as already paid.
  */
 
+/**
+ * Every expense carries a reference (SPEC §7.1).
+ *
+ * The reference is the document: the OR number, the cheque, the supplier's
+ * invoice number. It is what an auditor asks for, and it is how a row on a
+ * party's account is opened. A blank one makes a record that can be found by
+ * nobody and matched to nothing, so it is refused rather than accepted and
+ * regretted.
+ *
+ * Records nobody types — a recurring bill posting itself, a receipt becoming
+ * an expense, a spreadsheet row — supply their own; they do not get an
+ * exemption, because the rule is only as good as its thinnest path.
+ */
+export function requireReference(value: string | null | undefined): string {
+  const reference = value?.trim();
+  if (!reference) {
+    throw new PostingError(
+      "A reference number is required — the OR, invoice or cheque number this was recorded from",
+    );
+  }
+  return reference;
+}
+
 export async function recordExpense(input: {
   companyId: string;
   kind: "DIRECT" | "BILL";
@@ -51,6 +74,8 @@ export async function recordExpense(input: {
       where: { id: input.companyId },
       select: { baseCurrency: true },
     });
+
+    const reference = requireReference(input.reference);
 
     const amount = toCents(money(input.amount));
     if (amount.lessThanOrEqualTo(0)) throw new PostingError("An expense must be more than zero");
@@ -102,7 +127,7 @@ export async function recordExpense(input: {
         expenseAccountId: expenseAccount.id,
         amount,
         description: input.description,
-        reference: input.reference ?? null,
+        reference,
         receiptFileKey: input.receiptFileKey ?? null,
         receiptUrl: input.receiptUrl ?? null,
         isBillable: input.isBillable ?? false,
@@ -258,6 +283,8 @@ export async function updateExpense(input: {
     });
 
     const kind = existing.kind;
+    const reference = requireReference(input.reference);
+
     const amount = toCents(money(input.amount));
     if (amount.lessThanOrEqualTo(0)) throw new PostingError("An expense must be more than zero");
 
@@ -312,7 +339,7 @@ export async function updateExpense(input: {
         expenseAccountId: expenseAccount.id,
         amount,
         description: input.description,
-        reference: input.reference ?? null,
+        reference,
         receiptUrl: input.receiptUrl ?? null,
         isBillable: input.isBillable ?? false,
         customerId: input.customerId ?? null,

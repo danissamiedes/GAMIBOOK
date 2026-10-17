@@ -165,7 +165,10 @@ export async function approveReceipt(input: {
     paymentAccountId: input.paymentAccountId,
     dueDate: input.dueDate,
     description: input.description,
-    reference: input.reference,
+    // A receipt that nobody gave a number to is still a document: its own id
+    // is the reference, so the expense can be traced to the photo it came
+    // from (SPEC §7.1).
+    reference: input.reference?.trim() || `RCPT-${receipt.id.slice(-6).toUpperCase()}`,
     // The photo becomes the expense's receipt, so the document and its
     // evidence stay together without a second copy. A typed-in link is kept
     // alongside it rather than instead of it — they answer different

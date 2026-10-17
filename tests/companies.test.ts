@@ -80,6 +80,7 @@ describe("creating a company", () => {
       expenseAccountId: expenseAccount.id,
       paymentAccountId: bank.id,
       description: "Studio cleaning",
+      reference: "REF-0002",
       userId: owner.id,
       role: "OWNER",
     });

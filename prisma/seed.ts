@@ -555,6 +555,7 @@ async function main() {
       expenseAccountId: php("6250").id,
       paymentAccountId: php("1000").id,
       description: "July electricity",
+      reference: "MER-2607-0110",
       role: "OWNER",
     });
     await recordExpense({
@@ -567,6 +568,7 @@ async function main() {
       amount: "9420.00",
       expenseAccountId: php("6250").id,
       description: "August electricity",
+      reference: "MER-2608-0908",
       role: "OWNER",
     });
   }
@@ -626,6 +628,7 @@ async function main() {
         amount: "4500.00",
         expenseAccountId: php("6300").id,
         description: "Travel reimbursement — Cebu site visit",
+        reference: "AB-2608-18",
         role: "OWNER",
       });
     }

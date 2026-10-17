@@ -332,6 +332,7 @@ describe("what is refused (SPEC §18)", () => {
       expenseAccountId: other.code("6100").id,
       paymentAccountId: other.code("1010").id,
       description: "Not ours",
+      reference: "REF-0021",
     });
     expect(expense.companyId).toBe(other.company.id);
     const theirs = await prisma.journalLine.findFirstOrThrow({

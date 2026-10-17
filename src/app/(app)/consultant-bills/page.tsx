@@ -305,8 +305,11 @@ export default async function ConsultantBillsPage({
                 defaultValue={isoDate(editing?.date ?? today())}
               />
             </Field>
-            <Field label="Reference">
-              <Input name="reference" defaultValue={editing?.reference ?? ""} />
+            <Field
+              label="Reference"
+              hint="Required — the OR, invoice or cheque number this comes from."
+            >
+              <Input name="reference" required defaultValue={editing?.reference ?? ""} />
             </Field>
             <Field label="Consultant">
               <Select name="vendorId" defaultValue={editing?.vendorId ?? consultants[0]?.id} required>

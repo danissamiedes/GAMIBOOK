@@ -45,6 +45,7 @@ const bill = (amount: string, date = JULY, description = "July electricity") =>
 
 const direct = (amount: string, date = JULY, description = "Reconnection fee") =>
   recordExpense({
+    reference: "REF-0013",
     companyId: fixture.company.id,
     kind: "DIRECT",
     vendorId: vendor.id,
@@ -185,6 +186,7 @@ describe("a party's own transactions (SPEC §6)", () => {
       amount: "100.00",
       expenseAccountId: fixture.code("6100").id,
       description: "Imported meter",
+      reference: "REF-0014",
     });
 
     const { rows, totals } = await forVendor();

@@ -71,6 +71,7 @@ describe("editing transactions", () => {
         expenseAccountId: fixture.code("6100").id,
         paymentAccountId: fixture.code("1000").id,
         description: "Office chairs",
+        reference: "REF-0003",
         userId: owner.id,
         role: "OWNER",
       });
@@ -85,6 +86,7 @@ describe("editing transactions", () => {
         expenseAccountId: fixture.code("6300").id,
         paymentAccountId: fixture.code("1000").id,
         description: "Travel, not chairs",
+        reference: "REF-0008",
         userId: owner.id,
         role: "OWNER",
       });
@@ -111,6 +113,7 @@ describe("editing transactions", () => {
         amount: "5000.00",
         expenseAccountId: fixture.code("6200").id,
         description: "August rent",
+        reference: "REF-0004",
         userId: owner.id,
         role: "OWNER",
       });
@@ -124,6 +127,7 @@ describe("editing transactions", () => {
         amount: "5500.00",
         expenseAccountId: fixture.code("6200").id,
         description: "August rent, revised",
+        reference: "REF-0009",
         userId: owner.id,
         role: "OWNER",
       });
@@ -146,6 +150,7 @@ describe("editing transactions", () => {
         amount: "5000.00",
         expenseAccountId: fixture.code("6200").id,
         description: "Rent",
+        reference: "REF-0005",
         userId: owner.id,
         role: "OWNER",
       });
@@ -171,6 +176,7 @@ describe("editing transactions", () => {
           amount: "9999.00",
           expenseAccountId: fixture.code("6200").id,
           description: "Sneaky",
+          reference: "REF-0010",
           userId: owner.id,
           role: "OWNER",
         }),
@@ -475,6 +481,7 @@ describe("editing transactions", () => {
         amount: "1000.00",
         expenseAccountId: fixture.code("6100").id,
         description: "Bill",
+        reference: "REF-0006",
         userId: owner.id,
         role: "OWNER",
       });
@@ -577,6 +584,7 @@ describe("editing transactions", () => {
       expenseAccountId: fixture.code("6100").id,
       paymentAccountId: fixture.code("1000").id,
       description: "Mine",
+      reference: "REF-0007",
       userId: owner.id,
       role: "OWNER",
     });
@@ -591,6 +599,7 @@ describe("editing transactions", () => {
         expenseAccountId: other.code("6100").id,
         paymentAccountId: other.code("1000").id,
         description: "Theirs",
+        reference: "REF-0011",
         userId: owner.id,
         role: "OWNER",
       }),

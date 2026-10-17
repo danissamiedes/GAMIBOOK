@@ -173,6 +173,7 @@ describe("tasks", () => {
         amount: "800.00",
         currency: "PHP",
         description: "Paint",
+        reference: "REF-0027",
         expenseAccountId: fixture.code("5000").id,
         role: "OWNER",
       });

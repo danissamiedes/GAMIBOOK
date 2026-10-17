@@ -2938,3 +2938,30 @@ currency, and the base-currency value beside it, with only the base column
 totalled — the same rule the screen follows. Payments go in negative, so the
 column reads as a running account rather than a pile of positives, and the
 dates go in as dates so Excel can sort them.
+
+## No expense without a reference
+
+The reference is the document: the OR number, the supplier's invoice, the
+cheque. It is what an auditor asks for first, and now that a party's account
+opens a transaction by its reference, a blank one is a row nobody can follow.
+
+**Refused in the ledger, not only in the form.** `recordExpense` and
+`updateExpense` reject a missing or blank reference, so the rule holds for
+the forms, the spreadsheet import, a receipt turned into an expense and
+anything written later. A required field on the form alone is a suggestion
+with a nice error message.
+
+**Records nobody types supply their own.** A recurring bill with no
+reference on its template posts as `REC-202507-9F3A21` — the month it ran
+for and which template ran — and an expense made from a receipt takes the
+receipt's own id. Exempting the automatic paths would have left the column
+patchy in exactly the places nobody is watching.
+
+**The import's NUM column is now required.** A sheet without it is refused
+at the upload, with one message, rather than at the commit with five hundred.
+A row with the column blank is a rejected row: red in the preview, left out
+of the import, and in the rejects file to be fixed and uploaded again.
+
+**Existing records are left alone.** Rows already posted without a reference
+keep showing "—", and the transactions tab opens those by their type
+instead. Back-filling a number nobody has would be inventing evidence.

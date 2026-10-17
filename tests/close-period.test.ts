@@ -218,6 +218,7 @@ describe("what a closed month actually stops", () => {
       // A bill is owed to someone; a direct expense need not name them.
       vendorId: kind === "BILL" ? vendor.id : null,
       description: "Paint",
+      reference: "REF-0001",
       userId: owner.id,
       role,
     });

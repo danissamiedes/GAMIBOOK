@@ -220,6 +220,17 @@ export async function validateExpenseRows(options: {
       issues.push({ column: "description", message: "No description", severity: "error" });
     }
 
+    // Every expense carries a reference (SPEC §7.1), and a sheet is no
+    // exception: a row with no NUM is rejected here rather than refused one
+    // at a time by the ledger halfway through the commit.
+    if (!value("num")) {
+      issues.push({
+        column: "num",
+        message: "No reference number — fill in NUM and upload again",
+        severity: "error",
+      });
+    }
+
     const amount = parseSheetAmount(row.values.amount);
     if (!value("amount")) {
       issues.push({ column: "amount", message: "No amount", severity: "error" });

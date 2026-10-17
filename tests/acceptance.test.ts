@@ -362,6 +362,7 @@ describe("SPEC §15 acceptance", () => {
       amount: "3200.00",
       expenseAccountId: fixture.code("6000").id,
       description: "June electricity",
+      reference: "REF-0000",
       role: "OWNER",
     });
 

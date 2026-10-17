@@ -64,6 +64,7 @@ describe("deleting an expense recorded by mistake", () => {
       paymentAccountId: kind === "DIRECT" ? fixture.code("1000").id : null,
       vendorId: kind === "BILL" ? vendor.id : null,
       description: "Paint",
+      reference: "REF-0012",
       userId,
       role: "OWNER" as const,
     });

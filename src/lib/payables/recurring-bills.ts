@@ -179,7 +179,10 @@ export async function generateBillOccurrence(options: {
           ? new Date(options.scheduledDate.getTime() + template.paymentTermsDays * 86_400_000)
           : null,
       description: template.description,
-      reference: template.reference,
+      // Every expense needs a reference (SPEC §7.1), and nobody is here to
+      // type one: the template and the month it ran for make a reference
+      // that leads back to exactly this run.
+      reference: template.reference?.trim() || recurringReference(template.id, options.scheduledDate),
       // No userId: the scheduler is not a person, so nothing is recorded as
       // the author. Delete is gated on the period rather than on authorship,
       // so a wrong template's output can still be cleared up while the month
@@ -286,4 +289,10 @@ export function firstRunDate(
   from: Date,
 ): Date {
   return occurrenceOnOrAfter(schedule, from);
+}
+
+/** `REC-202610-9F3A21` — the month this ran for, and which template ran. */
+export function recurringReference(templateId: string, scheduledDate: Date): string {
+  const month = `${scheduledDate.getUTCFullYear()}${String(scheduledDate.getUTCMonth() + 1).padStart(2, "0")}`;
+  return `REC-${month}-${templateId.slice(-6).toUpperCase()}`;
 }

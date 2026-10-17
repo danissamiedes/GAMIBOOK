@@ -537,8 +537,11 @@ export default async function ExpensesPage({
                 defaultValue={isoDate(editing?.date ?? today())}
               />
             </Field>
-            <Field label="Reference">
-              <Input name="reference" defaultValue={editing?.reference ?? ""} />
+            <Field
+              label="Reference"
+              hint="Required — the OR, invoice or cheque number this comes from."
+            >
+              <Input name="reference" required defaultValue={editing?.reference ?? ""} />
             </Field>
             <Field label="Vendor" hint={tab === "bill" ? "Required — this is who you owe." : undefined}>
               <Select name="vendorId" defaultValue={editing?.vendorId ?? ""} required={tab === "bill"}>

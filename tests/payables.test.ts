@@ -477,6 +477,7 @@ describe("expenses (SPEC §8.2)", () => {
       expenseAccountId: fixture.code("6400").id,
       paymentAccountId: fixture.code("1000").id,
       description: "August internet",
+      reference: "REF-0015",
     });
 
     expect(expense.status).toBe("PAID");
@@ -496,6 +497,7 @@ describe("expenses (SPEC §8.2)", () => {
       amount: "18000.00",
       expenseAccountId: fixture.code("6200").id,
       description: "September rent",
+      reference: "REF-0016",
     });
 
     expect(expense.status).toBe("APPROVED");
@@ -539,6 +541,7 @@ describe("expenses (SPEC §8.2)", () => {
         amount: "100.00",
         expenseAccountId: fixture.code("6100").id,
         description: "Supplies",
+        reference: "REF-0017",
       }),
     ).rejects.toThrow(/needs the account it was paid from/);
   });
@@ -553,6 +556,7 @@ describe("expenses (SPEC §8.2)", () => {
         amount: "100.00",
         expenseAccountId: fixture.code("6100").id,
         description: "Supplies",
+        reference: "REF-0018",
       }),
     ).rejects.toThrow(/needs a vendor/);
   });
@@ -568,6 +572,7 @@ describe("expenses (SPEC §8.2)", () => {
       expenseAccountId: fixture.code("6100").id,
       paymentAccountId: fixture.code("1000").id,
       description: "Supplies",
+      reference: "REF-0019",
     });
 
     await expect(
@@ -621,6 +626,7 @@ describe("A/P aging (SPEC §18)", () => {
       amount: "9500.00",
       expenseAccountId: fixture.code("6250").id,
       description: "September electricity",
+      reference: "REF-0020",
     });
 
     const all = await apAging({ companyId: fixture.company.id, asOf });

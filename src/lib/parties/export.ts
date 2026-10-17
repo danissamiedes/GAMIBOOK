@@ -42,7 +42,6 @@ export async function partyTransactionsExport(options: {
     partyTransactions({
       companyId: options.scope.companyId,
       vendorId: vendor.id,
-      vendorKind: options.vendorKind,
       from,
       to,
     }),

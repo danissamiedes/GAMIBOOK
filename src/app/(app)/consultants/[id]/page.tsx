@@ -68,7 +68,6 @@ export default async function ConsultantPage({
       ? await partyTransactions({
           companyId: scope.companyId,
           vendorId: consultant.id,
-          vendorKind: "CONSULTANT",
           from: period.from,
           to: period.to,
         })

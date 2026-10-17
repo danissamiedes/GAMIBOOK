@@ -61,7 +61,6 @@ const forVendor = () =>
   partyTransactions({
     companyId: fixture.company.id,
     vendorId: vendor.id,
-    vendorKind: "REGULAR",
   });
 
 describe("a party's own transactions (SPEC §6)", () => {
@@ -96,7 +95,8 @@ describe("a party's own transactions (SPEC §6)", () => {
     const billRow = rows.find((row) => row.label === "Bill");
     expect(billRow?.reference).toBe("DL-0001");
     expect(billRow?.outstanding?.toFixed(2)).toBe("3000.00");
-    expect(billRow?.href).toContain("/expenses?tab=bill");
+    // The reference opens the document itself, not the list it is on.
+    expect(billRow?.href).toBe(`/expenses/${expense.id}`);
 
     const paymentRow = rows.find((row) => row.label === "Payment");
     expect(paymentRow?.outstanding).toBeNull();
@@ -130,7 +130,6 @@ describe("a party's own transactions (SPEC §6)", () => {
     const { rows, totals } = await partyTransactions({
       companyId: fixture.company.id,
       vendorId: consultant.id,
-      vendorKind: "CONSULTANT",
     });
 
     expect(rows).toHaveLength(1);
@@ -165,7 +164,6 @@ describe("a party's own transactions (SPEC §6)", () => {
     const { rows, totals } = await partyTransactions({
       companyId: fixture.company.id,
       vendorId: consultant.id,
-      vendorKind: "CONSULTANT",
     });
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe("Draft");
@@ -203,7 +201,6 @@ describe("a party's own transactions (SPEC §6)", () => {
     const { rows, totals } = await partyTransactions({
       companyId: other.company.id,
       vendorId: vendor.id,
-      vendorKind: "REGULAR",
     });
     expect(rows).toEqual([]);
     expect(totals.spend.toFixed(2)).toBe("0.00");
@@ -216,7 +213,6 @@ describe("a party's own transactions (SPEC §6)", () => {
     const july = await partyTransactions({
       companyId: fixture.company.id,
       vendorId: vendor.id,
-      vendorKind: "REGULAR",
       from: new Date("2025-07-01"),
       to: new Date("2025-07-31"),
     });
@@ -229,7 +225,6 @@ describe("a party's own transactions (SPEC §6)", () => {
     const fromAugust = await partyTransactions({
       companyId: fixture.company.id,
       vendorId: vendor.id,
-      vendorKind: "REGULAR",
       from: new Date("2025-08-01"),
     });
     expect(fromAugust.rows.map((row) => row.description)).toEqual(["August electricity"]);

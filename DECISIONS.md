@@ -2965,3 +2965,25 @@ of the import, and in the rejects file to be fixed and uploaded again.
 **Existing records are left alone.** Rows already posted without a reference
 keep showing "—", and the transactions tab opens those by their type
 instead. Back-filling a number nobody has would be inventing evidence.
+
+## An expense has a page of its own
+
+A reference on a party's account promised the document and delivered the
+list it happened to be on, with the edit form open somewhere down the page.
+`/expenses/<id>` is the document: what was bought, what it was coded to,
+what settled it, and the entry it posted, with a link to the journal.
+
+**Who may read it is decided by whose bill it is.** Supplier bills belong to
+the Vendors section, consultants' to Consultants, and both live in one
+table. So the section is checked after the expense is found, not before: a
+single section gate at the top of the page would either shut out half the
+people entitled to read it or let the wrong half in.
+
+**Editing stays where it already lives.** The page links to the list's edit
+form rather than growing a second one. Two forms writing the same record is
+how they come to disagree.
+
+**One page for all four kinds.** Direct expenses, supplier bills and
+consultant bills are one model and share it; work orders and payments
+already had pages, so the transactions tab now links straight to whichever
+is right for the row.

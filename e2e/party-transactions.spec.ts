@@ -41,8 +41,10 @@ for (const subject of PAGES) {
     const firstLink = page.locator("tbody a").first();
     if (await firstLink.count()) {
       await firstLink.click();
-      // Whatever the document is, it opens somewhere that is not this tab.
-      await expect(page).not.toHaveURL(new RegExp(`${subject.prefix}[a-z0-9]+$`));
+      // The document itself opens — an expense, a work order, a payment —
+      // never the list it happens to be on.
+      await expect(page).toHaveURL(/\/(expenses|work-orders|bill-payments)\/[a-z0-9]+/);
+      await expect(page.locator("h1")).toBeVisible();
       await page.goBack();
     }
 

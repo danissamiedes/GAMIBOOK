@@ -1,4 +1,4 @@
-import type { PayableStatus, VendorKind } from "@prisma/client";
+import type { PayableStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { accountingDate } from "@/lib/ledger/post";
 import { money, type Money } from "@/lib/money";
@@ -70,8 +70,6 @@ export async function partyTransactionCount(companyId: string, vendorId: string)
 export async function partyTransactions(options: {
   companyId: string;
   vendorId: string;
-  /** Decides where a document's link goes: the two sections differ (SPEC §6). */
-  vendorKind: VendorKind;
   /** Inclusive, both ends. Omitted means everything on file. */
   from?: Date | null;
   to?: Date | null;
@@ -87,7 +85,6 @@ export async function partyTransactions(options: {
         }
       : undefined;
   const where = { companyId: options.companyId, vendorId: options.vendorId };
-  const consultant = options.vendorKind === "CONSULTANT";
 
   const [expenses, workOrders, payments] = await Promise.all([
     prisma.expense.findMany({
@@ -175,9 +172,9 @@ export async function partyTransactions(options: {
       baseAmount: base,
       outstanding: bill && live ? open : null,
       status: statusLabel(expense.status, expense.voidedAt),
-      href: consultant
-        ? `/consultant-bills?edit=${expense.id}`
-        : `/expenses?tab=${bill ? "bill" : "direct"}&edit=${expense.id}`,
+      // The document's own page, not the list it happens to be on: a
+      // reference that lands somebody in a list has not opened anything.
+      href: `/expenses/${expense.id}`,
     });
   }
 

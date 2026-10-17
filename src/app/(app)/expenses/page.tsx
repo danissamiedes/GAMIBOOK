@@ -372,12 +372,12 @@ export default async function ExpensesPage({
       ) : null}
 
       <div className="mb-4 flex gap-2">
-        <a href="/expenses?tab=direct">
+        <Link href="/expenses?tab=direct">
           <Button variant={tab === "direct" ? "primary" : "secondary"}>Direct expenses</Button>
-        </a>
-        <a href="/expenses?tab=bill">
+        </Link>
+        <Link href="/expenses?tab=bill">
           <Button variant={tab === "bill" ? "primary" : "secondary"}>Bills</Button>
-        </a>
+        </Link>
         <Link href="/expenses/import" className="ml-auto">
           <Button variant="secondary">Import from spreadsheet</Button>
         </Link>

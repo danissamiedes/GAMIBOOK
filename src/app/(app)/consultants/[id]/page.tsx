@@ -7,8 +7,8 @@ import { ConsultantForm } from "../consultant-form";
 import { PartyNotes } from "@/components/party-notes";
 import { PartyTabs, PartyTransactions } from "@/components/party-transactions";
 import { partyTransactionCount, partyTransactions } from "@/lib/parties/transactions";
-import { parseAccountingDate, isoDate } from "@/lib/dates";
-import { periodPresets } from "@/lib/reports/periods";
+import { isoDate, today } from "@/lib/dates";
+import { resolvePeriod } from "@/lib/reports/date-filter";
 import { Alert, Button, PageHeader } from "@/components/ui";
 
 export const metadata = { title: pageTitle("Consultant") };
@@ -32,6 +32,7 @@ export default async function ConsultantPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{
     tab?: string;
+    period?: string;
     from?: string;
     to?: string;
     saved?: string;
@@ -43,10 +44,10 @@ export default async function ConsultantPage({
 }) {
   const scope = await sectionScope("CONSULTANTS");
   const { id } = await params;
-  const { tab, from, to, saved, error, note, noteSaved, noteError } = await searchParams;
+  const query = await searchParams;
+  const { tab, saved, error, note, noteSaved, noteError } = query;
   // Transactions is what the page opens on; Details is a deliberate click.
   const showing = tab === "details" ? "details" : "transactions";
-  const period = { from: parseAccountingDate(from ?? ""), to: parseAccountingDate(to ?? "") };
 
   const [consultant, company, expenseAccounts] = await Promise.all([
     prisma.vendor.findFirst({
@@ -61,6 +62,10 @@ export default async function ConsultantPage({
     }),
   ]);
   if (!consultant) notFound();
+
+  // Resolved here rather than above, because the named periods are the
+  // company's financial year and that is only known once it is loaded.
+  const period = resolvePeriod(query, today(), company.fiscalYearStartMonth);
 
   // Only the open tab is paid for: the other one needs a number, not a list.
   const transactions =
@@ -111,9 +116,7 @@ export default async function ConsultantPage({
           base={`/consultants/${consultant.id}`}
           from={period.from ? isoDate(period.from) : ""}
           to={period.to ? isoDate(period.to) : ""}
-          presets={periodPresets(company.fiscalYearStartMonth, `/consultants/${consultant.id}`, {
-            tab: "transactions",
-          })}
+          periodKey={period.key}
           emptyTitle="Nothing recorded against this consultant yet"
         />
       ) : (

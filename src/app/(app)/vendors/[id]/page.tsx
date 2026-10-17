@@ -7,8 +7,8 @@ import { VendorForm } from "../vendor-form";
 import { PartyNotes } from "@/components/party-notes";
 import { PartyTabs, PartyTransactions } from "@/components/party-transactions";
 import { partyTransactionCount, partyTransactions } from "@/lib/parties/transactions";
-import { parseAccountingDate, isoDate } from "@/lib/dates";
-import { periodPresets } from "@/lib/reports/periods";
+import { isoDate, today } from "@/lib/dates";
+import { resolvePeriod } from "@/lib/reports/date-filter";
 import { Alert, Button, PageHeader } from "@/components/ui";
 
 export const metadata = { title: pageTitle("Vendor") };
@@ -28,6 +28,7 @@ export default async function VendorPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{
     tab?: string;
+    period?: string;
     from?: string;
     to?: string;
     saved?: string;
@@ -39,10 +40,10 @@ export default async function VendorPage({
 }) {
   const scope = await sectionScope("VENDORS");
   const { id } = await params;
-  const { tab, from, to, saved, error, note, noteSaved, noteError } = await searchParams;
+  const query = await searchParams;
+  const { tab, saved, error, note, noteSaved, noteError } = query;
   // Transactions is what the page opens on; Details is a deliberate click.
   const showing = tab === "details" ? "details" : "transactions";
-  const period = { from: parseAccountingDate(from ?? ""), to: parseAccountingDate(to ?? "") };
 
   const [vendor, company, expenseAccounts] = await Promise.all([
     prisma.vendor.findFirst({ where: { id, kind: "REGULAR", ...scope.where } }),
@@ -54,6 +55,10 @@ export default async function VendorPage({
     }),
   ]);
   if (!vendor) notFound();
+
+  // Resolved here rather than above, because the named periods are the
+  // company's financial year and that is only known once it is loaded.
+  const period = resolvePeriod(query, today(), company.fiscalYearStartMonth);
 
   // Only the open tab is paid for: the other one needs a number, not a list.
   const transactions =
@@ -104,9 +109,7 @@ export default async function VendorPage({
           base={`/vendors/${vendor.id}`}
           from={period.from ? isoDate(period.from) : ""}
           to={period.to ? isoDate(period.to) : ""}
-          presets={periodPresets(company.fiscalYearStartMonth, `/vendors/${vendor.id}`, {
-            tab: "transactions",
-          })}
+          periodKey={period.key}
           emptyTitle="Nothing recorded against this vendor yet"
         />
       ) : (

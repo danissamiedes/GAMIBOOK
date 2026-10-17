@@ -165,11 +165,15 @@ export default async function WorkOrdersPage({
 
   const company = await prisma.company.findFirstOrThrow({
     where: { id: scope.companyId },
-    select: { operatingTimeZone: true },
+    select: { operatingTimeZone: true, fiscalYearStartMonth: true },
   });
   // The company's own today, not UTC and not the viewer's: a Manila business
   // at nine in the evening is still on today's date.
-  const period = resolvePeriod(params, operatingToday(new Date(), company.operatingTimeZone));
+  const period = resolvePeriod(
+    params,
+    operatingToday(new Date(), company.operatingTimeZone),
+    company.fiscalYearStartMonth,
+  );
 
   const page = readPage(params);
   const workOrderWhere = {

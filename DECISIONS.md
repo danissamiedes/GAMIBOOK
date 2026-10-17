@@ -3182,3 +3182,51 @@ everything a Manila office sent after eight in the morning from "Today".
 **The recipient box is `sentTo`, not `to`.** Every list screen in the app
 already spends `from` and `to` on the period, and one parameter cannot mean
 both a date and an address.
+
+## One period dropdown, everywhere
+
+Three screens asked the same question three ways: reports offered five
+preset links under the form, party accounts offered their own five, and
+list screens had a dropdown of four. So "This year" on one screen and "This
+year" on another were not reliably the same dates — the sort of difference
+nobody notices until two reports disagree.
+
+**One list, one resolver.** Eleven named periods — All, Today, Yesterday,
+This Week, This Month, This Year, This Year-to-Date, Last Week, Last Month,
+Last Year, Last Year-to-Date — plus Custom dates, resolved in one place and
+used by every screen that filters by date.
+
+**A dropdown, not a row of links.** A link cannot show which period you are
+on, so the preset row said nothing about where you were; three clicks later
+you could not tell This month from Last month without reading the dates. The
+dropdown sits first, before the dates, because that is the order the
+question is asked in: name a period, or type your own.
+
+**The year is the financial year.** The reports always followed the
+company's `fiscalYearStartMonth` and still do. For a book starting in
+January the two coincide; for one starting in April they do not, and its
+accounts are drawn up to April.
+
+**Year-to-date stops today; last year-to-date stops at the same point a
+year earlier.** That is what makes them comparable, which is the only reason
+to offer both. 29 February lands on the 28th rather than slipping into
+March. "This Year" stays the full year, so the difference between it and
+year-to-date is the months that have not happened yet.
+
+**The control and the dates must agree.** The server renders the date boxes
+from the period it resolved, so what is in them always belongs to the
+dropdown above them; and typing in a date moves the dropdown to Custom,
+because a date typed under "Last month" would otherwise be read and then
+ignored. A report left alone opens on the financial year to date and the
+dropdown says so, rather than saying "All" over a year-to-date report.
+
+**"All" on a report means the first thing ever posted.** A profit and loss
+needs two ends, and a floor date of 1900 is not a report anybody wants to
+read, so the start comes from the books — one aggregate, asked only when
+All is chosen. An empty set of books falls back to the financial year.
+
+**A balance sheet takes the period's last day.** It is drawn at one moment
+and has no start, so "Last Month" means as it stood at the end of last
+month, and one As-of box replaces the two dates. A bookmarked `?asOf=` still
+wins, because it is the more specific answer — unless a period was picked on
+the screen, in which case the thing just clicked wins.

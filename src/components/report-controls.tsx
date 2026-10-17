@@ -1,20 +1,37 @@
 import type { ReactNode } from "react";
-import { Button, Card, Field, Input } from "@/components/ui";
+import { Button, Card } from "@/components/ui";
+import { PeriodFields } from "@/components/period-select";
+import type { PeriodKey } from "@/lib/reports/date-filter";
 
 /**
- * Date-range controls with the presets SPEC §12 asks for. A plain form with a
- * GET action, so a report is a URL — which is what makes one shareable and
+ * Date controls with the period dropdown SPEC §12 asks for. A plain form with
+ * a GET action, so a report is a URL — which is what makes one shareable and
  * bookmarkable.
+ *
+ * The dropdown leads, then the dates it resolved to, then whatever else the
+ * report needs. It replaced a row of preset links below the form: a link
+ * cannot show which period you are on, so the row said nothing about where
+ * you were, and every report had drifted into offering a different five.
  */
 export function ReportControls({
-  presets,
+  periodKey,
+  from,
+  to,
+  mode = "range",
+  dateLabel,
   children,
   csvHref,
   pdfHref,
   excelHref,
 }: {
-  presets: { label: string; href: string }[];
-  children: ReactNode;
+  periodKey: PeriodKey;
+  /** yyyy-mm-dd. For an as-of report, `to` is the date and `from` is "". */
+  from: string;
+  to: string;
+  /** "asOf" for a report drawn at a single moment rather than over a range. */
+  mode?: "range" | "asOf";
+  dateLabel?: string;
+  children?: ReactNode;
   csvHref?: string;
   pdfHref?: string;
   excelHref?: string;
@@ -22,6 +39,13 @@ export function ReportControls({
   return (
     <Card className="mb-4 print:hidden">
       <form className="flex flex-wrap items-end gap-3">
+        <PeriodFields
+          value={periodKey}
+          from={from}
+          to={to}
+          mode={mode}
+          label={dateLabel}
+        />
         {children}
         <Button type="submit">Update</Button>
         {csvHref ? (
@@ -46,33 +70,7 @@ export function ReportControls({
           </a>
         ) : null}
       </form>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {presets.map((preset) => (
-          <a key={preset.label} href={preset.href}>
-            <Button variant="ghost" type="button">
-              {preset.label}
-            </Button>
-          </a>
-        ))}
-      </div>
     </Card>
   );
 }
 
-export function DateField({
-  label,
-  name,
-  value,
-  hint,
-}: {
-  label: string;
-  name: string;
-  value: string;
-  hint?: string;
-}) {
-  return (
-    <Field label={label} hint={hint}>
-      <Input type="date" name={name} defaultValue={value} />
-    </Field>
-  );
-}

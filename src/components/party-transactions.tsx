@@ -7,7 +7,9 @@ import {
   type PartyTotals,
   type PartyTransaction,
 } from "@/lib/parties/transactions";
-import { Alert, Button, Card, DataTable, EmptyState, Field, Input } from "@/components/ui";
+import { Alert, Button, Card, DataTable, EmptyState } from "@/components/ui";
+import { PeriodFields } from "@/components/period-select";
+import type { PeriodKey } from "@/lib/reports/date-filter";
 
 /**
  * The two faces of a party's record (SPEC §6).
@@ -80,9 +82,9 @@ export function PartyTransactions({
   baseCurrency,
   emptyTitle,
   base,
+  periodKey,
   from,
   to,
-  presets,
 }: {
   rows: PartyTransaction[];
   totals: PartyTotals;
@@ -91,10 +93,11 @@ export function PartyTransactions({
   emptyTitle: string;
   /** This party's page, which the filter form and the export hang off. */
   base: string;
+  /** Which named period is chosen, so the dropdown can show it. */
+  periodKey: PeriodKey;
   /** The period being shown, as yyyy-mm-dd, or "" for all dates. */
   from: string;
   to: string;
-  presets: { label: string; href: string }[];
 }) {
   const filtered = Boolean(from || to);
   const exportQuery = new URLSearchParams();
@@ -108,35 +111,14 @@ export function PartyTransactions({
           link somebody can send to their accountant. */}
       <form className="flex flex-wrap items-end gap-3">
         <input type="hidden" name="tab" value="transactions" />
-        <Field label="From">
-          <Input type="date" name="from" defaultValue={from} />
-        </Field>
-        <Field label="To">
-          <Input type="date" name="to" defaultValue={to} />
-        </Field>
+        <PeriodFields value={periodKey} from={from} to={to} />
         <Button type="submit">Apply</Button>
-        {filtered ? (
-          <Link href={base}>
-            <Button type="button" variant="ghost">
-              All dates
-            </Button>
-          </Link>
-        ) : null}
         <a href={exportHref} className="ml-auto">
           <Button type="button" variant="secondary">
             Export to Excel
           </Button>
         </a>
       </form>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {presets.map((preset) => (
-          <Link key={preset.label} href={preset.href}>
-            <Button type="button" variant="ghost">
-              {preset.label}
-            </Button>
-          </Link>
-        ))}
-      </div>
     </Card>
   );
 

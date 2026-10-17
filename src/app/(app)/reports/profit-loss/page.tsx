@@ -3,12 +3,12 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { profitAndLoss } from "@/lib/reports/profit-loss";
-import { periodPresets } from "@/lib/reports/periods";
-import { fiscalYearStart, formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, today } from "@/lib/dates";
+import { reportRange } from "@/lib/reports/report-range";
 import { formatMoney } from "@/lib/currency";
 import { money, type Money } from "@/lib/money";
 import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
-import { DateField, ReportControls } from "@/components/report-controls";
+import { ReportControls } from "@/components/report-controls";
 
 export const metadata = { title: pageTitle("Profit & Loss") };
 
@@ -59,14 +59,19 @@ function Row({
 export default async function ProfitLossPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; compare?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; compare?: string }>;
 }) {
   const scope = await sectionScope("REPORTS");
   const params = await searchParams;
 
   const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });
-  const to = parseAccountingDate(params.to ?? "") ?? today();
-  const from = parseAccountingDate(params.from ?? "") ?? fiscalYearStart(to, company.fiscalYearStartMonth);
+  const period = await reportRange(
+    scope.companyId,
+    params,
+    today(),
+    company.fiscalYearStartMonth,
+  );
+  const { from, to } = period;
   const compare = params.compare === "1";
 
   // The prior period of the same length, for the optional comparison column.
@@ -104,12 +109,12 @@ export default async function ProfitLossPage({
       />
 
       <ReportControls
-        presets={periodPresets(company.fiscalYearStartMonth, "/reports/profit-loss")}
+        periodKey={period.key}
+        from={isoDate(from)}
+        to={isoDate(to)}
         csvHref={`/reports/profit-loss/csv?${query}`}
         pdfHref={`/reports/profit-loss/pdf?${query}`}
       >
-        <DateField label="From" name="from" value={isoDate(from)} />
-        <DateField label="To" name="to" value={isoDate(to)} />
         <label className="flex h-9 items-center gap-2 text-sm">
           <input type="checkbox" name="compare" value="1" defaultChecked={compare} />
           Compare with prior period

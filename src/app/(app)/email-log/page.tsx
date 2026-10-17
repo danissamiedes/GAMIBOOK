@@ -67,6 +67,7 @@ export default async function EmailLogPage({
   const period = resolvePeriod(
     params,
     operatingToday(new Date(), company.operatingTimeZone),
+    company.fiscalYearStartMonth,
   );
 
   const name = (params.name ?? "").trim();

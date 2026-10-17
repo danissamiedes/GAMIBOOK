@@ -3,12 +3,12 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { balanceSheet } from "@/lib/reports/balance-sheet";
-import { asOfPresets } from "@/lib/reports/periods";
-import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, today } from "@/lib/dates";
+import { resolveAsOf } from "@/lib/reports/date-filter";
 import { formatMoney } from "@/lib/currency";
 import type { Money } from "@/lib/money";
 import { Alert, Card, DataTable, PageHeader } from "@/components/ui";
-import { DateField, ReportControls } from "@/components/report-controls";
+import { ReportControls } from "@/components/report-controls";
 
 export const metadata = { title: pageTitle("Balance Sheet") };
 
@@ -59,13 +59,16 @@ function Group({
 export default async function BalanceSheetPage({
   searchParams,
 }: {
-  searchParams: Promise<{ asOf?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; asOf?: string }>;
 }) {
   const scope = await sectionScope("REPORTS");
   const params = await searchParams;
 
   const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });
-  const asOf = parseAccountingDate(params.asOf ?? "") ?? today();
+  // A balance sheet is drawn at one moment, so a period means its last day:
+  // "Last month" is the balance sheet as it stood at the end of last month.
+  const period = resolveAsOf(params, today(), company.fiscalYearStartMonth);
+  const asOf = period.asOf;
   const report = await balanceSheet({ companyId: scope.companyId, asOf });
 
   const drill = (accountId: string) =>
@@ -81,12 +84,13 @@ export default async function BalanceSheetPage({
       />
 
       <ReportControls
-        presets={asOfPresets(company.fiscalYearStartMonth, "/reports/balance-sheet")}
+        periodKey={period.key}
+        from=""
+        to={isoDate(asOf)}
+        mode="asOf"
         csvHref={`/reports/balance-sheet/csv?asOf=${isoDate(asOf)}`}
         pdfHref={`/reports/balance-sheet/pdf?asOf=${isoDate(asOf)}`}
-      >
-        <DateField label="As of" name="asOf" value={isoDate(asOf)} />
-      </ReportControls>
+      />
 
       {!report.balanced ? (
         <Alert tone="error">

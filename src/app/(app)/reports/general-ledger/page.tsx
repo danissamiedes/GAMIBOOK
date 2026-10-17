@@ -3,12 +3,12 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { balancesByAccount } from "@/lib/reports/balances";
-import { fiscalYearStart, formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, today } from "@/lib/dates";
+import { reportRange } from "@/lib/reports/report-range";
 import { formatMoney } from "@/lib/currency";
 import { TYPE_ORDER } from "@/lib/ledger/accounts";
 import { Card, DataTable, PageHeader } from "@/components/ui";
-import { DateField, ReportControls } from "@/components/report-controls";
-import { periodPresets } from "@/lib/reports/periods";
+import { ReportControls } from "@/components/report-controls";
 
 export const metadata = { title: pageTitle("General Ledger") };
 
@@ -16,14 +16,19 @@ export const metadata = { title: pageTitle("General Ledger") };
 export default async function GeneralLedgerPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
   const scope = await sectionScope("REPORTS");
   const params = await searchParams;
 
   const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });
-  const to = parseAccountingDate(params.to ?? "") ?? today();
-  const from = parseAccountingDate(params.from ?? "") ?? fiscalYearStart(to, company.fiscalYearStartMonth);
+  const period = await reportRange(
+    scope.companyId,
+    params,
+    today(),
+    company.fiscalYearStartMonth,
+  );
+  const { from, to } = period;
 
   const rows = await balancesByAccount({ companyId: scope.companyId, from, to });
   const active = rows.filter((row) => !row.debit.isZero() || !row.credit.isZero());
@@ -34,10 +39,7 @@ export default async function GeneralLedgerPage({
         title="General Ledger"
         description={`${company.name} · ${formatAccountingDate(from)} to ${formatAccountingDate(to)}`}
       />
-      <ReportControls presets={periodPresets(company.fiscalYearStartMonth, "/reports/general-ledger")}>
-        <DateField label="From" name="from" value={isoDate(from)} />
-        <DateField label="To" name="to" value={isoDate(to)} />
-      </ReportControls>
+      <ReportControls periodKey={period.key} from={isoDate(from)} to={isoDate(to)} />
 
       <Card>
         {TYPE_ORDER.map((type) => {

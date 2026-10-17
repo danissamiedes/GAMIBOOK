@@ -3,11 +3,11 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { salesByCustomer } from "@/lib/reports/sales-by-customer";
-import { periodPresets } from "@/lib/reports/periods";
-import { fiscalYearStart, formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, today } from "@/lib/dates";
+import { reportRange } from "@/lib/reports/report-range";
 import { formatMoney } from "@/lib/currency";
 import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
-import { DateField, ReportControls } from "@/components/report-controls";
+import { ReportControls } from "@/components/report-controls";
 
 export const metadata = { title: pageTitle("Sales by customer") };
 
@@ -15,15 +15,19 @@ export const metadata = { title: pageTitle("Sales by customer") };
 export default async function SalesByCustomerPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
   const scope = await sectionScope("SALES");
   const params = await searchParams;
 
   const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });
-  const to = parseAccountingDate(params.to ?? "") ?? today();
-  const from =
-    parseAccountingDate(params.from ?? "") ?? fiscalYearStart(to, company.fiscalYearStartMonth);
+  const period = await reportRange(
+    scope.companyId,
+    params,
+    today(),
+    company.fiscalYearStartMonth,
+  );
+  const { from, to } = period;
 
   const report = await salesByCustomer({ companyId: scope.companyId, from, to });
 
@@ -37,13 +41,13 @@ export default async function SalesByCustomerPage({
       />
 
       <ReportControls
-        presets={periodPresets(company.fiscalYearStartMonth, "/reports/sales-by-customer")}
+        periodKey={period.key}
+        from={isoDate(from)}
+        to={isoDate(to)}
         csvHref={`/reports/sales-by-customer/csv?from=${isoDate(
           from,
         )}&to=${isoDate(to)}`}
       >
-        <DateField label="From" name="from" value={isoDate(from)} />
-        <DateField label="To" name="to" value={isoDate(to)} />
       </ReportControls>
 
       {report.rows.length === 0 ? (

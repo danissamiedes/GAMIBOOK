@@ -3,11 +3,12 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { accountDetail, sourceDocumentHref, sourceLabel } from "@/lib/reports/general-ledger";
-import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
+import { formatAccountingDate, isoDate, today } from "@/lib/dates";
+import { openEndedRange } from "@/lib/reports/report-range";
 import { formatMoney } from "@/lib/currency";
 import { normalBalance } from "@/lib/ledger/accounts";
 import { Card, DataTable, EmptyState, PageHeader } from "@/components/ui";
-import { DateField, ReportControls } from "@/components/report-controls";
+import { ReportControls } from "@/components/report-controls";
 
 /**
  * The drill-down target (SPEC §12): click any figure on any report and land
@@ -20,7 +21,7 @@ export default async function AccountDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
   const scope = await sectionScope("REPORTS");
   const { id } = await params;
@@ -30,8 +31,11 @@ export default async function AccountDetailPage({
   if (!account) notFound();
 
   const company = await prisma.company.findFirstOrThrow({ where: { id: scope.companyId } });
-  const to = parseAccountingDate(query.to ?? "") ?? today();
-  const from = parseAccountingDate(query.from ?? "");
+  // This screen is reached by drilling in from another report, which sends
+  // a `to` and often no `from`: an account read "up to" a date is a running
+  // balance, and that has to keep working.
+  const period = openEndedRange(query, today(), company.fiscalYearStartMonth);
+  const { from, to } = period;
 
   const detail = await accountDetail({
     companyId: scope.companyId,
@@ -55,19 +59,28 @@ export default async function AccountDetailPage({
       />
 
       <ReportControls
-        presets={[
-          { label: "Back to Trial Balance", href: "/reports/trial-balance" },
-          { label: "Profit & Loss", href: "/reports/profit-loss" },
-          { label: "Balance Sheet", href: "/reports/balance-sheet" },
-        ]}
+        periodKey={period.key}
+        from={from ? isoDate(from) : ""}
+        to={isoDate(to)}
         // The period travels with the link, so the file is what is on screen.
         excelHref={`/reports/account/${account.id}/export?to=${isoDate(to)}${
           from ? `&from=${isoDate(from)}` : ""
         }`}
-      >
-        <DateField label="From" name="from" value={from ? isoDate(from) : ""} />
-        <DateField label="To" name="to" value={isoDate(to)} />
-      </ReportControls>
+      />
+
+      {/* Where to go next, which is not a filter and no longer pretends to
+          sit in the filter form. */}
+      <div className="mb-4 flex flex-wrap gap-3 text-sm print:hidden">
+        {[
+          { label: "Back to Trial Balance", href: "/reports/trial-balance" },
+          { label: "Profit & Loss", href: "/reports/profit-loss" },
+          { label: "Balance Sheet", href: "/reports/balance-sheet" },
+        ].map((link) => (
+          <Link key={link.href} className="underline" href={link.href}>
+            {link.label}
+          </Link>
+        ))}
+      </div>
 
       {detail.rows.length === 0 ? (
         <EmptyState title="No postings to this account in the period" />

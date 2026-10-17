@@ -240,6 +240,45 @@ export async function prepareWorkOrderEmail(options: {
   };
 }
 
+/** One purchase order, ready to send to its vendor (SPEC §10, §8.1a). */
+export async function preparePurchaseOrderEmail(options: {
+  companyId: string;
+  purchaseOrderId: string;
+}): Promise<PreparedEmail & { excludedReason?: string }> {
+  const order = await prisma.purchaseOrder.findFirstOrThrow({
+    where: { id: options.purchaseOrderId, companyId: options.companyId },
+    include: { vendor: true },
+  });
+  const company = await prisma.company.findUniqueOrThrow({ where: { id: options.companyId } });
+  const template = await templateFor(options.companyId, "PURCHASE_ORDER");
+  const { cachedPdf } = await import("@/lib/pdf/render");
+  const pdf = await cachedPdf(options.companyId, "purchase-order", order.id, { force: true });
+  // The same rule as a consultant's: nobody is emailed who is marked not to
+  // be, and nobody is emailed who has no address.
+  const recipients = workOrderRecipients(order.vendor);
+
+  const values: Record<string, string> = {
+    vendor_name: order.vendor.name,
+    purchase_order_number: order.orderNumber ?? "(draft)",
+    total: formatMoney(order.total.toFixed(2), order.currency),
+    expected_date: order.expectedDate ? formatAccountingDate(order.expectedDate) : "",
+    company_name: company.name,
+    purchase_order_count: "1",
+    purchase_order_list: order.orderNumber ?? "(draft)",
+  };
+
+  return {
+    to: recipients.to,
+    cc: recipients.cc,
+    subject: renderTemplate(template.subject, values),
+    body: renderTemplate(template.body, values),
+    attachments: [{ filename: pdf.filename, content: pdf.bytes }],
+    relatedType: "PurchaseOrder",
+    relatedId: order.id,
+    excludedReason: recipients.reason,
+  };
+}
+
 export async function preparePaymentReceiptEmail(options: {
   companyId: string;
   paymentId: string;
@@ -284,6 +323,11 @@ export async function stampEmailed(
     });
   } else if (relatedType === "WorkOrder") {
     await prisma.workOrder.updateMany({
+      where: { id: relatedId, companyId },
+      data: { lastEmailedAt: new Date() },
+    });
+  } else if (relatedType === "PurchaseOrder") {
+    await prisma.purchaseOrder.updateMany({
       where: { id: relatedId, companyId },
       data: { lastEmailedAt: new Date() },
     });

@@ -102,6 +102,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       label: "Vendors",
       items: only([
         vendors && { href: "/vendors", label: "Vendors" },
+        // What has been ordered, before any of it is owed (SPEC §8.1a).
+        vendors && { href: "/purchase-orders", label: "Purchase orders" },
+        vendors && { href: "/purchase-orders/send", label: "Send purchase orders" },
         vendors && { href: "/expenses", label: "Expenses" },
         vendors && { href: "/expenses/import", label: "Import expenses" },
         vendors && { href: "/expenses/recurring", label: "Recurring bills" },

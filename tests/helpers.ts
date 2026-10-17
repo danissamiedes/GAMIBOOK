@@ -53,6 +53,7 @@ export async function makeCompany(name: string, baseCurrency = "PHP") {
       { companyId: company.id, kind: "INVOICE", prefix: "INV", nextValue: 1001 },
       { companyId: company.id, kind: "WORK_ORDER", prefix: "WO", nextValue: 1001 },
       { companyId: company.id, kind: "SALES_ORDER", prefix: "SO", nextValue: 1001 },
+      { companyId: company.id, kind: "PURCHASE_ORDER", prefix: "PO", nextValue: 1001 },
     ],
   });
   return company;

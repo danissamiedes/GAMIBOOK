@@ -33,6 +33,7 @@ const DEFAULT_SEQUENCES = [
   { kind: "INVOICE" as const, prefix: "INV", nextValue: 1001 },
   { kind: "JOURNAL_ENTRY" as const, prefix: "JE", nextValue: 1 },
   { kind: "SALES_ORDER" as const, prefix: "SO", nextValue: 1001 },
+  { kind: "PURCHASE_ORDER" as const, prefix: "PO", nextValue: 1001 },
 ];
 
 export type NewCompanyInput = {

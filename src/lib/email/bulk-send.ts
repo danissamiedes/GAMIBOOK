@@ -2,14 +2,19 @@ import { prisma } from "@/lib/db";
 import { PostingError } from "@/lib/errors";
 import { writeAudit } from "@/lib/audit";
 import { formatMoney } from "@/lib/currency";
-import { formatAccountingDate } from "@/lib/dates";
 import { money, sum } from "@/lib/money";
 import { renderTemplate, templateFor } from "./templates";
 import { sendEmail, stampEmailed, workOrderRecipients } from "./send";
+import { SENDABLE, type SendableKind } from "./sendable";
 import type { Attachment } from "./mime";
 
 /**
- * Bulk work order send (SPEC §10.1).
+ * Bulk send of work orders or purchase orders (SPEC §10.1).
+ *
+ * One engine, two documents. What differs between them — the table, the
+ * number's name, the template, the placeholders — lives in `sendable.ts`, so
+ * everything below is about sending rather than about which kind is being
+ * sent.
  *
  * The shape of this file follows three requirements that are easy to get
  * wrong and expensive when you do:
@@ -45,9 +50,10 @@ const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 export type PlannedRecipient = {
   vendorId: string;
+  /** The consultant or the vendor, depending on the kind being sent. */
   consultantName: string;
-  workOrderIds: string[];
-  workOrderLabels: string[];
+  documentIds: string[];
+  documentLabels: string[];
   to: string[];
   cc: string[];
   totalLabel: string;
@@ -72,22 +78,20 @@ export type BulkSendPlan = {
 /** What the confirmation screen shows before anything is sent. */
 export async function planBulkSend(options: {
   companyId: string;
-  workOrderIds: string[];
+  kind?: SendableKind;
+  documentIds: string[];
   groupByConsultant: boolean;
 }): Promise<BulkSendPlan> {
-  const workOrders = await prisma.workOrder.findMany({
-    where: { id: { in: options.workOrderIds }, companyId: options.companyId },
-    include: { vendor: true },
-    orderBy: [{ vendor: { name: "asc" } }, { issueDate: "asc" }],
-  });
+  const descriptor = SENDABLE[options.kind ?? "WORK_ORDER"];
+  const documents = await descriptor.fetch(options.companyId, options.documentIds);
 
-  if (workOrders.length === 0) throw new PostingError("No work orders selected");
+  if (documents.length === 0) throw new PostingError(`No ${descriptor.noun}s selected`);
 
-  const groups = new Map<string, typeof workOrders>();
-  for (const workOrder of workOrders) {
-    // Grouped: one message per consultant. Otherwise one per document.
-    const key = options.groupByConsultant ? workOrder.vendorId : workOrder.id;
-    groups.set(key, [...(groups.get(key) ?? []), workOrder]);
+  const groups = new Map<string, typeof documents>();
+  for (const document of documents) {
+    // Grouped: one message per party. Otherwise one per document.
+    const key = options.groupByConsultant ? document.vendorId : document.id;
+    groups.set(key, [...(groups.get(key) ?? []), document]);
   }
 
   const recipients: PlannedRecipient[] = [];
@@ -97,8 +101,8 @@ export async function planBulkSend(options: {
     recipients.push({
       vendorId: vendor.id,
       consultantName: vendor.name,
-      workOrderIds: documents.map((document) => document.id),
-      workOrderLabels: documents.map((document) => document.workOrderNumber ?? "DRAFT"),
+      documentIds: documents.map((document) => document.id),
+      documentLabels: documents.map((document) => document.label),
       to: resolved.to,
       cc: resolved.cc,
       totalLabel: formatMoney(
@@ -106,7 +110,7 @@ export async function planBulkSend(options: {
         documents[0].currency,
       ),
       excludedReason: resolved.reason,
-      includesDrafts: documents.some((document) => document.status === "DRAFT"),
+      includesDrafts: documents.some((document) => document.isDraft),
     });
   }
 
@@ -119,6 +123,7 @@ export async function planBulkSend(options: {
   if (sendable[0]) {
     const preview = await composeMessage({
       companyId: options.companyId,
+      kind: options.kind ?? "WORK_ORDER",
       recipient: sendable[0],
       withAttachments: false,
     });
@@ -143,42 +148,33 @@ export async function planBulkSend(options: {
 /** Build one message, optionally rendering its attachments. */
 async function composeMessage(options: {
   companyId: string;
+  kind: SendableKind;
   recipient: PlannedRecipient;
   withAttachments: boolean;
 }) {
-  const [company, template, workOrders] = await Promise.all([
+  const descriptor = SENDABLE[options.kind];
+  const [company, template, documents] = await Promise.all([
     prisma.company.findUniqueOrThrow({ where: { id: options.companyId } }),
-    templateFor(options.companyId, "WORK_ORDER"),
-    prisma.workOrder.findMany({
-      where: { id: { in: options.recipient.workOrderIds }, companyId: options.companyId },
-      orderBy: { issueDate: "asc" },
-    }),
+    templateFor(options.companyId, descriptor.template),
+    descriptor.fetch(options.companyId, options.recipient.documentIds),
   ]);
 
-  const total = sum(workOrders.map((workOrder) => money(workOrder.total)));
   // Labels come from the documents themselves, not from the caller: the send
   // path has no reason to know them, and a caller that passes none must not
   // silently produce "Work order  from …".
-  const labels = workOrders.map((workOrder) => workOrder.workOrderNumber ?? "DRAFT").join(", ");
-  const values: Record<string, string> = {
-    consultant_name: options.recipient.consultantName,
-    work_order_number: labels,
-    work_order_count: String(workOrders.length),
-    work_order_list: labels,
-    total: formatMoney(total.toFixed(2), workOrders[0]?.currency ?? company.baseCurrency),
-    due_date: workOrders[0] ? formatAccountingDate(workOrders[0].dueDate) : "",
-    company_name: company.name,
-  };
+  const values = descriptor.values(documents, options.recipient.consultantName, company.name);
 
   const attachments: Attachment[] = [];
   if (options.withAttachments) {
     // Loaded here rather than at the top of the file: the renderer is heavy,
     // and a batch raised without attachments must not pay for it.
     const { cachedPdf } = await import("@/lib/pdf/render");
-    for (const workOrder of workOrders) {
+    for (const document of documents) {
       // Rendered at send time from the current document, never from a stale
       // cache (SPEC §10.1).
-      const pdf = await cachedPdf(options.companyId, "work-order", workOrder.id, { force: true });
+      const pdf = await cachedPdf(options.companyId, descriptor.pdfKind, document.id, {
+        force: true,
+      });
       attachments.push({ filename: pdf.filename, content: pdf.bytes });
     }
   }
@@ -193,19 +189,23 @@ async function composeMessage(options: {
 /** Create the batch. Sending happens separately, so the request returns fast. */
 export async function queueBulkSend(options: {
   companyId: string;
-  workOrderIds: string[];
+  kind?: SendableKind;
+  documentIds: string[];
   groupByConsultant: boolean;
   userId?: string | null;
 }) {
+  const kind = options.kind ?? "WORK_ORDER";
+  const descriptor = SENDABLE[kind];
   const plan = await planBulkSend({
     companyId: options.companyId,
-    workOrderIds: options.workOrderIds,
+    kind,
+    documentIds: options.documentIds,
     groupByConsultant: options.groupByConsultant,
   });
 
   if (plan.emailCount === 0) {
     throw new PostingError(
-      "None of the selected work orders can be emailed. Check the consultants' email setup.",
+      `None of the selected ${descriptor.noun}s can be emailed. Check the ${descriptor.partyNoun}s' email setup.`,
     );
   }
   if (plan.emailCount > MAX_BATCH_EMAILS) {
@@ -217,7 +217,7 @@ export async function queueBulkSend(options: {
   const batch = await prisma.emailBatch.create({
     data: {
       companyId: options.companyId,
-      kind: "WORK_ORDER",
+      kind,
       status: "QUEUED",
       groupByConsultant: options.groupByConsultant,
       totalCount: plan.emailCount,
@@ -227,7 +227,7 @@ export async function queueBulkSend(options: {
         create: [
           ...plan.sendable.map((recipient) => ({
             vendorId: recipient.vendorId,
-            workOrderIds: recipient.workOrderIds,
+            documentIds: recipient.documentIds,
             toAddresses: recipient.to,
             ccAddresses: recipient.cc,
             status: "QUEUED" as const,
@@ -236,7 +236,7 @@ export async function queueBulkSend(options: {
           // able to show who did not get anything and why.
           ...plan.excluded.map((recipient) => ({
             vendorId: recipient.vendorId,
-            workOrderIds: recipient.workOrderIds,
+            documentIds: recipient.documentIds,
             toAddresses: [],
             ccAddresses: [],
             status: "SKIPPED" as const,
@@ -250,10 +250,12 @@ export async function queueBulkSend(options: {
   await writeAudit({
     companyId: options.companyId,
     userId: options.userId,
-    action: "work_order.bulk_send_queued",
+    action: kind === "PURCHASE_ORDER"
+      ? "purchase_order.bulk_send_queued"
+      : "work_order.bulk_send_queued",
     entityType: "EmailBatch",
     entityId: batch.id,
-    summary: `${plan.emailCount} emails to ${plan.consultantCount} consultants`,
+    summary: `${plan.emailCount} emails to ${plan.consultantCount} ${descriptor.partyNoun}s`,
   });
 
   return { batchId: batch.id, plan };
@@ -273,6 +275,10 @@ export async function processBatch(
   const budgetMs = options.budgetMs ?? PASS_BUDGET_MS;
   const batch = await prisma.emailBatch.findFirst({ where: { id: batchId, companyId } });
   if (!batch) throw new PostingError("Batch not found in this company");
+  // The batch says which document it carries; it was stored when it was
+  // raised, so a batch queued before this existed is still a work order one.
+  const kind: SendableKind = batch.kind === "PURCHASE_ORDER" ? "PURCHASE_ORDER" : "WORK_ORDER";
+  const descriptor = SENDABLE[kind];
 
   await prisma.emailBatch.updateMany({
     where: { id: batchId, status: { in: ["QUEUED", "COMPLETED_WITH_FAILURES"] } },
@@ -294,7 +300,11 @@ export async function processBatch(
     if (!vendor) {
       await prisma.emailBatchItem.update({
         where: { id: item.id },
-        data: { status: "FAILED", reason: "Consultant no longer exists", attempts: item.attempts + 1 },
+        data: {
+          status: "FAILED",
+          reason: `${descriptor.partyNoun === "vendor" ? "Vendor" : "Consultant"} no longer exists`,
+          attempts: item.attempts + 1,
+        },
       });
       continue;
     }
@@ -304,14 +314,8 @@ export async function processBatch(
     // not hypothetical: a send that stopped half way left nine messages queued,
     // the same nine were re-sent by hand from a new batch, and the old queue
     // still believed it had work to do.
-    const alreadySent = await prisma.workOrder.count({
-      where: {
-        companyId,
-        id: { in: item.workOrderIds },
-        lastEmailedAt: { gt: batch.createdAt },
-      },
-    });
-    if (alreadySent >= item.workOrderIds.length && item.workOrderIds.length > 0) {
+    const alreadySent = await descriptor.emailedSince(companyId, item.documentIds, batch.createdAt);
+    if (alreadySent >= item.documentIds.length && item.documentIds.length > 0) {
       await prisma.emailBatchItem.update({
         where: { id: item.id },
         data: {
@@ -326,11 +330,12 @@ export async function processBatch(
     try {
       const composed = await composeMessage({
         companyId,
+        kind,
         recipient: {
           vendorId: vendor.id,
           consultantName: vendor.name,
-          workOrderIds: item.workOrderIds,
-          workOrderLabels: [],
+          documentIds: item.documentIds,
+          documentLabels: [],
           to: item.toAddresses,
           cc: item.ccAddresses,
           totalLabel: "",
@@ -348,7 +353,7 @@ export async function processBatch(
           where: { id: item.id },
           data: {
             status: "FAILED",
-            reason: `Attachments total ${(attachmentBytes / 1_048_576).toFixed(1)} MB, over the 20 MB limit. Send these work orders separately.`,
+            reason: `Attachments total ${(attachmentBytes / 1_048_576).toFixed(1)} MB, over the 20 MB limit. Send these ${descriptor.noun}s separately.`,
             attempts: item.attempts + 1,
           },
         });
@@ -364,15 +369,15 @@ export async function processBatch(
           subject: composed.subject,
           body: composed.body,
           attachments: composed.attachments,
-          relatedType: "WorkOrder",
-          relatedId: item.workOrderIds[0],
+          relatedType: descriptor.relatedType,
+          relatedId: item.documentIds[0],
         },
       });
 
       if (result.status === "SENT") {
         // Only now is the document marked as sent.
-        for (const workOrderId of item.workOrderIds) {
-          await stampEmailed("WorkOrder", workOrderId, companyId);
+        for (const documentId of item.documentIds) {
+          await stampEmailed(descriptor.relatedType, documentId, companyId);
         }
         await prisma.emailBatchItem.update({
           where: { id: item.id },
@@ -543,19 +548,28 @@ export async function batchWithItems(companyId: string, batchId: string) {
   });
   const names = new Map(vendors.map((vendor) => [vendor.id, vendor.name]));
 
-  const workOrderIds = batch.items.flatMap((item) => item.workOrderIds);
-  const workOrders = await prisma.workOrder.findMany({
-    where: { id: { in: workOrderIds } },
-    select: { id: true, workOrderNumber: true, total: true, currency: true },
-  });
-  const documents = new Map(workOrders.map((workOrder) => [workOrder.id, workOrder]));
+  const kind: SendableKind = batch.kind === "PURCHASE_ORDER" ? "PURCHASE_ORDER" : "WORK_ORDER";
+  const ids = batch.items.flatMap((item) => item.documentIds);
+  const fetched = await SENDABLE[kind].fetch(companyId, ids);
+  const documents = new Map(
+    fetched.map((document) => [
+      document.id,
+      {
+        id: document.id,
+        workOrderNumber: document.label,
+        total: document.total,
+        currency: document.currency,
+      },
+    ]),
+  );
 
   return {
     batch,
+    kind,
     items: batch.items.map((item) => ({
       ...item,
       consultantName: names.get(item.vendorId) ?? "(removed)",
-      documents: item.workOrderIds.map((id) => documents.get(id)).filter(Boolean),
+      documents: item.documentIds.map((id) => documents.get(id)).filter(Boolean),
     })),
   };
 }

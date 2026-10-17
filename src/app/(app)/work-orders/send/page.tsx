@@ -98,7 +98,7 @@ export default async function BulkSendPage({
     params.confirm === "1" && selectedIds.length > 0
       ? await planBulkSend({
           companyId: scope.companyId,
-          workOrderIds: selectedIds,
+          documentIds: selectedIds,
           groupByConsultant,
         }).catch(() => null)
       : null;
@@ -113,7 +113,7 @@ export default async function BulkSendPage({
     try {
       const queued = await queueBulkSend({
         companyId: inner.companyId,
-        workOrderIds: ids,
+        documentIds: ids,
         groupByConsultant: grouped,
         userId: inner.userId,
       });

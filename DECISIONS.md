@@ -3045,3 +3045,41 @@ amendment gives, naming the statement.
 **The button is only shown where it would work.** A paid bill must have its
 payments reversed first and a void expense is already void; the service
 checks both again, so the button is a courtesy rather than the guard.
+
+## Purchase orders are sales orders, not work orders
+
+Vendors needed what consultants have: a document you raise, send, and act on
+later. The shape is the work order's, and the accounting deliberately is not.
+
+**A purchase order posts nothing.** A work order commits to a consultant's
+fee, so approving one lands in accounts payable. Ordering cement owes the
+supplier nothing until the cement turns up, so issuing an order allocates its
+number, makes it sendable, and leaves the ledger alone. The cost arrives with
+the bill — which the order makes, in one press, through the same
+`recordExpense` every other bill goes through. The order and the bill point
+at each other afterwards.
+
+**It can still be edited after issuing.** An invoice never could, but an
+order is a request rather than a record of something that happened, and
+vendors get phoned and asked for two more sheets of plywood. Once it has
+become a bill the bill is the record, and that is what gets corrected.
+
+**One bill per order, coded to one account.** An expense carries a single
+account; an order's lines may be coded to several. Where they agree the bill
+takes that account, and where they do not the receive screen asks. Splitting
+a received order across several bills is a bigger feature than this one.
+
+**One send engine, two documents.** Work orders and purchase orders are
+emailed by the same code: the same batch, the same "who could not be emailed
+and why", the same budget that stops a pass before the host kills it. What
+differs — the table, the number's name, the template, the placeholders —
+lives in `sendable.ts`, so the engine never asks which kind it is carrying.
+`EmailBatchItem.workOrderIds` became `documentIds`, renamed rather than
+replaced, because the batches already sent still have to say what went in
+them.
+
+**One import engine too.** The sheet is the same shape, so the same parser
+and validator read it; the party column is matched against vendors instead
+of consultants, and what comes out is a draft purchase order rather than a
+draft work order. A consultant's name in a vendors' sheet does not match —
+the two lists are kept apart, as their sections are.

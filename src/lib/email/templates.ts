@@ -11,6 +11,7 @@ export const TEMPLATE_LABELS: Record<EmailTemplateKind, string> = {
   INVOICE_REMINDER: "Invoice reminder",
   WORK_ORDER: "Work order",
   PAYMENT_RECEIPT: "Payment receipt",
+  PURCHASE_ORDER: "Purchase order",
 };
 
 /** Placeholders each template may use, shown beside the editor. */
@@ -27,6 +28,15 @@ export const TEMPLATE_PLACEHOLDERS: Record<EmailTemplateKind, string[]> = {
     "work_order_list",
   ],
   PAYMENT_RECEIPT: ["customer_name", "amount", "payment_date", "company_name"],
+  PURCHASE_ORDER: [
+    "vendor_name",
+    "purchase_order_number",
+    "total",
+    "expected_date",
+    "company_name",
+    "purchase_order_count",
+    "purchase_order_list",
+  ],
 };
 
 export const DEFAULT_TEMPLATES: Record<EmailTemplateKind, { subject: string; body: string }> = {
@@ -57,6 +67,17 @@ Thanks,
 Your work order {{work_order_number}} for {{total}} is attached.
 
 Please check the description, quantity and rate, and let us know if anything is wrong.
+
+Thanks,
+{{company_name}}`,
+  },
+  PURCHASE_ORDER: {
+    subject: "Purchase order {{purchase_order_number}} from {{company_name}}",
+    body: `Hi {{vendor_name}},
+
+Our purchase order {{purchase_order_number}} for {{total}} is attached, wanted by {{expected_date}}.
+
+Please confirm the items, quantities and prices, and let us know if anything cannot be supplied.
 
 Thanks,
 {{company_name}}`,

@@ -10,6 +10,8 @@ import { ConfigurationError } from "@/lib/errors";
 const KINDS = {
   invoice: { section: "SALES" as const, kind: "invoice" as const },
   "work-order": { section: "CONSULTANTS" as const, kind: "work-order" as const },
+  // A purchase order belongs to Vendors, as the orders themselves do.
+  "purchase-order": { section: "VENDORS" as const, kind: "purchase-order" as const },
   receipt: { section: "SALES" as const, kind: "receipt" as const },
 };
 

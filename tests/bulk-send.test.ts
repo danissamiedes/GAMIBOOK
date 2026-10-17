@@ -89,7 +89,7 @@ describe("bulk work order send", () => {
 
     const plan = await planBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: ids,
+      documentIds: ids,
       groupByConsultant: false,
     });
 
@@ -112,13 +112,13 @@ describe("bulk work order send", () => {
 
     const plan = await planBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: ids,
+      documentIds: ids,
       groupByConsultant: true,
     });
 
     expect(plan.emailCount).toBe(2);
     const abigailPlan = plan.sendable.find((recipient) => recipient.consultantName === "Abigail Bautista")!;
-    expect(abigailPlan.workOrderIds).toHaveLength(2);
+    expect(abigailPlan.documentIds).toHaveLength(2);
   });
 
   it("lists a consultant who cannot be emailed instead of skipping silently", async () => {
@@ -134,7 +134,7 @@ describe("bulk work order send", () => {
 
     const plan = await planBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: ids,
+      documentIds: ids,
       groupByConsultant: false,
     });
 
@@ -153,7 +153,7 @@ describe("bulk work order send", () => {
 
     const { batchId } = await queueBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: orders.map((order) => order.id),
+      documentIds: orders.map((order) => order.id),
       groupByConsultant: false,
     });
     const finished = await processBatch(fixture.company.id, batchId);
@@ -184,7 +184,7 @@ describe("bulk work order send", () => {
 
     const { batchId } = await queueBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: ids,
+      documentIds: ids,
       groupByConsultant: true,
     });
     await processBatch(fixture.company.id, batchId);
@@ -208,7 +208,7 @@ describe("bulk work order send", () => {
 
     const { batchId } = await queueBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: orders.map((order) => order.id),
+      documentIds: orders.map((order) => order.id),
       groupByConsultant: false,
     });
 
@@ -227,7 +227,7 @@ describe("bulk work order send", () => {
     // The two that worked are stamped; the failure is not.
     const failedItem = await prisma.emailBatchItem.findUniqueOrThrow({ where: { id: items[1].id } });
     const failedOrder = await prisma.workOrder.findUniqueOrThrow({
-      where: { id: failedItem.workOrderIds[0] },
+      where: { id: failedItem.documentIds[0] },
     });
     expect(failedOrder.lastEmailedAt).toBeNull();
 
@@ -255,7 +255,7 @@ describe("bulk work order send", () => {
     const abigail = await consultant("Abigail Bautista");
     const { batchId } = await queueBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: [(await workOrder(abigail.id)).id],
+      documentIds: [(await workOrder(abigail.id)).id],
       groupByConsultant: false,
     });
     await processBatch(fixture.company.id, batchId);
@@ -269,7 +269,7 @@ describe("bulk work order send", () => {
     const abigail = await consultant("Abigail Bautista");
     const { batchId } = await queueBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: [(await workOrder(abigail.id)).id],
+      documentIds: [(await workOrder(abigail.id)).id],
       groupByConsultant: false,
     });
 
@@ -285,7 +285,7 @@ describe("bulk work order send", () => {
 
     const { batchId } = await queueBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: [(await workOrder(abigail.id)).id, (await workOrder(chareze.id)).id],
+      documentIds: [(await workOrder(abigail.id)).id, (await workOrder(chareze.id)).id],
       groupByConsultant: false,
     });
     await processBatch(fixture.company.id, batchId);
@@ -303,7 +303,7 @@ describe("bulk work order send", () => {
 
     const plan = await planBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: [draft.id],
+      documentIds: [draft.id],
       groupByConsultant: false,
     });
     expect(plan.draftCount).toBe(1);
@@ -311,7 +311,7 @@ describe("bulk work order send", () => {
     // Emailing a draft posts nothing (SPEC §8.1).
     const { batchId } = await queueBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: [draft.id],
+      documentIds: [draft.id],
       groupByConsultant: false,
     });
     await processBatch(fixture.company.id, batchId);
@@ -323,7 +323,7 @@ describe("bulk work order send", () => {
     await expect(
       queueBulkSend({
         companyId: fixture.company.id,
-        workOrderIds: [(await workOrder(chareze.id)).id],
+        documentIds: [(await workOrder(chareze.id)).id],
         groupByConsultant: false,
       }),
     ).rejects.toThrow(/None of the selected work orders can be emailed/);
@@ -347,7 +347,7 @@ describe("bulk work order send", () => {
       }
       const { batchId } = await queueBulkSend({
         companyId: fixture.company.id,
-        workOrderIds: ids,
+        documentIds: ids,
         groupByConsultant: false,
       });
       // A 1 ms budget is spent by the first message, so the pass stops after
@@ -404,7 +404,7 @@ describe("bulk work order send", () => {
 
       // Sent by hand, after this batch was raised.
       await prisma.workOrder.updateMany({
-        where: { id: { in: stranded.flatMap((item) => item.workOrderIds) } },
+        where: { id: { in: stranded.flatMap((item) => item.documentIds) } },
         data: { lastEmailedAt: new Date() },
       });
 
@@ -429,7 +429,7 @@ describe("bulk work order send", () => {
       const abigail = await consultant("Abigail Bautista");
       const { batchId } = await queueBulkSend({
         companyId: fixture.company.id,
-        workOrderIds: [(await workOrder(abigail.id)).id],
+        documentIds: [(await workOrder(abigail.id)).id],
         groupByConsultant: false,
       });
       await processBatch(fixture.company.id, batchId);
@@ -442,7 +442,7 @@ describe("bulk work order send", () => {
     const abigail = await consultant("Abigail Bautista");
     const { batchId } = await queueBulkSend({
       companyId: fixture.company.id,
-      workOrderIds: [(await workOrder(abigail.id)).id],
+      documentIds: [(await workOrder(abigail.id)).id],
       groupByConsultant: false,
     });
 

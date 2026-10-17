@@ -128,6 +128,7 @@ enum ImportBatchKind {
   BANK
   MIGRATION
   EXPENSE
+  PURCHASE_ORDER
 }
 
 /// SPEC §8.3. Upload never writes documents directly: rows are staged,
@@ -176,6 +177,19 @@ enum EmailTemplateKind {
   INVOICE_REMINDER
   WORK_ORDER
   PAYMENT_RECEIPT
+  PURCHASE_ORDER
+}
+
+/// SPEC §8.1a. What has been ordered from a vendor, and how far along it is.
+/// Like a sales order and unlike a work order, none of these states posts
+/// anything: the liability arrives with the bill.
+enum PurchaseOrderStatus {
+  DRAFT
+  /// Numbered and sendable. Still nothing in the ledger.
+  ISSUED
+  /// The goods came and the bill was made from it.
+  RECEIVED
+  CANCELLED
 }
 
 /// SPEC §7.1a. A sales order is not an accounting record: confirming one posts
@@ -274,6 +288,7 @@ enum SequenceKind {
   WORK_ORDER
   JOURNAL_ENTRY
   SALES_ORDER
+  PURCHASE_ORDER
 }
 
 model Organization {
@@ -388,6 +403,7 @@ model Company {
   receiptUploads            ReceiptUpload[]
   tasks                     Task[]
   partyNotes                PartyNote[]
+  purchaseOrders            PurchaseOrder[]
   reclassifications         Reclassification[]
 
   @@index([organizationId])
@@ -840,15 +856,16 @@ model Vendor {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company      Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user         User?                   @relation(fields: [userId], references: [id])
-  workOrders   WorkOrder[]
-  expenses     Expense[]
-  billPayments BillPayment[]
-  recurring    RecurringBillTemplate[]
-  journalLines JournalLine[]
-  timeEntries  TimeEntry[]
-  partyNotes   PartyNote[]
+  company        Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user           User?                   @relation(fields: [userId], references: [id])
+  workOrders     WorkOrder[]
+  purchaseOrders PurchaseOrder[]
+  expenses       Expense[]
+  billPayments   BillPayment[]
+  recurring      RecurringBillTemplate[]
+  journalLines   JournalLine[]
+  timeEntries    TimeEntry[]
+  partyNotes     PartyNote[]
 
   @@unique([companyId, externalRef])
   @@index([companyId, kind, name])
@@ -940,6 +957,8 @@ model Expense {
   receiptUrl       String?
   isBillable       Boolean     @default(false)
   customerId       String?
+  /// Set when this bill was made from a purchase order (SPEC §8.1a).
+  purchaseOrderId  String?     @unique
   dueDate          DateTime?   @db.Date
 
   status       PayableStatus @default(PAID)
@@ -952,13 +971,14 @@ model Expense {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  company      Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  vendor       Vendor?                  @relation(fields: [vendorId], references: [id])
-  applications BillPaymentApplication[]
-  receipt      ReceiptUpload?
+  company       Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor        Vendor?                  @relation(fields: [vendorId], references: [id])
+  purchaseOrder PurchaseOrder?           @relation(fields: [purchaseOrderId], references: [id])
+  applications  BillPaymentApplication[]
+  receipt       ReceiptUpload?
   /// Set when this expense was recorded by a recurring template (SPEC §8.2a).
-  recurringRun RecurringBillRun?
-  tasks        Task[]
+  recurringRun  RecurringBillRun?
+  tasks         Task[]
 
   @@index([companyId, kind, status])
   @@index([companyId, kind, date])
@@ -998,11 +1018,12 @@ model BillPayment {
 
 /// Points at a work order or an expense recorded as a bill — exactly one.
 model BillPaymentApplication {
-  id            String  @id @default(cuid())
-  billPaymentId String
-  workOrderId   String?
-  expenseId     String?
-  amountApplied Decimal @db.Decimal(18, 2)
+  id              String  @id @default(cuid())
+  billPaymentId   String
+  workOrderId     String?
+  expenseId       String?
+  purchaseOrderId String?
+  amountApplied   Decimal @db.Decimal(18, 2)
 
   billPayment BillPayment @relation(fields: [billPaymentId], references: [id], onDelete: Cascade)
   workOrder   WorkOrder?  @relation(fields: [workOrderId], references: [id])
@@ -1217,20 +1238,21 @@ model ImportBatch {
 }
 
 model ImportRow {
-  id            String          @id @default(cuid())
-  importBatchId String
-  rowNumber     Int
+  id              String          @id @default(cuid())
+  importBatchId   String
+  rowNumber       Int
   /// Exactly what the sheet said, before any interpretation.
-  rawJson       Json
+  rawJson         Json
   /// What it was understood to mean, after matching and parsing.
-  parsedJson    Json?
-  status        ImportRowStatus @default(VALID)
+  parsedJson      Json?
+  status          ImportRowStatus @default(VALID)
   /// [{ column, message, severity }]
-  issues        Json?
+  issues          Json?
   /// Which document this row ended up on, once committed. A row makes one or
   /// the other, never both: which one depends on the batch's kind.
-  workOrderId   String?
-  expenseId     String?
+  workOrderId     String?
+  expenseId       String?
+  purchaseOrderId String?
 
   batch ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
 
@@ -1270,8 +1292,9 @@ model EmailBatchItem {
   id           String               @id @default(cuid())
   emailBatchId String
   vendorId     String
-  /// The documents attached to this one message.
-  workOrderIds String[]
+  /// The documents attached to this one message — work orders or purchase
+  /// orders, as the batch's kind says.
+  documentIds  String[]
   toAddresses  String[]
   ccAddresses  String[]
   status       EmailBatchItemStatus @default(QUEUED)
@@ -1689,12 +1712,13 @@ model Task {
   createdByUserId String?
 
   /// At most one of these is set. None means a task with no document behind it.
-  invoiceId     String?
-  salesOrderId  String?
-  workOrderId   String?
-  expenseId     String?
-  billPaymentId String?
-  paymentId     String?
+  invoiceId       String?
+  salesOrderId    String?
+  workOrderId     String?
+  expenseId       String?
+  purchaseOrderId String?
+  billPaymentId   String?
+  paymentId       String?
 
   completedAt       DateTime?
   completedByUserId String?
@@ -2138,4 +2162,68 @@ model ReclassificationLine {
 
   @@index([reclassificationId])
   @@index([sourceJournalLineId])
+}
+
+/// SPEC §8.1a. What this company has ordered from a vendor.
+///
+/// A purchase order is the mirror of a sales order, not of a work order: it
+/// **posts nothing**. It records what was ordered and sent; the cost reaches
+/// the books when the goods arrive and the bill is made from it. A work order
+/// commits to a consultant's fee and so lands in A/P on approval; ordering
+/// cement does not owe anybody anything until the cement turns up.
+model PurchaseOrder {
+  id           String              @id @default(cuid())
+  companyId    String
+  vendorId     String
+  /// Allocated when the order is issued, from its own sequence.
+  orderNumber  String?
+  orderDate    DateTime            @db.Date
+  /// When the goods are wanted. Printed on the order the vendor receives.
+  expectedDate DateTime?           @db.Date
+  currency     String              @db.Char(3)
+  fxRate       Decimal             @default(1) @db.Decimal(18, 8)
+  status       PurchaseOrderStatus @default(DRAFT)
+  /// Where it is to be delivered, and anything else the vendor must read.
+  shipTo       String?
+  memo         String?
+  total        Decimal             @default(0) @db.Decimal(18, 2)
+
+  issuedAt        DateTime?
+  lastEmailedAt   DateTime?
+  receivedAt      DateTime?
+  cancelledAt     DateTime?
+  /// Set when the order came from a spreadsheet import (SPEC §8.3).
+  importBatchId   String?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor  Vendor              @relation(fields: [vendorId], references: [id])
+  lines   PurchaseOrderLine[]
+  /// The bill this order became, once the goods arrived.
+  expense Expense?
+
+  @@unique([companyId, orderNumber])
+  @@index([companyId, status])
+  @@index([companyId, vendorId])
+  @@index([companyId, orderDate])
+}
+
+/// One ordered thing (SPEC §8.1a). The account is where it will be coded when
+/// the bill is made, carried here so the decision is taken once.
+model PurchaseOrderLine {
+  id               String  @id @default(cuid())
+  purchaseOrderId  String
+  lineNumber       Int
+  itemId           String?
+  description      String
+  quantity         Decimal @db.Decimal(18, 4)
+  rate             Decimal @db.Decimal(18, 6)
+  amount           Decimal @db.Decimal(18, 2)
+  expenseAccountId String
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@unique([purchaseOrderId, lineNumber])
 }

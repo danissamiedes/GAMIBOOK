@@ -49,7 +49,8 @@ describe("creating a company", () => {
 
     // Without these three it is reachable and broken.
     expect(await prisma.account.count({ where: { companyId: company.id } })).toBeGreaterThan(10);
-    expect(await prisma.numberSequence.count({ where: { companyId: company.id } })).toBe(4);
+    // Invoices, work orders, journal entries, sales orders, purchase orders.
+    expect(await prisma.numberSequence.count({ where: { companyId: company.id } })).toBe(5);
     const membership = await prisma.membership.findFirstOrThrow({
       where: { companyId: company.id, userId: owner.id },
     });

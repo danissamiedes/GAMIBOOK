@@ -104,12 +104,18 @@ export async function validateRows(options: {
   companyId: string;
   rows: RawRow[];
   dateFormat?: "MDY" | "DMY" | "ISO";
-  /** Manual mappings made in the review screen: sheet name → consultant id. */
+  /** Manual mappings made in the review screen: sheet name → party id. */
   consultantOverrides?: Record<string, string>;
+  /**
+   * Whose names the sheet's party column is matched against. Work orders are
+   * a consultant's; purchase orders are a vendor's, and the two lists must
+   * not be crossed — the sections guarding them differ (SPEC §6).
+   */
+  partyKind?: "CONSULTANT" | "REGULAR";
 }): Promise<ValidationResult> {
   const [consultants, accounts, company] = await Promise.all([
     prisma.vendor.findMany({
-      where: { companyId: options.companyId, kind: "CONSULTANT" },
+      where: { companyId: options.companyId, kind: options.partyKind ?? "CONSULTANT" },
       select: {
         id: true,
         name: true,

@@ -213,6 +213,66 @@ export async function renderWorkOrderPdf(
   };
 }
 
+/**
+ * SPEC §11: `PurchaseOrder-{number}-{vendor-slug}.pdf`, DRAFT-safe.
+ *
+ * This one goes to a supplier who has not agreed to anything yet, so it says
+ * what is wanted, when, and where to deliver it — and no balances, because
+ * nothing is owed on an order.
+ */
+export async function renderPurchaseOrderPdf(
+  companyId: string,
+  purchaseOrderId: string,
+): Promise<RenderedPdf> {
+  const order = await prisma.purchaseOrder.findFirstOrThrow({
+    where: { id: purchaseOrderId, companyId },
+    include: { vendor: true, lines: { orderBy: { lineNumber: "asc" } } },
+  });
+  const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });
+  const branding = await brandingFor(companyId);
+  const currency = order.currency;
+
+  const notes: string[] = ["This is an order, not a bill. Please invoice on delivery."];
+  if (order.shipTo?.trim()) notes.push(`Deliver to: ${order.shipTo.trim()}`);
+  if (currency !== company.baseCurrency) {
+    notes.push(`Priced in ${currency}.`);
+  }
+
+  const bytes = await render(branding, {
+    title: "Purchase Order",
+    number: order.orderNumber ?? "DRAFT",
+    isDraft: order.status === "DRAFT",
+    currency,
+    partyLabel: "To",
+    partyName: order.vendor.name,
+    partyAddressLines: order.vendor.email ? [order.vendor.email] : [],
+    fields: [
+      { label: "Date", value: formatAccountingDate(order.orderDate) },
+      ...(order.expectedDate
+        ? [{ label: "Wanted by", value: formatAccountingDate(order.expectedDate) }]
+        : []),
+      { label: "Currency", value: currency },
+    ],
+    lines: order.lines.map((line) => ({
+      description: line.description,
+      quantity: line.quantity.toFixed(2),
+      rate: line.rate.toFixed(2),
+      amount: formatMoney(line.amount.toFixed(2), currency),
+    })),
+    totals: [
+      { label: "Total", value: formatMoney(order.total.toFixed(2), currency), strong: true },
+    ],
+    memo: order.memo,
+    notes,
+  });
+
+  const identifier = order.orderNumber ?? `DRAFT-${order.id.slice(-6)}`;
+  return {
+    filename: `PurchaseOrder-${identifier}-${slug(order.vendor.name)}.pdf`,
+    bytes,
+  };
+}
+
 /** Payment receipt for a customer payment (SPEC §11). */
 export async function renderReceiptPdf(companyId: string, paymentId: string): Promise<RenderedPdf> {
   const payment = await prisma.payment.findFirstOrThrow({
@@ -274,7 +334,7 @@ export async function renderReceiptPdf(companyId: string, paymentId: string): Pr
  */
 export async function cachedPdf(
   companyId: string,
-  kind: "invoice" | "work-order" | "receipt",
+  kind: "invoice" | "work-order" | "purchase-order" | "receipt",
   id: string,
   options: { force?: boolean } = {},
 ): Promise<RenderedPdf> {
@@ -297,7 +357,9 @@ export async function cachedPdf(
       ? await renderInvoicePdf(companyId, id)
       : kind === "work-order"
         ? await renderWorkOrderPdf(companyId, id)
-        : await renderReceiptPdf(companyId, id);
+        : kind === "purchase-order"
+          ? await renderPurchaseOrderPdf(companyId, id)
+          : await renderReceiptPdf(companyId, id);
 
   await withStorage("upload", () => storage().put(key, rendered.bytes, "application/pdf"));
   return rendered;
@@ -318,6 +380,14 @@ async function filenameFor(companyId: string, kind: string, id: string): Promise
     });
     const identifier = workOrder.workOrderNumber ?? `DRAFT-${workOrder.id.slice(-6)}`;
     return `WorkOrder-${identifier}-${slug(workOrder.vendor.name)}.pdf`;
+  }
+  if (kind === "purchase-order") {
+    const order = await prisma.purchaseOrder.findFirstOrThrow({
+      where: { id, companyId },
+      include: { vendor: { select: { name: true } } },
+    });
+    const identifier = order.orderNumber ?? `DRAFT-${order.id.slice(-6)}`;
+    return `PurchaseOrder-${identifier}-${slug(order.vendor.name)}.pdf`;
   }
   const payment = await prisma.payment.findFirstOrThrow({
     where: { id, companyId },

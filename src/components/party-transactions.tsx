@@ -207,12 +207,29 @@ export function PartyTransactions({
                 className="border-b border-slate-100 align-top dark:border-slate-800/60"
               >
                 <td className="py-2 pr-2 whitespace-nowrap text-sm">
-                  <Link href={row.href} className="underline decoration-dotted underline-offset-2">
-                    {formatAccountingDate(row.date)}
-                  </Link>
+                  {formatAccountingDate(row.date)}
                 </td>
-                <td className="py-2 pr-2 text-sm">{row.label}</td>
-                <td className="py-2 pr-2 font-mono text-xs">{row.reference ?? "—"}</td>
+                <td className="py-2 pr-2 text-sm">
+                  {/* The reference is the way in, so a document with none is
+                      opened by its type instead: every row has exactly one
+                      link, and it is never the date. */}
+                  {row.reference ? (
+                    row.label
+                  ) : (
+                    <Link href={row.href} className="underline decoration-dotted underline-offset-2">
+                      {row.label}
+                    </Link>
+                  )}
+                </td>
+                <td className="py-2 pr-2 font-mono text-xs">
+                  {row.reference ? (
+                    <Link href={row.href} className="underline decoration-dotted underline-offset-2">
+                      {row.reference}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td className="py-2 pr-2 text-sm">{row.description}</td>
                 <td
                   className={`py-2 pr-2 text-right tabular-nums text-sm ${

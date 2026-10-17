@@ -35,6 +35,17 @@ for (const subject of PAGES) {
     await expect(page.getByText("Total billed")).toBeVisible();
     await expect(page.getByRole(NAME_FIELD.role, NAME_FIELD)).toHaveCount(0);
 
+    // The way into a document is its reference, never its date.
+    const dates = page.locator("tbody td:first-child a");
+    await expect(dates).toHaveCount(0);
+    const firstLink = page.locator("tbody a").first();
+    if (await firstLink.count()) {
+      await firstLink.click();
+      // Whatever the document is, it opens somewhere that is not this tab.
+      await expect(page).not.toHaveURL(new RegExp(`${subject.prefix}[a-z0-9]+$`));
+      await page.goBack();
+    }
+
     // A period narrows the rows, and says so in the address.
     await page.getByRole("link", { name: "This year" }).click();
     await expect(page).toHaveURL(/from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);

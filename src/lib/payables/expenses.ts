@@ -6,6 +6,7 @@ import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { systemAccount } from "@/lib/ledger/chart";
 import { accountingDate, postJournalEntry, reverseJournalEntry } from "@/lib/ledger/post";
 import { amendPosting } from "@/lib/ledger/amend";
+import { reconciliationLock } from "@/lib/bank/reconcile";
 import {
   ERASE_ENTRY_INCLUDE,
   eraseEntry,
@@ -205,6 +206,12 @@ export async function voidExpense(input: {
       orderBy: { postedAt: "asc" },
     });
     if (original && !original.reversedByEntryId) {
+      // A reconciled entry cannot be reversed under the statement that
+      // cleared it (SPEC §8.4a) — the reconciliation would go on claiming to
+      // balance while no longer doing so. The same guard an amendment uses.
+      const reconciled = await reconciliationLock(input.companyId, original.id, tx);
+      if (reconciled) throw new PostingError(reconciled);
+
       await reverseJournalEntry(
         {
           companyId: input.companyId,

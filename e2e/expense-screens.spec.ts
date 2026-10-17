@@ -43,6 +43,17 @@ test("an expense is recorded, read and corrected on screens of its own", async (
 
   await expect(page).toHaveURL(/\/expenses\/[a-z0-9]+\?saved=1/);
   await expect(page.getByText(`Screens ${stamp} corrected`).first()).toBeVisible();
+
+  // ---- And it can be voided from the same screen ----------------------
+  await page.getByRole("link", { name: "Void" }).click();
+  await expect(page.getByRole("heading", { name: /Void this expense/ })).toBeVisible();
+  await page.getByRole("button", { name: "Void it" }).click();
+
+  await expect(page.getByText(/Voided\./)).toBeVisible({ timeout: 30000 });
+  // The document stays, marked, and offers no second void.
+  await expect(page.getByText(/was voided/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Void" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Edit" })).toHaveCount(0);
 });
 
 test("a consultant bill is recorded on a screen of its own", async ({ page }) => {

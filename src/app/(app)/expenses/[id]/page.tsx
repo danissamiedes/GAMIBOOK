@@ -1,17 +1,20 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { pageTitle } from "@/lib/brand";
 import { prisma } from "@/lib/db";
 import { companyScope } from "@/lib/session-scope";
 import { formatMoney } from "@/lib/currency";
-import { formatAccountingDate } from "@/lib/dates";
+import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
 import { money, sum } from "@/lib/money";
 import { linkLabel, safeExternalUrl } from "@/lib/links";
-import { Alert, Button, Card, DataTable, PageHeader } from "@/components/ui";
+import { Alert, Button, Card, DataTable, Field, Input, PageHeader } from "@/components/ui";
+import { voidExpense } from "@/lib/payables/expenses";
+import { PostingError } from "@/lib/errors";
+import { failTo } from "@/lib/fail";
+import { writeAudit } from "@/lib/audit";
 import { TaskDialog } from "@/components/task-dialog";
 import { addTask } from "@/app/(app)/tasks/actions";
 import { assignableUsers } from "@/lib/tasks";
-import { isoDate, today } from "@/lib/dates";
 
 export const metadata = { title: pageTitle("Expense") };
 
@@ -34,11 +37,19 @@ export default async function ExpensePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ saved?: string; taskSaved?: string; taskError?: string }>;
+  searchParams: Promise<{
+    saved?: string;
+    void?: string;
+    voided?: string;
+    error?: string;
+    taskSaved?: string;
+    taskError?: string;
+  }>;
 }) {
   const scope = await companyScope();
   const { id } = await params;
-  const { saved, taskSaved, taskError } = await searchParams;
+  const params_ = await searchParams;
+  const { saved, voided, error, taskSaved, taskError } = params_;
 
   const expense = await prisma.expense.findFirst({
     where: { id, ...scope.where },
@@ -96,10 +107,50 @@ export default async function ExpensePage({
   const expenseAccount = byId.get(expense.expenseAccountId) ?? null;
   const paymentAccount = expense.paymentAccountId ? byId.get(expense.paymentAccountId) ?? null : null;
 
+  /**
+   * Voiding: the document stays, its posting is undone (SPEC §8.2).
+   *
+   * Dated to the expense by default, so the month it was wrongly in nets to
+   * nothing — the same reasoning an amendment uses. A later date is offered
+   * because a closed year is sometimes corrected in the open one instead,
+   * and that is the accountant's call rather than ours.
+   */
+  async function voidIt(formData: FormData) {
+    "use server";
+    const inner = await companyScope();
+    const back = `/expenses/${id}`;
+    const when = parseAccountingDate(String(formData.get("date") || ""));
+    try {
+      await voidExpense({
+        companyId: inner.companyId,
+        expenseId: id,
+        date: when ?? today(),
+        userId: inner.userId,
+        role: inner.role,
+      });
+      await writeAudit({
+        companyId: inner.companyId,
+        userId: inner.userId,
+        action: "expense.voided",
+        entityType: "Expense",
+        entityId: id,
+      });
+    } catch (thrown) {
+      if (thrown instanceof PostingError) failTo(back, thrown.message);
+      throw thrown;
+    }
+    redirect(`${back}?voided=1`);
+  }
+
   const bill = expense.kind === "BILL";
   const listHref = consultant ? "/consultant-bills" : `/expenses?tab=${bill ? "bill" : "direct"}`;
   const editHref = `/expenses/${expense.id}/edit`;
   const live = expense.applications.filter((row) => !row.billPayment.reversedAt);
+  // Offered only where it would be allowed: a paid bill must have its
+  // payments reversed first, and a void expense is already void. The service
+  // checks both again — this only decides whether to show the button.
+  const voidable = expense.status !== "VOID" && live.length === 0;
+  const confirmingVoid = voidable && params_.void === "1";
   const receiptUrl = safeExternalUrl(expense.receiptUrl);
 
   return (
@@ -125,6 +176,11 @@ export default async function ExpensePage({
             <Button variant="secondary">Edit</Button>
           </Link>
         ) : null}
+        {voidable ? (
+          <Link href={`/expenses/${expense.id}?void=1`}>
+            <Button variant="secondary">Void</Button>
+          </Link>
+        ) : null}
       </div>
 
       {saved ? (
@@ -132,6 +188,12 @@ export default async function ExpensePage({
           Saved. {expense.status === "VOID" ? "" : "The entry below is what posted."}
         </Alert>
       ) : null}
+      {voided ? (
+        <Alert tone="success">
+          Voided. The document stays on file and its posting has been reversed.
+        </Alert>
+      ) : null}
+      {error ? <Alert tone="error">{error}</Alert> : null}
       {taskSaved ? <Alert tone="success">Task saved.</Alert> : null}
       {taskError ? <Alert tone="error">{decodeURIComponent(taskError)}</Alert> : null}
 
@@ -140,6 +202,38 @@ export default async function ExpensePage({
           This expense was voided{expense.voidedAt ? ` on ${formatAccountingDate(expense.voidedAt)}` : ""}.
           It stays on file, and its posting has been reversed.
         </Alert>
+      ) : null}
+
+      {confirmingVoid ? (
+        <Card className="mb-4">
+          <h2 className="mb-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
+            Void this {bill ? "bill" : "expense"}?
+          </h2>
+          <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+            {formatMoney(expense.amount.toFixed(2), expense.currency)} — {expense.description}.
+            The document stays exactly as it is and a reversing entry is posted against it, so
+            the accounts read as though it had never been recorded. Nothing is deleted, and the
+            reversal shows in the journal. To remove it altogether instead, delete it from the
+            list — that is only possible while nothing has been built on it.
+          </p>
+          <form action={voidIt} className="flex flex-wrap items-end gap-3">
+            <Field
+              label="Reversal date"
+              hint="Dated to the expense, so the month it was in nets to nothing."
+            >
+              <Input type="date" name="date" defaultValue={isoDate(expense.date)} />
+            </Field>
+            <Button variant="danger" type="submit">
+              Void it
+            </Button>
+            <Link
+              href={`/expenses/${expense.id}`}
+              className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Cancel
+            </Link>
+          </form>
+        </Card>
       ) : null}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">

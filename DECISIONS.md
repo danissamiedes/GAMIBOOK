@@ -3017,3 +3017,31 @@ tasks and payments now are.
 **The consultant bills screen got the same treatment**, because the two
 screens sit beside each other in the same app and one of them keeping a form
 in a side column would just be the old problem in a quieter place.
+
+## Voiding an expense, and what it is not
+
+The ledger could void an expense from the day it was written; no screen ever
+offered it, so the only way to undo one was Delete, which is allowed in far
+fewer cases and leaves nothing behind.
+
+**Void keeps the document and reverses the posting.** The expense stays on
+file with everything it said, marked void, and a reversing entry puts the
+accounts back. Delete removes it as though it had never been recorded, and
+is only possible while nothing has been built on it. Both are now reachable
+and the confirmation for each says which is which.
+
+**Dated to the expense by default.** The reversal lands in the month the
+expense was in, so that month nets to nothing and no other month moves —
+the same reasoning an amendment uses. The date is offered on the
+confirmation because a closed year is sometimes corrected in the open one
+instead, and that is the accountant's call.
+
+**A reconciled entry cannot be voided.** This was a real hole: voiding
+reversed the posting without asking whether a signed-off bank statement had
+already cleared it, which would have left the reconciliation claiming to
+balance while no longer doing so. It now refuses with the same message an
+amendment gives, naming the statement.
+
+**The button is only shown where it would work.** A paid bill must have its
+payments reversed first and a void expense is already void; the service
+checks both again, so the button is a courtesy rather than the guard.

@@ -6,7 +6,7 @@ import {
   type PartyTotals,
   type PartyTransaction,
 } from "@/lib/parties/transactions";
-import { Alert, Card, DataTable, EmptyState } from "@/components/ui";
+import { Alert, Button, Card, DataTable, EmptyState, Field, Input } from "@/components/ui";
 
 /**
  * The two faces of a party's record (SPEC §6).
@@ -14,6 +14,10 @@ import { Alert, Card, DataTable, EmptyState } from "@/components/ui";
  * Plain links rather than a client-side switch: a tab is a different question
  * about the same party, so it deserves its own address — one that can be
  * bookmarked, opened in a second tab, and come back to after a save.
+ *
+ * Transactions comes first and opens by default, because "what have we had
+ * from them and what do we owe" is why somebody clicks a name; the fields
+ * that describe them are what you go to when you need to change something.
  */
 export function PartyTabs({
   base,
@@ -28,12 +32,12 @@ export function PartyTabs({
   label: string;
 }) {
   const tabs = [
-    { key: "details" as const, label: "Details", href: base },
     {
       key: "transactions" as const,
       label: `Transactions${transactionCount > 0 ? ` (${transactionCount})` : ""}`,
-      href: `${base}?tab=transactions`,
+      href: base,
     },
+    { key: "details" as const, label: "Details", href: `${base}?tab=details` },
   ];
 
   return (
@@ -74,24 +78,83 @@ export function PartyTransactions({
   truncated,
   baseCurrency,
   emptyTitle,
+  base,
+  from,
+  to,
+  presets,
 }: {
   rows: PartyTransaction[];
   totals: PartyTotals;
   truncated: boolean;
   baseCurrency: string;
   emptyTitle: string;
+  /** This party's page, which the filter form and the export hang off. */
+  base: string;
+  /** The period being shown, as yyyy-mm-dd, or "" for all dates. */
+  from: string;
+  to: string;
+  presets: { label: string; href: string }[];
 }) {
+  const filtered = Boolean(from || to);
+  const exportQuery = new URLSearchParams();
+  if (from) exportQuery.set("from", from);
+  if (to) exportQuery.set("to", to);
+  const exportHref = `${base}/export${exportQuery.size > 0 ? `?${exportQuery}` : ""}`;
+
+  const period = (
+    <Card className="mb-4">
+      {/* A GET form, so the period is in the address: a filtered account is a
+          link somebody can send to their accountant. */}
+      <form className="flex flex-wrap items-end gap-3">
+        <input type="hidden" name="tab" value="transactions" />
+        <Field label="From">
+          <Input type="date" name="from" defaultValue={from} />
+        </Field>
+        <Field label="To">
+          <Input type="date" name="to" defaultValue={to} />
+        </Field>
+        <Button type="submit">Apply</Button>
+        {filtered ? (
+          <Link href={base}>
+            <Button type="button" variant="ghost">
+              All dates
+            </Button>
+          </Link>
+        ) : null}
+        <a href={exportHref} className="ml-auto">
+          <Button type="button" variant="secondary">
+            Export to Excel
+          </Button>
+        </a>
+      </form>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {presets.map((preset) => (
+          <Link key={preset.label} href={preset.href}>
+            <Button type="button" variant="ghost">
+              {preset.label}
+            </Button>
+          </Link>
+        ))}
+      </div>
+    </Card>
+  );
+
   if (rows.length === 0) {
     return (
-      <EmptyState title={emptyTitle}>
-        Bills, direct expenses, work orders and payments recorded against this record will all
-        appear here.
-      </EmptyState>
+      <>
+        {period}
+        <EmptyState title={filtered ? "Nothing in that period" : emptyTitle}>
+          {filtered
+            ? "Bills, expenses, work orders and payments dated in the chosen period would appear here. Try a wider period, or clear it."
+            : "Bills, direct expenses, work orders and payments recorded against this record will all appear here."}
+        </EmptyState>
+      </>
     );
   }
 
   return (
     <>
+      {period}
       <div className="mb-4 grid gap-4 sm:grid-cols-3">
         <Card tone="muted">
           <p className="text-xs uppercase tracking-wide text-slate-500">Total billed</p>

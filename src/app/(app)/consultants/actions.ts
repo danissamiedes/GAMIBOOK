@@ -51,7 +51,7 @@ export async function create(formData: FormData) {
     entityId: vendor.id,
     summary: name,
   });
-  redirect(`/consultants/${vendor.id}`);
+  redirect(`/consultants/${vendor.id}?tab=details`);
 }
 
 export async function save(formData: FormData) {
@@ -67,9 +67,9 @@ export async function save(formData: FormData) {
     });
   } catch (thrown) {
     if (thrown instanceof PartyError) {
-      redirect(`/consultants/${vendorId}?error=${thrown.problem}`);
+      redirect(`/consultants/${vendorId}?tab=details&error=${thrown.problem}`);
     }
     throw thrown;
   }
-  redirect(`/consultants/${vendorId}?saved=1`);
+  redirect(`/consultants/${vendorId}?tab=details&saved=1`);
 }

@@ -2913,3 +2913,28 @@ hiding it would make the page disagree with the work orders screen.
 label carries the number of documents, and fetching every bill to put a digit
 in a label would have made the details page slower for everyone who never
 opens the other tab.
+
+## The transactions tab opens first, over a period, and leaves as a file
+
+**Transactions is the default tab.** Clicking a name is a question about
+money — what have we had from them, what do we still owe — far more often
+than it is a wish to change their payment terms. Details is one click away,
+and both saves and the notes form now return to it, so editing never lands
+somebody on a page they were not working on.
+
+**The period is in the address.** From, To and the usual presets, with the
+same ranges every report offers; a filtered account is a link that can be
+sent to an accountant. No period is still the default, because a vendor's
+history is short enough to read and hiding it behind a date range would be a
+worse first impression than a long list.
+
+**The totals follow the filter.** Billed, paid and still owed are computed
+from the same rows the table shows, so the three figures at the top are
+always the figures underneath them added up. A period that excluded a bill
+but kept it in the total would be a bug nobody could see.
+
+**Export writes two amount columns.** Each document's own amount in its own
+currency, and the base-currency value beside it, with only the base column
+totalled — the same rule the screen follows. Payments go in negative, so the
+column reads as a running account rather than a pile of positives, and the
+dates go in as dates so Excel can sort them.

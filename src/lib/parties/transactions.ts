@@ -1,5 +1,6 @@
 import type { PayableStatus, VendorKind } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { accountingDate } from "@/lib/ledger/post";
 import { money, type Money } from "@/lib/money";
 
 /**
@@ -71,13 +72,26 @@ export async function partyTransactions(options: {
   vendorId: string;
   /** Decides where a document's link goes: the two sections differ (SPEC §6). */
   vendorKind: VendorKind;
+  /** Inclusive, both ends. Omitted means everything on file. */
+  from?: Date | null;
+  to?: Date | null;
 }): Promise<{ rows: PartyTransaction[]; totals: PartyTotals; truncated: boolean }> {
+  // A period bounds the documents and therefore the totals with them: the
+  // three figures at the top of the tab must be the three figures the rows
+  // below add up to, or one of them is a lie.
+  const period =
+    options.from || options.to
+      ? {
+          ...(options.from ? { gte: accountingDate(options.from) } : {}),
+          ...(options.to ? { lte: accountingDate(options.to) } : {}),
+        }
+      : undefined;
   const where = { companyId: options.companyId, vendorId: options.vendorId };
   const consultant = options.vendorKind === "CONSULTANT";
 
   const [expenses, workOrders, payments] = await Promise.all([
     prisma.expense.findMany({
-      where,
+      where: { ...where, ...(period ? { date: period } : {}) },
       orderBy: { date: "desc" },
       take: PARTY_TRANSACTION_LIMIT,
       select: {
@@ -95,7 +109,7 @@ export async function partyTransactions(options: {
       },
     }),
     prisma.workOrder.findMany({
-      where,
+      where: { ...where, ...(period ? { issueDate: period } : {}) },
       orderBy: { issueDate: "desc" },
       take: PARTY_TRANSACTION_LIMIT,
       select: {
@@ -112,7 +126,7 @@ export async function partyTransactions(options: {
       },
     }),
     prisma.billPayment.findMany({
-      where,
+      where: { ...where, ...(period ? { date: period } : {}) },
       orderBy: { date: "desc" },
       take: PARTY_TRANSACTION_LIMIT,
       select: {

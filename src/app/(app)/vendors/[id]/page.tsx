@@ -7,6 +7,8 @@ import { VendorForm } from "../vendor-form";
 import { PartyNotes } from "@/components/party-notes";
 import { PartyTabs, PartyTransactions } from "@/components/party-transactions";
 import { partyTransactionCount, partyTransactions } from "@/lib/parties/transactions";
+import { parseAccountingDate, isoDate } from "@/lib/dates";
+import { periodPresets } from "@/lib/reports/periods";
 import { Alert, Button, PageHeader } from "@/components/ui";
 
 export const metadata = { title: pageTitle("Vendor") };
@@ -26,6 +28,8 @@ export default async function VendorPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{
     tab?: string;
+    from?: string;
+    to?: string;
     saved?: string;
     error?: string;
     note?: string;
@@ -35,8 +39,10 @@ export default async function VendorPage({
 }) {
   const scope = await sectionScope("VENDORS");
   const { id } = await params;
-  const { tab, saved, error, note, noteSaved, noteError } = await searchParams;
-  const showing = tab === "transactions" ? "transactions" : "details";
+  const { tab, from, to, saved, error, note, noteSaved, noteError } = await searchParams;
+  // Transactions is what the page opens on; Details is a deliberate click.
+  const showing = tab === "details" ? "details" : "transactions";
+  const period = { from: parseAccountingDate(from ?? ""), to: parseAccountingDate(to ?? "") };
 
   const [vendor, company, expenseAccounts] = await Promise.all([
     prisma.vendor.findFirst({ where: { id, kind: "REGULAR", ...scope.where } }),
@@ -56,6 +62,8 @@ export default async function VendorPage({
           companyId: scope.companyId,
           vendorId: vendor.id,
           vendorKind: "REGULAR",
+          from: period.from,
+          to: period.to,
         })
       : null;
   const transactionCount =
@@ -91,6 +99,12 @@ export default async function VendorPage({
           totals={transactions.totals}
           truncated={transactions.truncated}
           baseCurrency={company.baseCurrency}
+          base={`/vendors/${vendor.id}`}
+          from={period.from ? isoDate(period.from) : ""}
+          to={period.to ? isoDate(period.to) : ""}
+          presets={periodPresets(company.fiscalYearStartMonth, `/vendors/${vendor.id}`, {
+            tab: "transactions",
+          })}
           emptyTitle="Nothing recorded against this vendor yet"
         />
       ) : (
@@ -114,7 +128,7 @@ export default async function VendorPage({
           <PartyNotes
             scope={scope}
             party={{ vendorId: vendor.id }}
-            back={`/vendors/${vendor.id}`}
+            back={`/vendors/${vendor.id}?tab=details`}
             timeZone={company.operatingTimeZone}
             openNoteId={note}
             saved={noteSaved === "1"}

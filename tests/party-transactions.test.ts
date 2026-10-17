@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { partyTransactionCount, partyTransactions } from "@/lib/parties/transactions";
+import {
+  buildPartyTransactionsWorkbook,
+  partyTransactionsFilename,
+} from "@/lib/exports/party-transactions-workbook";
 import { recordExpense } from "@/lib/payables/expenses";
 import { recordBillPayment } from "@/lib/payables/bill-payments";
 import { makeCompanyWithChart, makeUser, prisma, resetDatabase } from "./helpers";
@@ -201,6 +205,89 @@ describe("a party's own transactions (SPEC §6)", () => {
     });
     expect(rows).toEqual([]);
     expect(totals.spend.toFixed(2)).toBe("0.00");
+  });
+
+  it("bounds the rows and the totals by the period", async () => {
+    await bill("5000.00", JULY, "July electricity");
+    await bill("4000.00", AUGUST, "August electricity");
+
+    const july = await partyTransactions({
+      companyId: fixture.company.id,
+      vendorId: vendor.id,
+      vendorKind: "REGULAR",
+      from: new Date("2025-07-01"),
+      to: new Date("2025-07-31"),
+    });
+    expect(july.rows.map((row) => row.description)).toEqual(["July electricity"]);
+    // The three figures at the top must be the figures the rows add up to.
+    expect(july.totals.spend.toFixed(2)).toBe("5000.00");
+    expect(july.totals.outstanding.toFixed(2)).toBe("5000.00");
+
+    // One end on its own is a half-open period, not a filter that is ignored.
+    const fromAugust = await partyTransactions({
+      companyId: fixture.company.id,
+      vendorId: vendor.id,
+      vendorKind: "REGULAR",
+      from: new Date("2025-08-01"),
+    });
+    expect(fromAugust.rows.map((row) => row.description)).toEqual(["August electricity"]);
+
+    // And the unfiltered view still shows everything.
+    const all = await forVendor();
+    expect(all.rows).toHaveLength(2);
+    expect(all.totals.spend.toFixed(2)).toBe("9000.00");
+  });
+
+  it("writes a spreadsheet of the period, totalled in base currency", async () => {
+    const owner = await makeUser("OWNER", fixture.company.id);
+    const { expense } = await bill("5000.00", JULY);
+    await recordBillPayment({
+      companyId: fixture.company.id,
+      vendorId: vendor.id,
+      date: JULY,
+      amount: "2000.00",
+      currency: "PHP",
+      paymentAccountId: fixture.code("1010").id,
+      applications: [{ expenseId: expense.id, amountApplied: "2000.00" }],
+      userId: owner.id,
+    });
+
+    const { rows, totals } = await forVendor();
+    const bytes = await buildPartyTransactionsWorkbook({
+      companyName: "KASAGAMI APARTMENTS",
+      baseCurrency: "PHP",
+      party: { name: "DAVAO LIGHT", kind: "Vendor" },
+      from: new Date("2025-07-01"),
+      to: new Date("2025-07-31"),
+      rows,
+      totals,
+    });
+
+    const ExcelJS = (await import("exceljs")).default;
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.load(bytes as unknown as ArrayBuffer);
+    const sheet = book.getWorksheet("DAVAO LIGHT")!;
+    expect(sheet.getCell("A1").value).toBe("DAVAO LIGHT");
+    expect(String(sheet.getCell("A3").value)).toMatch(/07\/01\/2025/);
+    expect(sheet.getRow(6).getCell(1).value).toBe("Date");
+
+    // Amounts are numbers — a column nobody can sum is not much of an export.
+    const amounts = [sheet.getRow(7).getCell(5).value, sheet.getRow(8).getCell(5).value];
+    expect(amounts.every((value) => typeof value === "number")).toBe(true);
+    // The payment reads as money going the other way.
+    expect(amounts).toContain(-2000);
+    expect(amounts).toContain(5000);
+
+    // Only the base-currency column is totalled.
+    const totalRow = sheet.getRow(9);
+    expect(String(totalRow.getCell(4).value)).toBe("Total (PHP)");
+    expect((totalRow.getCell(7).value as { formula: string }).formula).toBe("SUM(G7:G8)");
+  });
+
+  it("names the file after the party and the day", () => {
+    expect(partyTransactionsFilename("DAVAO LIGHT", new Date("2026-10-17"))).toBe(
+      "Transactions-DAVAO-LIGHT-2026-10-17.xlsx",
+    );
   });
 
   it("counts without reading, for the tab's label", async () => {

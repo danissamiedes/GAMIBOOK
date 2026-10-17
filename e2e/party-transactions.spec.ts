@@ -2,17 +2,21 @@ import { expect, test } from "@playwright/test";
 import { signIn } from "./helpers";
 
 /**
- * A party's record has two faces (SPEC §6): what they are, and what we have
- * had from them. Both pages carry the same pair of tabs, and the tab is in
- * the address, so the one being read survives a reload.
+ * A party's record has two faces (SPEC §6): what we have had from them, which
+ * is why anybody clicks a name, and the fields that describe them. The tab is
+ * in the address, so the one being read survives a reload and a save.
  */
 const PAGES = [
   { label: "vendor", list: "/vendors", prefix: "/vendors/" },
   { label: "consultant", list: "/consultants", prefix: "/consultants/" },
 ];
 
+const NAME_FIELD = { role: "textbox" as const, name: "Name", exact: true };
+
 for (const subject of PAGES) {
-  test(`a ${subject.label}'s transactions are a tab on their page`, async ({ page }) => {
+  test(`a ${subject.label}'s transactions open first, filter by period and export`, async ({
+    page,
+  }) => {
     test.setTimeout(120_000);
     await signIn(page, "owner@example.com");
 
@@ -23,26 +27,29 @@ for (const subject of PAGES) {
       .first()
       .click();
 
-    // Details is what the page opens on, as it always has.
-    await expect(page.getByRole("tab", { name: "Details" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    await expect(page.getByRole("textbox", { name: "Name", exact: true })).toBeVisible();
-
-    await page.getByRole("tab", { name: /Transactions/ }).click();
-    await expect(page).toHaveURL(/tab=transactions/);
+    // Transactions is what the page opens on.
     await expect(page.getByRole("tab", { name: /Transactions/ })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    // The totals a reader comes for, and no edit form in sight.
     await expect(page.getByText("Total billed")).toBeVisible();
-    await expect(page.getByText("Still owed").first()).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveCount(0);
+    await expect(page.getByRole(NAME_FIELD.role, NAME_FIELD)).toHaveCount(0);
 
-    // And back again.
+    // A period narrows the rows, and says so in the address.
+    await page.getByRole("link", { name: "This year" }).click();
+    await expect(page).toHaveURL(/from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/);
+    await expect(page.getByRole("link", { name: "All dates" })).toBeVisible();
+
+    // And the same view comes out as a spreadsheet.
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button", { name: "Export to Excel" }).click(),
+    ]);
+    expect(download.suggestedFilename()).toMatch(/^Transactions-.*\.xlsx$/);
+
+    // Details is a deliberate click away, and still holds the form.
     await page.getByRole("tab", { name: "Details" }).click();
-    await expect(page.getByRole("textbox", { name: "Name", exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/tab=details/);
+    await expect(page.getByRole(NAME_FIELD.role, NAME_FIELD)).toBeVisible();
   });
 }

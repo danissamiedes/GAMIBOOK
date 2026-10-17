@@ -1,15 +1,27 @@
 import { fiscalYearStart, isoDate, today } from "@/lib/dates";
 
-/** The presets every report offers (SPEC §12). */
-export function periodPresets(fiscalYearStartMonth: number, basePath: string) {
+/**
+ * The presets every report offers (SPEC §12).
+ *
+ * `extra` carries whatever else the page needs to keep in its address — a
+ * tab, say — so a preset changes the period and nothing else about where the
+ * reader is.
+ */
+export function periodPresets(
+  fiscalYearStartMonth: number,
+  basePath: string,
+  extra?: Record<string, string>,
+) {
   const now = today();
   const year = now.getUTCFullYear();
   const month = now.getUTCMonth();
 
-  const range = (from: Date, to: Date, label: string) => ({
-    label,
-    href: `${basePath}?from=${isoDate(from)}&to=${isoDate(to)}`,
-  });
+  const range = (from: Date, to: Date, label: string) => {
+    const query = new URLSearchParams(extra);
+    query.set("from", isoDate(from));
+    query.set("to", isoDate(to));
+    return { label, href: `${basePath}?${query.toString()}` };
+  };
 
   const monthStart = new Date(Date.UTC(year, month, 1));
   const monthEnd = new Date(Date.UTC(year, month + 1, 0));

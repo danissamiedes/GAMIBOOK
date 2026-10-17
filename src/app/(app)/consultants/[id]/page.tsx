@@ -5,13 +5,17 @@ import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { ConsultantForm } from "../consultant-form";
 import { PartyNotes } from "@/components/party-notes";
+import { PartyTabs, PartyTransactions } from "@/components/party-transactions";
+import { partyTransactionCount, partyTransactions } from "@/lib/parties/transactions";
 import { Alert, Button, PageHeader } from "@/components/ui";
 
 export const metadata = { title: pageTitle("Consultant") };
 
 /**
- * One consultant: the fields that describe them, and everything written down
- * about them.
+ * One consultant, under two headings: what they are, and what they have
+ * billed. Work orders, their bills and what has been paid against both are
+ * all on the transactions tab, which is the question somebody opens a
+ * consultant to ask.
  *
  * Both sections live here rather than beside the list, because editing somebody
  * on a screen showing everybody made it easy to type into the wrong row.
@@ -25,6 +29,7 @@ export default async function ConsultantPage({
 }: {
   params: Promise<{ id: string }>;
   searchParams: Promise<{
+    tab?: string;
     saved?: string;
     error?: string;
     note?: string;
@@ -34,7 +39,8 @@ export default async function ConsultantPage({
 }) {
   const scope = await sectionScope("CONSULTANTS");
   const { id } = await params;
-  const { saved, error, note, noteSaved, noteError } = await searchParams;
+  const { tab, saved, error, note, noteSaved, noteError } = await searchParams;
+  const showing = tab === "transactions" ? "transactions" : "details";
 
   const [consultant, company, expenseAccounts] = await Promise.all([
     prisma.vendor.findFirst({
@@ -49,6 +55,18 @@ export default async function ConsultantPage({
     }),
   ]);
   if (!consultant) notFound();
+
+  // Only the open tab is paid for: the other one needs a number, not a list.
+  const transactions =
+    showing === "transactions"
+      ? await partyTransactions({
+          companyId: scope.companyId,
+          vendorId: consultant.id,
+          vendorKind: "CONSULTANT",
+        })
+      : null;
+  const transactionCount =
+    transactions?.rows.length ?? (await partyTransactionCount(scope.companyId, consultant.id));
 
   return (
     <>
@@ -67,6 +85,22 @@ export default async function ConsultantPage({
 
       {saved ? <Alert tone="success">Saved.</Alert> : null}
 
+      <PartyTabs
+        base={`/consultants/${consultant.id}`}
+        active={showing}
+        transactionCount={transactionCount}
+        label="Consultant"
+      />
+
+      {showing === "transactions" && transactions ? (
+        <PartyTransactions
+          rows={transactions.rows}
+          totals={transactions.totals}
+          truncated={transactions.truncated}
+          baseCurrency={company.baseCurrency}
+          emptyTitle="Nothing recorded against this consultant yet"
+        />
+      ) : (
       <div className="grid gap-6 lg:grid-cols-[1fr_1.3fr]">
         <section>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -94,6 +128,7 @@ export default async function ConsultantPage({
           />
         </section>
       </div>
+      )}
     </>
   );
 }

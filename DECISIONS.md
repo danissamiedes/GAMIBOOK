@@ -2882,3 +2882,34 @@ a correction" was never the real risk; a correction nobody could make was.
 **Undoing is chunked for the same reason.** Reversing three hundred entries is
 three hundred postings. A batch being undone is a state it sits in, so the
 work can stop and resume, and no new entries can be posted into it meanwhile.
+
+## A party's record has two faces
+
+Opening DAVAO LIGHT showed their terms and their notes, which is not what
+anybody opens a vendor to find out. The question is what we have had from
+them and what we still owe, and the answer was spread across three screens:
+expenses, work orders and bill payments, each filtered by hand.
+
+**Tabs in the address, not in the browser.** Details and Transactions are two
+questions about the same record, so each has its own URL. A tab held only in
+React state cannot be linked to, does not survive the redirect after a save,
+and loses its place on a back button.
+
+**Documents, not postings.** The transactions tab lists bills, direct
+expenses, work orders and payments — the things a person recognises. The
+general ledger already shows the debits and credits, and a reader looking up
+a supplier does not want them.
+
+**Each document in its own currency, totals in base.** A USD bill reads in
+USD with its base-currency value beneath it. The three totals across the top
+are base currency only, because adding currencies together is the one thing a
+total must never quietly do.
+
+**A draft work order is shown but not counted.** Nothing has posted for it, so
+including it in "total billed" would make the page disagree with the ledger;
+hiding it would make the page disagree with the work orders screen.
+
+**The closed tab costs three counts, not three queries of rows.** The tab
+label carries the number of documents, and fetching every bill to put a digit
+in a label would have made the details page slower for everyone who never
+opens the other tab.

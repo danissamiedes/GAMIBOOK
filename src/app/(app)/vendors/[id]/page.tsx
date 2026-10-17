@@ -5,14 +5,19 @@ import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import { VendorForm } from "../vendor-form";
 import { PartyNotes } from "@/components/party-notes";
+import { PartyTabs, PartyTransactions } from "@/components/party-transactions";
+import { partyTransactionCount, partyTransactions } from "@/lib/parties/transactions";
 import { Alert, Button, PageHeader } from "@/components/ui";
 
 export const metadata = { title: pageTitle("Vendor") };
 
 /**
- * One vendor: the fields that describe them, and everything written down about
+ * One vendor, under two headings: what they are, and what we have had from
  * them. Scoped to kind = REGULAR as well as to the company, so a consultant
  * cannot be read through this page — the sections guarding the two differ.
+ *
+ * The tab is in the URL rather than in the browser, so a vendor's account can
+ * be linked to directly and a save comes back to the tab it was made on.
  */
 export default async function VendorPage({
   params,
@@ -20,6 +25,7 @@ export default async function VendorPage({
 }: {
   params: Promise<{ id: string }>;
   searchParams: Promise<{
+    tab?: string;
     saved?: string;
     error?: string;
     note?: string;
@@ -29,7 +35,8 @@ export default async function VendorPage({
 }) {
   const scope = await sectionScope("VENDORS");
   const { id } = await params;
-  const { saved, error, note, noteSaved, noteError } = await searchParams;
+  const { tab, saved, error, note, noteSaved, noteError } = await searchParams;
+  const showing = tab === "transactions" ? "transactions" : "details";
 
   const [vendor, company, expenseAccounts] = await Promise.all([
     prisma.vendor.findFirst({ where: { id, kind: "REGULAR", ...scope.where } }),
@@ -41,6 +48,18 @@ export default async function VendorPage({
     }),
   ]);
   if (!vendor) notFound();
+
+  // Only the open tab is paid for: the other one needs a number, not a list.
+  const transactions =
+    showing === "transactions"
+      ? await partyTransactions({
+          companyId: scope.companyId,
+          vendorId: vendor.id,
+          vendorKind: "REGULAR",
+        })
+      : null;
+  const transactionCount =
+    transactions?.rows.length ?? (await partyTransactionCount(scope.companyId, vendor.id));
 
   return (
     <>
@@ -59,6 +78,22 @@ export default async function VendorPage({
 
       {saved ? <Alert tone="success">Saved.</Alert> : null}
 
+      <PartyTabs
+        base={`/vendors/${vendor.id}`}
+        active={showing}
+        transactionCount={transactionCount}
+        label="Vendor"
+      />
+
+      {showing === "transactions" && transactions ? (
+        <PartyTransactions
+          rows={transactions.rows}
+          totals={transactions.totals}
+          truncated={transactions.truncated}
+          baseCurrency={company.baseCurrency}
+          emptyTitle="Nothing recorded against this vendor yet"
+        />
+      ) : (
       <div className="grid gap-6 lg:grid-cols-[1fr_1.3fr]">
         <section>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -87,6 +122,7 @@ export default async function VendorPage({
           />
         </section>
       </div>
+      )}
     </>
   );
 }

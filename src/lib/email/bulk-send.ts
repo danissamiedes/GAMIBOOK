@@ -371,6 +371,7 @@ export async function processBatch(
           attachments: composed.attachments,
           relatedType: descriptor.relatedType,
           relatedId: item.documentIds[0],
+          recipientName: vendor.name,
         },
       });
 

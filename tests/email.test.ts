@@ -155,6 +155,44 @@ describe("sending", () => {
     expect(await prisma.emailConnection.count()).toBe(0);
   });
 
+  it("records who the message was about, and every address on it", async () => {
+    // The email log is read by name — "what went to CARMEN COCO LUMBER" —
+    // not by address, so the name is written at send time rather than looked
+    // up later, when the party may have been renamed (SPEC §10).
+    const invoice = await issuedInvoice(["ap@client.test", "boss@client.test"]);
+    const email = await prepareInvoiceEmail({
+      companyId: fixture.company.id,
+      invoiceId: invoice.id,
+    });
+    const result = await sendEmail({ companyId: fixture.company.id, email });
+
+    const log = await prisma.emailLog.findUniqueOrThrow({ where: { id: result.emailLogId } });
+    expect(log.recipientName).toBe("Cebu Retail");
+    expect(log.recipientsText).toBe("ap@client.test boss@client.test");
+
+    // Which is what makes the filters on the screen work: part of a name,
+    // part of an address, either case.
+    const byName = await prisma.emailLog.count({
+      where: { companyId: fixture.company.id, recipientName: { contains: "cebu", mode: "insensitive" } },
+    });
+    expect(byName).toBe(1);
+    const byAddress = await prisma.emailLog.count({
+      where: {
+        companyId: fixture.company.id,
+        recipientsText: { contains: "BOSS@", mode: "insensitive" },
+      },
+    });
+    expect(byAddress).toBe(1);
+
+    // Renaming the customer afterwards does not rewrite what the log says.
+    await prisma.customer.updateMany({
+      where: { companyId: fixture.company.id },
+      data: { name: "CEBU RETAIL HOLDINGS" },
+    });
+    const after = await prisma.emailLog.findUniqueOrThrow({ where: { id: result.emailLogId } });
+    expect(after.recipientName).toBe("Cebu Retail");
+  });
+
   it("fails cleanly with no recipient, and logs why", async () => {
     const invoice = await issuedInvoice([]);
     const email = await prepareInvoiceEmail({

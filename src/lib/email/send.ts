@@ -32,6 +32,12 @@ export type PreparedEmail = {
   attachments: Attachment[];
   relatedType?: string;
   relatedId?: string;
+  /**
+   * The party this message is about — the consultant, vendor or customer
+   * whose document it carries. Recorded on the log so the email log can be
+   * read and filtered by name rather than by address (SPEC §10).
+   */
+  recipientName?: string;
 };
 
 const MAX_ATTEMPTS = 3;
@@ -56,6 +62,9 @@ export async function sendEmail(options: {
       attachmentNames: email.attachments.map((attachment) => attachment.filename),
       relatedType: email.relatedType ?? null,
       relatedId: email.relatedId ?? null,
+      recipientName: email.recipientName ?? null,
+      // Flattened beside the arrays it comes from, so the two cannot drift.
+      recipientsText: [...email.to, ...email.cc].join(" ") || null,
       emailBatchId: options.emailBatchId ?? null,
       status: "QUEUED",
       sentByUserId: options.userId ?? null,
@@ -185,6 +194,7 @@ export async function prepareInvoiceEmail(options: {
     attachments: [{ filename: pdf.filename, content: pdf.bytes }],
     relatedType: "Invoice",
     relatedId: invoice.id,
+    recipientName: invoice.customer.name,
   };
 }
 
@@ -236,6 +246,7 @@ export async function prepareWorkOrderEmail(options: {
     attachments: [{ filename: pdf.filename, content: pdf.bytes }],
     relatedType: "WorkOrder",
     relatedId: workOrder.id,
+    recipientName: workOrder.vendor.name,
     excludedReason: recipients.reason,
   };
 }
@@ -275,6 +286,7 @@ export async function preparePurchaseOrderEmail(options: {
     attachments: [{ filename: pdf.filename, content: pdf.bytes }],
     relatedType: "PurchaseOrder",
     relatedId: order.id,
+    recipientName: order.vendor.name,
     excludedReason: recipients.reason,
   };
 }
@@ -307,6 +319,7 @@ export async function preparePaymentReceiptEmail(options: {
     attachments: [{ filename: pdf.filename, content: pdf.bytes }],
     relatedType: "Payment",
     relatedId: payment.id,
+    recipientName: payment.customer.name,
   };
 }
 

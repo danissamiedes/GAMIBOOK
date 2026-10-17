@@ -3151,3 +3151,34 @@ currency instead.
 **Voiding reverses the posting, and is refused while the credit is applied.**
 A bill relying on a voided credit would be settled by nothing. Take it off
 the bill first; the screen says so.
+
+## The email log is searched by name, not by address
+
+The log answered "what was sent" and not "what went to Reza Mae" — the only
+identity on screen was an email address, and nobody thinks in addresses.
+
+**The name is written at send time, not looked up.** `EmailLog.recipientName`
+is filled from the document's party when the message is composed, for single
+sends and bulk sends alike. Looking it up live would be less code, but
+renaming a consultant would then rewrite every line of history about them,
+and a log that changes is not a log. The rows already on file were filled in
+by the migration from their own documents — work orders, purchase orders,
+invoices, payment receipts and bookings — so the column is not blank for
+everything that happened before it existed.
+
+**Addresses are searched through a flattened copy.** Postgres cannot match
+part of a string case-insensitively inside a `text[]`, so `recipientsText`
+holds the to and cc addresses as one string, written beside the arrays it
+comes from and never updated after. The To box searches it, which means it
+searches cc as well — the column on screen shows both, and a search that
+ignored half of what it displays would be the screen contradicting itself.
+
+**The period filter bounds the company's day, not UTC's.** The When column is
+stamped in the company's operating zone, so `periodInstantWhere` converts the
+chosen days to instants through that zone. Reusing the ordinary
+`periodWhere` would have compared a timestamp against UTC midnight, hiding
+everything a Manila office sent after eight in the morning from "Today".
+
+**The recipient box is `sentTo`, not `to`.** Every list screen in the app
+already spends `from` and `to` on the period, and one parameter cannot mean
+both a date and an address.

@@ -135,6 +135,7 @@ export async function submitProof(options: {
       .filter(Boolean)
       .join("\n"),
     relatedId: booking.id,
+    name: booking.customerName,
   });
 
   await notify({
@@ -155,6 +156,7 @@ export async function submitProof(options: {
       settings.company.name,
     ].join("\n"),
     relatedId: booking.id,
+    name: booking.customerName,
   });
 
   return { ok: true, group: updated };
@@ -218,6 +220,7 @@ export async function confirmBooking(
       booking.company.name,
     ].join("\n"),
     relatedId: booking.id,
+    name: booking.customerName,
   });
 
   return { ok: true, group: updated };
@@ -282,6 +285,7 @@ export async function rejectBooking(
       booking.company.name,
     ].join("\n"),
     relatedId: booking.id,
+    name: booking.customerName,
   });
 
   return { ok: true };
@@ -301,6 +305,8 @@ async function notify(options: {
   subject: string;
   body: string;
   relatedId: string;
+  /** Whose booking it is, so the email log reads by name (SPEC §10). */
+  name: string;
 }): Promise<void> {
   if (options.to.length === 0) return;
   try {
@@ -314,6 +320,7 @@ async function notify(options: {
         attachments: [],
         relatedType: "Booking",
         relatedId: options.relatedId,
+        recipientName: options.name,
       },
     });
   } catch {

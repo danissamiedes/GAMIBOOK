@@ -175,6 +175,13 @@ describe("bulk work order send", () => {
       expect(log.subject).toMatch(/WO10\d\d/);
       expect(log.bodySnapshot).toMatch(/WO10\d\d/);
     }
+
+    // A bulk send names its consultant on the log the same way a single
+    // send does, so the email log reads by name either way (SPEC §10).
+    expect(logs.map((log) => log.recipientName).sort()).toEqual([
+      "Abigail Bautista",
+      "John Rex Meraveles",
+    ]);
   });
 
   it("attaches every document when grouped by consultant", async () => {

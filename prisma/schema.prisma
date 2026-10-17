@@ -1220,6 +1220,15 @@ model EmailLog {
   attachmentNames String[]
   relatedType     String?
   relatedId       String?
+  /// Who the message was about — the consultant, vendor or customer whose
+  /// document it carried. Written at send time rather than looked up, so
+  /// renaming a party later does not rewrite what the log says happened.
+  recipientName   String?
+  /// Every address on the message, to and cc together, as one string. The
+  /// log is searched by part of an address and Postgres cannot match that
+  /// case-insensitively inside a text[]; this is the column that can. Written
+  /// once, beside the arrays it comes from, and never updated after.
+  recipientsText  String?
   /// Set for a bulk send (SPEC §10.1), so a batch can be reviewed as a whole.
   emailBatchId    String?
   status          EmailStatus @default(QUEUED)

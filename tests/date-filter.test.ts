@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { isoDate } from "@/lib/dates";
-import { periodParams, periodWhere, resolvePeriod } from "@/lib/reports/date-filter";
+import {
+  periodInstantWhere,
+  periodParams,
+  periodWhere,
+  resolvePeriod,
+} from "@/lib/reports/date-filter";
 
 // A Sunday, deliberately: it is the day a Monday-start week gets wrong.
 const SUNDAY = new Date(Date.UTC(2026, 7, 23));
@@ -138,5 +143,50 @@ describe("periodParams", () => {
 
   it("carries nothing when nothing is filtered", () => {
     expect(periodParams(resolvePeriod({}, SUNDAY))).toEqual({});
+  });
+});
+
+describe("periodInstantWhere", () => {
+  // The email log stamps rows in the company's zone, so the filter has to
+  // bound the local day rather than the UTC one.
+  const MANILA = "Asia/Manila";
+
+  it("bounds a local day, half-open at the top", () => {
+    const where = periodInstantWhere(
+      resolvePeriod({ period: "today" }, SUNDAY),
+      "createdAt",
+      MANILA,
+    ) as { createdAt: { gte: Date; lt: Date } };
+
+    // Midnight in Manila is 16:00 UTC the day before, and the day ends at
+    // the next one's midnight — not at 00:00 UTC, which would hide
+    // everything sent after eight in the morning.
+    expect(where.createdAt.gte.toISOString()).toBe("2026-08-22T16:00:00.000Z");
+    expect(where.createdAt.lt.toISOString()).toBe("2026-08-23T16:00:00.000Z");
+  });
+
+  it("keeps a message sent late in the local evening inside that day", () => {
+    const where = periodInstantWhere(
+      resolvePeriod({ period: "today" }, SUNDAY),
+      "createdAt",
+      MANILA,
+    ) as { createdAt: { gte: Date; lt: Date } };
+    // 8:34pm in Manila on the 23rd.
+    const evening = new Date("2026-08-23T12:34:00.000Z");
+    expect(evening >= where.createdAt.gte && evening < where.createdAt.lt).toBe(true);
+  });
+
+  it("spans a custom range from the first local midnight to the last", () => {
+    const where = periodInstantWhere(
+      resolvePeriod({ period: "custom", from: "2026-08-01", to: "2026-08-15" }, SUNDAY),
+      "createdAt",
+      MANILA,
+    ) as { createdAt: { gte: Date; lt: Date } };
+    expect(where.createdAt.gte.toISOString()).toBe("2026-07-31T16:00:00.000Z");
+    expect(where.createdAt.lt.toISOString()).toBe("2026-08-15T16:00:00.000Z");
+  });
+
+  it("filters nothing when no period is chosen", () => {
+    expect(periodInstantWhere(resolvePeriod({}, SUNDAY), "createdAt", MANILA)).toEqual({});
   });
 });

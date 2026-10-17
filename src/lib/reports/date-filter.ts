@@ -1,4 +1,5 @@
 import { formatAccountingDate, isoDate, parseAccountingDate } from "@/lib/dates";
+import { dayBounds } from "@/lib/time/zone";
 
 /**
  * The period dropdown a list screen filters by: Today, This week, This month,
@@ -131,6 +132,29 @@ export function periodWhere(period: ResolvedPeriod, column: string) {
     [column]: {
       ...(period.from ? { gte: period.from } : {}),
       ...(period.to ? { lte: period.to } : {}),
+    },
+  };
+}
+
+/**
+ * The same, for a column holding an instant rather than an accounting date.
+ *
+ * A timestamp needs the local day's *boundaries*, not its midnight: filtering
+ * `createdAt <= 2026-10-17T00:00Z` for "today" in Manila would hide
+ * everything sent after eight in the morning, and the rows on screen are
+ * stamped in the company's zone. Half-open at the top, so the last second of
+ * the day is in and the first of the next is not.
+ */
+export function periodInstantWhere(
+  period: ResolvedPeriod,
+  column: string,
+  timeZone: string,
+) {
+  if (!period.from && !period.to) return {};
+  return {
+    [column]: {
+      ...(period.from ? { gte: dayBounds(isoDate(period.from), timeZone).start } : {}),
+      ...(period.to ? { lt: dayBounds(isoDate(period.to), timeZone).end } : {}),
     },
   };
 }

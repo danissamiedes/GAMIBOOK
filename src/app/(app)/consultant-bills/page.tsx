@@ -32,7 +32,13 @@ export const metadata = { title: pageTitle("Consultant bills") };
 export default async function ConsultantBillsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; saved?: string; edit?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    saved?: string;
+    edit?: string;
+    billed?: string;
+    failed?: string;
+  }>;
 }) {
   const scope = await sectionScope("CONSULTANTS");
   const params = await searchParams;
@@ -49,6 +55,7 @@ export default async function ConsultantBillsPage({
       include: {
         vendor: { select: { name: true } },
         applications: { include: { billPayment: { select: { reversedAt: true } } } },
+        workOrder: { select: { id: true, workOrderNumber: true } },
       },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 100,
@@ -97,19 +104,31 @@ export default async function ConsultantBillsPage({
       />
       {params.error ? <Alert tone="error">{params.error}</Alert> : null}
       {params.saved ? <Alert tone="success">Saved.</Alert> : null}
+      {params.billed ? (
+        <Alert tone="success">
+          {params.billed} work {params.billed === "1" ? "order" : "orders"} converted to bills.
+          They are in accounts payable now and are paid from here.
+        </Alert>
+      ) : null}
+      {params.failed ? (
+        <Alert tone="error">{decodeURIComponent(params.failed)}</Alert>
+      ) : null}
 
       <Alert tone="info">
-        Work for a consultant belongs on a{" "}
+        Work for a consultant starts as a{" "}
         <Link className="underline" href="/work-orders">
           work order
         </Link>
-        . Use a bill for something else you owe them. Both hit accounts payable and both are
-        settled the same way.
+        , which becomes a bill here once it is converted. Record a bill directly for something
+        else you owe them — a reimbursement, an agreed cost.
       </Alert>
 
-      <div className="my-4">
+      <div className="my-4 flex flex-wrap gap-2">
         <Link href="/consultant-bills/new">
           <Button>Record a consultant bill</Button>
+        </Link>
+        <Link href="/vendor-credits?party=consultant">
+          <Button variant="secondary">Credit notes</Button>
         </Link>
       </div>
 
@@ -146,6 +165,17 @@ export default async function ConsultantBillsPage({
                       >
                         {bill.description}
                       </Link>
+                      {bill.workOrder ? (
+                        <span className="ml-2 text-xs text-slate-500">
+                          from{" "}
+                          <Link
+                            className="underline"
+                            href={`/work-orders/${bill.workOrder.id}`}
+                          >
+                            {bill.workOrder.workOrderNumber}
+                          </Link>
+                        </span>
+                      ) : null}
                     </td>
                     <td className="py-2 text-slate-500">
                       {bill.dueDate ? formatAccountingDate(bill.dueDate) : "—"}

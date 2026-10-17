@@ -6,7 +6,7 @@ import { formatAccountingDate, today } from "@/lib/dates";
 import { formatMoney } from "@/lib/currency";
 import { money } from "@/lib/money";
 import { redirect } from "next/navigation";
-import { approveWorkOrder } from "@/lib/payables/work-orders";
+import { approveWorkOrder, convertWorkOrdersToBills } from "@/lib/payables/work-orders";
 import { PostingError } from "@/lib/errors";
 import { writeAudit } from "@/lib/audit";
 import {
@@ -53,6 +53,7 @@ export default async function WorkOrdersPage({
     status?: string;
     consultant?: string;
     approved?: string;
+    billed?: string;
     failed?: string;
     deleted?: string;
     page?: string;
@@ -115,6 +116,53 @@ export default async function WorkOrdersPage({
     );
   }
 
+  /**
+   * Bulk convert to bills (SPEC §8.1b). Same shape as the bulk approve above
+   * and for the same reason: each conversion posts on its own, so a work
+   * order that cannot be billed names itself and leaves the rest billed.
+   */
+  async function convertSelected(formData: FormData) {
+    "use server";
+    const inner = await sectionScope("CONSULTANTS");
+    const ids = formData.getAll("selected").map(String).filter(Boolean);
+    if (ids.length === 0) redirect("/work-orders?status=APPROVED");
+    if (ids.length > 500) {
+      redirect(
+        "/work-orders?status=APPROVED&failed=Too%20many%20at%20once%20%E2%80%94%20cap%20is%20500",
+      );
+    }
+
+    const results = await convertWorkOrdersToBills({
+      companyId: inner.companyId,
+      workOrderIds: ids,
+      userId: inner.userId,
+      role: inner.role,
+    });
+    const billed = results.filter((row) => row.expenseId);
+    const failures = results.filter((row) => row.error);
+
+    await writeAudit({
+      companyId: inner.companyId,
+      userId: inner.userId,
+      action: "work_order.bulk_billed",
+      entityType: "WorkOrder",
+      summary: `${billed.length} billed, ${failures.length} failed`,
+    });
+
+    redirect(
+      `/consultant-bills?billed=${billed.length}${
+        failures.length > 0
+          ? `&failed=${encodeURIComponent(
+              failures
+                .slice(0, 3)
+                .map((row) => `${row.number ?? "draft"}: ${row.error}`)
+                .join("; "),
+            )}`
+          : ""
+      }`,
+    );
+  }
+
   const company = await prisma.company.findFirstOrThrow({
     where: { id: scope.companyId },
     select: { operatingTimeZone: true },
@@ -145,6 +193,7 @@ export default async function WorkOrdersPage({
     include: {
       vendor: { select: { id: true, name: true } },
       lines: { select: { id: true } },
+      bill: { select: { id: true, reference: true } },
     },
     orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
     skip: page.skip,
@@ -235,8 +284,12 @@ export default async function WorkOrdersPage({
 
       {params.approved ? (
         <Alert tone="success">
-          {params.approved} work orders approved and posted.
+          {params.approved} work orders approved. Nothing has posted yet — convert them to bills
+          when the cost is real.
         </Alert>
+      ) : null}
+      {params.billed ? (
+        <Alert tone="success">{params.billed} work orders billed.</Alert>
       ) : null}
       {params.failed ? (
         <Alert tone="error">{decodeURIComponent(params.failed)}</Alert>
@@ -265,8 +318,8 @@ export default async function WorkOrdersPage({
             <Link className="underline" href="/work-orders/import">
               import
             </Link>
-            . A work order posts to accounts payable when it is approved, which
-            is also when it gets its number.
+            . Approving gives it its number; converting it to a bill is what
+            puts it into accounts payable.
           </EmptyState>
         )
       ) : (
@@ -282,27 +335,38 @@ export default async function WorkOrdersPage({
                   <th className="py-2">Due</th>
                   <th className="py-2">Lines</th>
                   <th className="py-2">Status</th>
+                  <th className="py-2">Billed as</th>
                   <th className="py-2 text-right">Total</th>
                   <th className="py-2 text-right">Balance</th>
                 </tr>
               </thead>
               <tbody>
                 {workOrders.map((workOrder) => {
+                  // Only a work order from the old flow is itself payable, so
+                  // only that one can be overdue; a new one's due date belongs
+                  // to its bill (SPEC §8.1b).
                   const overdue =
+                    workOrder.postedOnApproval &&
                     workOrder.dueDate < now &&
                     money(workOrder.balanceDue).greaterThan(0) &&
                     ["APPROVED", "PARTIALLY_PAID"].includes(workOrder.status);
+                  const billable =
+                    workOrder.status === "APPROVED" &&
+                    !workOrder.postedOnApproval &&
+                    !workOrder.billedAt &&
+                    !workOrder.bill;
                   return (
                     <tr
                       key={workOrder.id}
                       className="border-b border-slate-100 dark:border-slate-800/60"
                     >
                       <td className="py-2">
-                        {workOrder.status === "DRAFT" ? (
+                        {workOrder.status === "DRAFT" || billable ? (
                           <input
                             type="checkbox"
                             name="selected"
                             value={workOrder.id}
+                            aria-label={`Select ${workOrder.workOrderNumber ?? "draft"}`}
                           />
                         ) : null}
                       </td>
@@ -335,6 +399,15 @@ export default async function WorkOrdersPage({
                           {workOrder.status.replace("_", " ").toLowerCase()}
                         </span>
                       </td>
+                      <td className="py-2 font-mono text-xs">
+                        {workOrder.bill ? (
+                          <Link className="underline" href={`/expenses/${workOrder.bill.id}`}>
+                            {workOrder.bill.reference ?? "bill"}
+                          </Link>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
                       <td className="py-2 text-right tabular-nums">
                         {formatMoney(
                           money(workOrder.total).toFixed(2),
@@ -342,9 +415,15 @@ export default async function WorkOrdersPage({
                         )}
                       </td>
                       <td className="py-2 text-right tabular-nums">
-                        {formatMoney(
-                          money(workOrder.balanceDue).toFixed(2),
-                          workOrder.currency,
+                        {workOrder.postedOnApproval ? (
+                          formatMoney(
+                            money(workOrder.balanceDue).toFixed(2),
+                            workOrder.currency,
+                          )
+                        ) : (
+                          // Nothing is owed on this one: what is owed, if
+                          // anything, is owed on its bill.
+                          <span className="text-slate-400">—</span>
                         )}
                       </td>
                     </tr>
@@ -358,14 +437,25 @@ export default async function WorkOrdersPage({
               nextHref={pageHref("/work-orders", params, page.page + 1)}
             />
 
-            {workOrders.some((workOrder) => workOrder.status === "DRAFT") ? (
-              <div className="mt-4 flex items-center gap-3">
+            {workOrders.some(
+              (workOrder) =>
+                workOrder.status === "DRAFT" ||
+                (workOrder.status === "APPROVED" &&
+                  !workOrder.postedOnApproval &&
+                  !workOrder.billedAt &&
+                  !workOrder.bill),
+            ) ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3">
                 <Button type="submit" variant="secondary">
                   Approve selected
                 </Button>
+                <Button type="submit" variant="secondary" formAction={convertSelected}>
+                  Convert selected to bills
+                </Button>
                 <p className="text-xs text-slate-500">
-                  Each posts on its own work order date. One failing does not
-                  stop the others.
+                  Approving gives a draft its number. Converting puts an approved work order into
+                  accounts payable as a bill, listed under consultant bills. Each is its own
+                  posting — one failing does not stop the others.
                 </p>
               </div>
             ) : null}

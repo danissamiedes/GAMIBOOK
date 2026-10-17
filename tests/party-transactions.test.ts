@@ -6,6 +6,7 @@ import {
 } from "@/lib/exports/party-transactions-workbook";
 import { recordExpense } from "@/lib/payables/expenses";
 import { recordBillPayment } from "@/lib/payables/bill-payments";
+import { recordVendorCredit } from "@/lib/payables/vendor-credits";
 import { makeCompanyWithChart, makeUser, prisma, resetDatabase } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
@@ -103,7 +104,7 @@ describe("a party's own transactions (SPEC §6)", () => {
     expect(paymentRow?.amount.toFixed(2)).toBe("2000.00");
   });
 
-  it("counts a work order, and links it to its own page", async () => {
+  it("counts a work order that is itself payable, and links it to its own page", async () => {
     const consultant = await prisma.vendor.create({
       data: {
         companyId: fixture.company.id,
@@ -121,6 +122,8 @@ describe("a party's own transactions (SPEC §6)", () => {
         dueDate: AUGUST,
         currency: "PHP",
         status: "APPROVED",
+        // Raised under the earlier flow, so approving it put it in A/P.
+        postedOnApproval: true,
         memo: "Framing",
         total: "12000.00",
         baseTotal: "12000.00",
@@ -137,6 +140,82 @@ describe("a party's own transactions (SPEC §6)", () => {
     expect(rows[0].href).toBe(`/work-orders/${order.id}`);
     expect(totals.spend.toFixed(2)).toBe("12000.00");
     expect(totals.outstanding.toFixed(2)).toBe("12000.00");
+  });
+
+  it("shows an approved work order that has not been billed, and counts nothing for it", async () => {
+    const consultant = await prisma.vendor.create({
+      data: {
+        companyId: fixture.company.id,
+        kind: "CONSULTANT",
+        name: "RITCHIE",
+        defaultCurrency: "PHP",
+      },
+    });
+    await prisma.workOrder.create({
+      data: {
+        companyId: fixture.company.id,
+        vendorId: consultant.id,
+        workOrderNumber: "WO-1002",
+        issueDate: JULY,
+        dueDate: AUGUST,
+        currency: "PHP",
+        status: "APPROVED",
+        memo: "Plumbing",
+        total: "9000.00",
+        baseTotal: "9000.00",
+      },
+    });
+
+    const { rows, totals } = await partyTransactions({
+      companyId: fixture.company.id,
+      vendorId: consultant.id,
+    });
+
+    // It is part of the account's story, so it is listed — but nothing has
+    // posted for it, so counting it would show the consultant owed twice
+    // once the bill arrives.
+    expect(rows).toHaveLength(1);
+    expect(rows[0].outstanding).toBeNull();
+    expect(totals.spend.toFixed(2)).toBe("0.00");
+    expect(totals.outstanding.toFixed(2)).toBe("0.00");
+  });
+
+  it("nets a credit note off what the party has cost and what is owed", async () => {
+    await recordExpense({
+      companyId: fixture.company.id,
+      kind: "BILL",
+      vendorId: vendor.id,
+      date: JULY,
+      dueDate: AUGUST,
+      currency: "PHP",
+      amount: "10000.00",
+      expenseAccountId: fixture.code("6100").id,
+      description: "Power",
+      reference: "DL-9",
+    });
+    const { credit } = await recordVendorCredit({
+      companyId: fixture.company.id,
+      vendorId: vendor.id,
+      date: JULY,
+      reference: "CN-9",
+      currency: "PHP",
+      amount: "2500.00",
+      expenseAccountId: fixture.code("6100").id,
+      memo: "Overbilled",
+    });
+
+    const { rows, totals } = await partyTransactions({
+      companyId: fixture.company.id,
+      vendorId: vendor.id,
+    });
+
+    const creditRow = rows.find((row) => row.kind === "CREDIT");
+    expect(creditRow).toMatchObject({ label: "Credit note", reference: "CN-9" });
+    expect(creditRow?.href).toBe(`/vendor-credits/${credit.id}`);
+    // Listed positive; the sign is put on at the point of display.
+    expect(creditRow?.amount.toFixed(2)).toBe("2500.00");
+    expect(totals.spend.toFixed(2)).toBe("7500.00");
+    expect(totals.outstanding.toFixed(2)).toBe("7500.00");
   });
 
   it("leaves a draft work order out of the totals, and shows it all the same", async () => {

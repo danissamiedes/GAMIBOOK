@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { issueInvoice } from "@/lib/invoices/service";
 import { recordPayment } from "@/lib/invoices/payments";
-import { approveWorkOrder, computeWorkOrderLine } from "@/lib/payables/work-orders";
+import { computeWorkOrderLine } from "@/lib/payables/work-orders";
 import { renderInvoicePdf, renderWorkOrderPdf, renderReceiptPdf, cachedPdf, slug } from "@/lib/pdf/render";
 import { resetStorage, storage, storageKeys } from "@/lib/storage";
 import {
@@ -13,8 +13,7 @@ import {
   makeDraftInvoice,
   makeVendor,
   prisma,
-  resetDatabase,
-} from "./helpers";
+  resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
@@ -118,7 +117,7 @@ describe("document PDFs", () => {
         },
       },
     });
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     const pdf = await renderWorkOrderPdf(fixture.company.id, workOrder.id);
     expect(isPdf(pdf.bytes)).toBe(true);

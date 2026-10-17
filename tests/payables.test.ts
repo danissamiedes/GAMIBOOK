@@ -1,6 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  approveWorkOrder,
   computeWorkOrderLine,
   deleteDraftWorkOrder,
   voidWorkOrder,
@@ -10,7 +9,7 @@ import { recordExpense } from "@/lib/payables/expenses";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { accountBalance, trialBalance } from "@/lib/ledger/reports";
 import { money } from "@/lib/money";
-import { makeCompanyWithChart, makeVendor, prisma, resetDatabase } from "./helpers";
+import { makeCompanyWithChart, makeVendor, prisma, resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
@@ -74,10 +73,7 @@ describe("work orders (SPEC §8.1)", () => {
     expect(await prisma.journalEntry.count({ where: { companyId: fixture.company.id } })).toBe(0);
     expect(workOrder.workOrderNumber).toBeNull();
 
-    const { workOrder: approved, entry } = await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: workOrder.id,
-    });
+    const { workOrder: approved, entry } = await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     expect(approved.status).toBe("APPROVED");
     expect(approved.workOrderNumber).toBe("WO1001");
@@ -99,10 +95,7 @@ describe("work orders (SPEC §8.1)", () => {
       { issueDate: new Date(Date.UTC(2026, 7, 15)) },
     );
 
-    const { workOrder: approved, entry } = await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: workOrder.id,
-    });
+    const { workOrder: approved, entry } = await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     expect(approved.approvedAt?.toISOString().slice(0, 10)).toBe("2026-08-15");
     expect(entry.date.toISOString().slice(0, 10)).toBe("2026-08-15");
@@ -115,10 +108,7 @@ describe("work orders (SPEC §8.1)", () => {
       { description: "Cash Advances", quantity: "1", rate: "-3000.00", code: "1200" },
     ]);
 
-    const { workOrder: approved, entry } = await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: workOrder.id,
-    });
+    const { workOrder: approved, entry } = await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     // Net payable is 8,000 − 3,000.
     expect(money(approved.total).toFixed(2)).toBe("5000.00");
@@ -148,7 +138,7 @@ describe("work orders (SPEC §8.1)", () => {
       { description: "Cash Advances", quantity: "1", rate: "-1500.00", code: "1200" },
     ]);
     await expect(
-      approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id }),
+      approveAsLegacyWorkOrder(fixture.company.id, workOrder.id),
     ).rejects.toThrow(/net to more than zero/);
   });
 
@@ -163,12 +153,9 @@ describe("work orders (SPEC §8.1)", () => {
       { description: "C", quantity: "1", rate: "100.00", code: "5000" },
     ]);
 
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: first.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, first.id);
     await deleteDraftWorkOrder(fixture.company.id, thrown.id);
-    const { workOrder } = await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: second.id,
-    });
+    const { workOrder } = await approveAsLegacyWorkOrder(fixture.company.id, second.id);
     expect(workOrder.workOrderNumber).toBe("WO1002");
   });
 
@@ -176,7 +163,7 @@ describe("work orders (SPEC §8.1)", () => {
     const workOrder = await makeWorkOrder(fixture, consultant.id, [
       { description: "Work", quantity: "1", rate: "25000.00", code: "5000" },
     ]);
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     await recordBillPayment({
       companyId: fixture.company.id,
@@ -197,7 +184,7 @@ describe("work orders (SPEC §8.1)", () => {
     const workOrder = await makeWorkOrder(fixture, consultant.id, [
       { description: "Work", quantity: "1", rate: "9000.00", code: "5000" },
     ]);
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     const { payment } = await recordBillPayment({
       companyId: fixture.company.id,
@@ -229,7 +216,7 @@ describe("work orders (SPEC §8.1)", () => {
     const workOrder = await makeWorkOrder(fixture, consultant.id, [
       { description: "Work", quantity: "1", rate: "5000.00", code: "5000" },
     ]);
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
     await recordBillPayment({
       companyId: fixture.company.id,
       vendorId: consultant.id,
@@ -256,8 +243,8 @@ describe("work orders (SPEC §8.1)", () => {
     const second = await makeWorkOrder(fixture, consultant.id, [
       { description: "B", quantity: "1", rate: "7000.00", code: "5000" },
     ]);
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: first.id });
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: second.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, first.id);
+    await approveAsLegacyWorkOrder(fixture.company.id, second.id);
 
     await recordBillPayment({
       companyId: fixture.company.id,
@@ -284,7 +271,7 @@ describe("work orders (SPEC §8.1)", () => {
     const workOrder = await makeWorkOrder(fixture, consultant.id, [
       { description: "Fieldwork", quantity: "1", rate: "10000.00", code: "5000" },
     ]);
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     await expect(
       recordBillPayment({
@@ -338,10 +325,7 @@ describe("PHP work order in USD books (SPEC §15.15)", () => {
       [{ description: "Consultation", quantity: "1", rate: "100000.00", code: "5000" }],
       { currency: "PHP", fxRate: "0.0172" },
     );
-    const { workOrder: approved } = await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: workOrder.id,
-    });
+    const { workOrder: approved } = await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
     expect(money(approved.baseTotal).toFixed(2)).toBe("1720.00");
     expect((await ap()).toFixed(2)).toBe("1720.00");
 
@@ -380,7 +364,7 @@ describe("PHP work order in USD books (SPEC §15.15)", () => {
       [{ description: "Consultation", quantity: "1", rate: "90000.00", code: "5000" }],
       { currency: "PHP", fxRate: "0.0172" },
     );
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     // A third of it, at a different rate.
     const { entry } = await recordBillPayment({
@@ -428,10 +412,7 @@ describe("PHP work order in USD books (SPEC §15.15)", () => {
       { currency: "PHP", fxRate: "0.017234" },
     );
 
-    const { entry } = await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: workOrder.id,
-    });
+    const { entry } = await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     const rounding = entry.lines.find(
       (line) => line.accountId === fixture.system(SYSTEM_ACCOUNTS.FX_ROUNDING_DIFFERENCE).id,
@@ -614,7 +595,7 @@ describe("A/P aging (SPEC §18)", () => {
       [{ description: "Consultation", quantity: "1", rate: "25000.00", code: "5000" }],
       { issueDate: new Date(Date.UTC(2026, 8, 1)) },
     );
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     await recordExpense({
       companyId: fixture.company.id,
@@ -659,7 +640,7 @@ describe("A/P aging (SPEC §18)", () => {
     const workOrder = await makeWorkOrder(fixture, consultant.id, [
       { description: "Fieldwork", quantity: "1", rate: "10000.00", code: "5000" },
     ]);
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     const asOf = new Date(Date.UTC(2026, 8, 30));
     const before = await apAging({ companyId: fixture.company.id, asOf });

@@ -148,7 +148,7 @@ export default async function NewWorkOrderPage({
                 ))}
               </Select>
             </Field>
-            <Field label="Work order date" hint="The A/P entry posts on this date.">
+            <Field label="Work order date" hint="Approving posts nothing — the bill does, later.">
               <Input type="date" name="issueDate" defaultValue={isoDate(today())} />
             </Field>
             <Field label="Due date">

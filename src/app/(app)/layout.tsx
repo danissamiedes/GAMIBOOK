@@ -95,6 +95,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         // belongs where they are and needs both sections.
         consultants && payables && { href: "/work-orders/pay", label: "Pay work orders" },
         consultants && { href: "/consultant-bills", label: "Consultant bills" },
+        // A consultant's credit note — same document as a vendor's, read in
+        // whichever section the party belongs to (SPEC §8.5).
+        consultants && {
+          href: "/vendor-credits?party=consultant",
+          label: "Consultant credits",
+        },
         consultants && { href: "/timesheets", label: "Timesheets" },
       ]),
     },
@@ -108,6 +114,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         vendors && { href: "/expenses", label: "Expenses" },
         vendors && { href: "/expenses/import", label: "Import expenses" },
         vendors && { href: "/expenses/recurring", label: "Recurring bills" },
+        vendors && { href: "/vendor-credits", label: "Vendor credits" },
         // A consultant's work order and a supplier's bill are settled the same
         // way, so these belong to whoever holds either section (SPEC §6).
         payables && { href: "/bill-payments", label: "Bill payments" },

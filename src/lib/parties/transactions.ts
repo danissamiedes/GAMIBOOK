@@ -1,7 +1,7 @@
 import type { PayableStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { accountingDate } from "@/lib/ledger/post";
-import { money, type Money } from "@/lib/money";
+import { money, toCents, type Money } from "@/lib/money";
 
 /**
  * Everything this party has been billed and paid (SPEC §6).
@@ -16,7 +16,17 @@ import { money, type Money } from "@/lib/money";
  * list of debits and credits is not what somebody looking up DAVAO LIGHT
  * wants to read.
  */
-export type PartyTransactionKind = "BILL" | "EXPENSE" | "WORK_ORDER" | "PAYMENT";
+export type PartyTransactionKind =
+  | "BILL"
+  | "EXPENSE"
+  | "WORK_ORDER"
+  | "PAYMENT"
+  | "CREDIT";
+
+/** The two kinds that reduce what this party has cost and what is owed. */
+export function isCreditSide(kind: PartyTransactionKind): boolean {
+  return kind === "PAYMENT" || kind === "CREDIT";
+}
 
 export type PartyTransaction = {
   id: string;
@@ -59,12 +69,13 @@ export const PARTY_TRANSACTION_LIMIT = 200;
  */
 export async function partyTransactionCount(companyId: string, vendorId: string): Promise<number> {
   const where = { companyId, vendorId };
-  const [expenses, workOrders, payments] = await Promise.all([
+  const [expenses, workOrders, payments, credits] = await Promise.all([
     prisma.expense.count({ where }),
     prisma.workOrder.count({ where }),
     prisma.billPayment.count({ where }),
+    prisma.vendorCredit.count({ where }),
   ]);
-  return expenses + workOrders + payments;
+  return expenses + workOrders + payments + credits;
 }
 
 export async function partyTransactions(options: {
@@ -86,7 +97,7 @@ export async function partyTransactions(options: {
       : undefined;
   const where = { companyId: options.companyId, vendorId: options.vendorId };
 
-  const [expenses, workOrders, payments] = await Promise.all([
+  const [expenses, workOrders, payments, credits] = await Promise.all([
     prisma.expense.findMany({
       where: { ...where, ...(period ? { date: period } : {}) },
       orderBy: { date: "desc" },
@@ -118,6 +129,8 @@ export async function partyTransactions(options: {
         total: true,
         baseTotal: true,
         baseRelieved: true,
+        postedOnApproval: true,
+        billedAt: true,
         status: true,
         voidedAt: true,
       },
@@ -137,6 +150,22 @@ export async function partyTransactions(options: {
         notes: true,
         reversedAt: true,
         applications: { select: { amountApplied: true } },
+      },
+    }),
+    prisma.vendorCredit.findMany({
+      where: { ...where, ...(period ? { date: period } : {}) },
+      orderBy: { date: "desc" },
+      take: PARTY_TRANSACTION_LIMIT,
+      select: {
+        id: true,
+        date: true,
+        reference: true,
+        memo: true,
+        currency: true,
+        amount: true,
+        baseTotal: true,
+        balance: true,
+        status: true,
       },
     }),
   ]);
@@ -182,8 +211,15 @@ export async function partyTransactions(options: {
     const base = money(order.baseTotal);
     const open = base.minus(money(order.baseRelieved));
     const live = !order.voidedAt && order.status !== "VOID";
-    // A draft is a proposal, not a liability, and nothing has posted for it.
-    const counted = live && order.status !== "DRAFT";
+    /**
+     * Only a work order that is itself in accounts payable counts (SPEC
+     * §8.1b). A draft is a proposal; a work order raised under the current
+     * flow is a commitment whose cost arrives with its bill, and counting
+     * both would show the consultant's account at twice what it is. The
+     * row is still listed — it is part of the account's story — it just
+     * adds nothing to the totals.
+     */
+    const counted = live && order.status !== "DRAFT" && order.postedOnApproval;
 
     if (counted) {
       spend = spend.plus(base);
@@ -201,8 +237,45 @@ export async function partyTransactions(options: {
       amount: money(order.total),
       baseAmount: base,
       outstanding: counted ? open : null,
-      status: statusLabel(order.status, order.voidedAt),
+      status: order.billedAt && !order.voidedAt
+        ? "Billed"
+        : statusLabel(order.status, order.voidedAt),
       href: `/work-orders/${order.id}`,
+    });
+  }
+
+  for (const credit of credits) {
+    const base = money(credit.baseTotal);
+    const live = credit.status !== "VOID";
+    /**
+     * What is left on the credit, in base. The applied part has already
+     * been taken off the bills it was set against, so only the unused part
+     * is still reducing what this party is owed.
+     */
+    const unapplied = money(credit.amount).isZero()
+      ? money(0)
+      : toCents(base.times(money(credit.balance)).dividedBy(money(credit.amount)));
+
+    if (live) {
+      spend = spend.minus(base);
+      outstanding = outstanding.minus(unapplied);
+    }
+
+    rows.push({
+      id: credit.id,
+      date: credit.date,
+      kind: "CREDIT",
+      label: "Credit note",
+      reference: credit.reference,
+      description: credit.memo ?? "",
+      currency: credit.currency,
+      // Positive, like every other row: the sign is put on at the point of
+      // display, the same way a payment's is.
+      amount: money(credit.amount),
+      baseAmount: base,
+      outstanding: null,
+      status: credit.status.charAt(0) + credit.status.slice(1).toLowerCase().replace(/_/g, " "),
+      href: `/vendor-credits/${credit.id}`,
     });
   }
 

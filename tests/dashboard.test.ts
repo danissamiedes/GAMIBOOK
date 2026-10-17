@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { postJournalEntry } from "@/lib/ledger/post";
 import { issueInvoice } from "@/lib/invoices/service";
-import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { withCompanyScope } from "@/lib/company-scope";
 import { dashboard, trailingMonths } from "@/lib/reports/dashboard";
 import {
@@ -11,8 +10,7 @@ import {
   makeUser,
   makeVendor,
   prisma,
-  resetDatabase,
-} from "./helpers";
+  resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
@@ -170,11 +168,7 @@ describe("dashboard", () => {
         },
       },
     });
-    await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: workOrder.id,
-      role: "OWNER",
-    });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id, { role: "OWNER" });
 
     const view = await dashboard({
       scope: await ownerScope(),

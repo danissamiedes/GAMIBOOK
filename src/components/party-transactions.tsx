@@ -2,6 +2,7 @@ import Link from "next/link";
 import { formatMoney } from "@/lib/currency";
 import { formatAccountingDate } from "@/lib/dates";
 import {
+  isCreditSide,
   PARTY_TRANSACTION_LIMIT,
   type PartyTotals,
   type PartyTransaction,
@@ -233,10 +234,10 @@ export function PartyTransactions({
                 <td className="py-2 pr-2 text-sm">{row.description}</td>
                 <td
                   className={`py-2 pr-2 text-right tabular-nums text-sm ${
-                    row.kind === "PAYMENT" ? "text-emerald-700 dark:text-emerald-500" : ""
+                    isCreditSide(row.kind) ? "text-emerald-700 dark:text-emerald-500" : ""
                   }`}
                 >
-                  {row.kind === "PAYMENT" ? "− " : ""}
+                  {isCreditSide(row.kind) ? "− " : ""}
                   {formatMoney(row.amount.toFixed(2), row.currency)}
                   {row.currency !== baseCurrency ? (
                     <span className="block text-xs text-slate-500">

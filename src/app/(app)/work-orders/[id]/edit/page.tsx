@@ -15,8 +15,10 @@ import { Alert, Button, Card, Field, Input, PageHeader, Select } from "@/compone
 export const metadata = { title: pageTitle("Edit work order") };
 
 /**
- * Editing a work order (SPEC §8.1, mirroring §7.1). Draft changes outright,
- * approved reverses and reposts, keeping the number.
+ * Editing a work order (SPEC §8.1, mirroring §7.1). Nothing has posted until
+ * it is billed, so an unbilled work order — draft or approved — simply
+ * changes, keeping its number. Once it is a bill, the bill is what is edited,
+ * and one raised under the old flow reverses and reposts as it always did.
  */
 export default async function EditWorkOrderPage({
   params,

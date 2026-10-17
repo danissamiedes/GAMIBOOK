@@ -69,6 +69,7 @@ export async function GET(request: Request) {
     include: {
       vendor: { select: { name: true } },
       lines: { select: { id: true } },
+      bill: { select: { reference: true } },
     },
     orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
   });
@@ -91,6 +92,8 @@ export async function GET(request: Request) {
       total: workOrder.total.toFixed(2),
       balanceDue: workOrder.balanceDue.toFixed(2),
       currency: workOrder.currency,
+      billedAs: workOrder.bill?.reference ?? null,
+      payable: workOrder.postedOnApproval,
     })),
   });
 

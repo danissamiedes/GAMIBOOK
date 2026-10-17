@@ -1,6 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  approveWorkOrder,
   computeWorkOrderLine,
   updateWorkOrder,
 } from "@/lib/payables/work-orders";
@@ -23,8 +22,7 @@ import {
   makeUser,
   makeVendor,
   prisma,
-  resetDatabase,
-} from "./helpers";
+  resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
@@ -236,12 +234,7 @@ describe("editing transactions", () => {
 
     it("reverses and reposts an approved one, keeping its number", async () => {
       const workOrder = await draft("9000.00");
-      const { workOrder: approved } = await approveWorkOrder({
-        companyId: fixture.company.id,
-        workOrderId: workOrder.id,
-        userId: owner.id,
-        role: "OWNER",
-      });
+      const { workOrder: approved } = await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id, { userId: owner.id, role: "OWNER" });
       expect((await systemBalance(SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE)).toFixed(2)).toBe("9000.00");
 
       await updateWorkOrder({
@@ -425,12 +418,7 @@ describe("editing transactions", () => {
           },
         },
       });
-      await approveWorkOrder({
-        companyId: fixture.company.id,
-        workOrderId: workOrder.id,
-        userId: owner.id,
-        role: "OWNER",
-      });
+      await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id, { userId: owner.id, role: "OWNER" });
 
       const { payment } = await recordBillPayment({
         companyId: fixture.company.id,

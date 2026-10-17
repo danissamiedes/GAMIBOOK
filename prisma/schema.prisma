@@ -65,6 +65,8 @@ enum AccountSubtype {
 /// SPEC §4.2, extended with MIGRATION by SPEC §4.4.
 enum JournalSourceType {
   MANUAL
+  /// A credit note from a supplier or consultant (SPEC §8.5).
+  VENDOR_CREDIT
   /// A line moved from one account to another (SPEC §18).
   RECLASSIFICATION
   INVOICE
@@ -178,6 +180,14 @@ enum EmailTemplateKind {
   WORK_ORDER
   PAYMENT_RECEIPT
   PURCHASE_ORDER
+}
+
+/// SPEC §8.5. A credit note from a party, and how much of it is left.
+enum VendorCreditStatus {
+  OPEN
+  PARTIALLY_APPLIED
+  APPLIED
+  VOID
 }
 
 /// SPEC §8.1a. What has been ordered from a vendor, and how far along it is.
@@ -404,6 +414,7 @@ model Company {
   tasks                     Task[]
   partyNotes                PartyNote[]
   purchaseOrders            PurchaseOrder[]
+  vendorCredits             VendorCredit[]
   reclassifications         Reclassification[]
 
   @@index([organizationId])
@@ -860,6 +871,7 @@ model Vendor {
   user           User?                   @relation(fields: [userId], references: [id])
   workOrders     WorkOrder[]
   purchaseOrders PurchaseOrder[]
+  vendorCredits  VendorCredit[]
   expenses       Expense[]
   billPayments   BillPayment[]
   recurring      RecurringBillTemplate[]
@@ -897,6 +909,13 @@ model WorkOrder {
 
   lastEmailedAt    DateTime?
   approvedByUserId String?
+  /// Set when this work order has been turned into a bill (SPEC §8.1b).
+  billedAt         DateTime?
+  /// True for work orders approved before SPEC §8.1b, when approval itself
+  /// posted to accounts payable. They keep their posting and are settled the
+  /// way they always were; everything approved since posts nothing until it
+  /// becomes a bill, and this is how the two are told apart.
+  postedOnApproval Boolean   @default(false)
   voidedAt         DateTime?
   /// Set when the document came from a spreadsheet import (SPEC §8.3).
   importBatchId    String?
@@ -906,6 +925,8 @@ model WorkOrder {
   company          Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   vendor           Vendor                   @relation(fields: [vendorId], references: [id])
   lines            WorkOrderLine[]
+  /// The bill this work order became (SPEC §8.1b).
+  bill             Expense?                 @relation("WorkOrderBill")
   applications     BillPaymentApplication[]
   bankTransactions BankTransaction[]
   tasks            Task[]
@@ -959,6 +980,11 @@ model Expense {
   customerId       String?
   /// Set when this bill was made from a purchase order (SPEC §8.1a).
   purchaseOrderId  String?     @unique
+  /// Set when this bill was made from a work order (SPEC §8.1b).
+  workOrderId      String?     @unique
+  /// Credit notes applied to this bill. Reduces what is owed without any
+  /// money moving, so it is kept apart from amountPaid (SPEC §8.5).
+  creditedAmount   Decimal     @default(0) @db.Decimal(18, 2)
   dueDate          DateTime?   @db.Date
 
   status       PayableStatus @default(PAID)
@@ -971,14 +997,16 @@ model Expense {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  company       Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  vendor        Vendor?                  @relation(fields: [vendorId], references: [id])
-  purchaseOrder PurchaseOrder?           @relation(fields: [purchaseOrderId], references: [id])
-  applications  BillPaymentApplication[]
-  receipt       ReceiptUpload?
+  company            Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor             Vendor?                   @relation(fields: [vendorId], references: [id])
+  purchaseOrder      PurchaseOrder?            @relation(fields: [purchaseOrderId], references: [id])
+  workOrder          WorkOrder?                @relation("WorkOrderBill", fields: [workOrderId], references: [id])
+  applications       BillPaymentApplication[]
+  creditApplications VendorCreditApplication[]
+  receipt            ReceiptUpload?
   /// Set when this expense was recorded by a recurring template (SPEC §8.2a).
-  recurringRun  RecurringBillRun?
-  tasks         Task[]
+  recurringRun       RecurringBillRun?
+  tasks              Task[]
 
   @@index([companyId, kind, status])
   @@index([companyId, kind, date])
@@ -2226,4 +2254,62 @@ model PurchaseOrderLine {
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
 
   @@unique([purchaseOrderId, lineNumber])
+}
+
+/// SPEC §8.5. A credit note from a supplier or a consultant.
+///
+/// Money the party owes back, or agrees not to charge: a returned delivery, a
+/// double-billed line, an agreed discount after the fact. It posts the moment
+/// it is recorded — debit accounts payable, credit whatever account the cost
+/// went to — because that is when what is owed changes. Applying it to a
+/// particular bill afterwards moves no money and posts nothing; it only says
+/// which bill the credit answers.
+model VendorCredit {
+  id               String             @id @default(cuid())
+  companyId        String
+  vendorId         String
+  date             DateTime           @db.Date
+  /// The party's own credit note number. Required, like a bill's reference.
+  reference        String
+  currency         String             @db.Char(3)
+  fxRate           Decimal            @default(1) @db.Decimal(18, 8)
+  /// What the credit is worth, in its own currency, and in base.
+  amount           Decimal            @db.Decimal(18, 2)
+  baseTotal        Decimal            @default(0) @db.Decimal(18, 2)
+  /// How much has been set against bills, and what is left to use.
+  amountApplied    Decimal            @default(0) @db.Decimal(18, 2)
+  balance          Decimal            @default(0) @db.Decimal(18, 2)
+  /// Which account the credit reverses — normally the one the bill was coded to.
+  expenseAccountId String
+  memo             String?
+  status           VendorCreditStatus @default(OPEN)
+
+  voidedAt        DateTime?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company      Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vendor       Vendor                    @relation(fields: [vendorId], references: [id])
+  applications VendorCreditApplication[]
+
+  @@index([companyId, vendorId])
+  @@index([companyId, status])
+}
+
+/// One credit note set against one bill (SPEC §8.5). No posting of its own:
+/// both documents are already in accounts payable, and this says which pays
+/// off which.
+model VendorCreditApplication {
+  id             String   @id @default(cuid())
+  vendorCreditId String
+  expenseId      String
+  amountApplied  Decimal  @db.Decimal(18, 2)
+  createdAt      DateTime @default(now())
+
+  vendorCredit VendorCredit @relation(fields: [vendorCreditId], references: [id], onDelete: Cascade)
+  expense      Expense      @relation(fields: [expenseId], references: [id])
+
+  @@index([vendorCreditId])
+  @@index([expenseId])
 }

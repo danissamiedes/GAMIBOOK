@@ -11,10 +11,9 @@ import {
   stageImport,
 } from "@/lib/imports/work-orders";
 import { parseSheetDate } from "@/lib/imports/validate";
-import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { trialBalance } from "@/lib/ledger/reports";
 import { resetStorage } from "@/lib/storage";
-import { makeCompanyWithChart, makeVendor, prisma, resetDatabase } from "./helpers";
+import { makeCompanyWithChart, makeVendor, prisma, resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 type SheetRow = [string, string, number | string, string, string, number | string, number | string, (number | string)?];
@@ -131,10 +130,7 @@ describe("work order import (SPEC §8.3)", () => {
     });
     const approved = [];
     for (const draft of drafts) {
-      const result = await approveWorkOrder({
-        companyId: fixture.company.id,
-        workOrderId: draft.id,
-      });
+      const result = await approveAsLegacyWorkOrder(fixture.company.id, draft.id);
       approved.push(result.workOrder.workOrderNumber);
     }
 
@@ -289,7 +285,7 @@ describe("work order import (SPEC §8.3)", () => {
     const first = await prisma.workOrder.findFirstOrThrow({
       where: { companyId: fixture.company.id },
     });
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: first.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, first.id);
 
     await expect(
       rollbackImport({ companyId: fixture.company.id, batchId: again.batchId }),

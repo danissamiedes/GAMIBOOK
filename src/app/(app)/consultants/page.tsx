@@ -28,8 +28,19 @@ export default async function ConsultantsPage({
       orderBy: [{ isActive: "desc" }, { name: "asc" }],
       include: {
         workOrders: {
-          where: { status: { in: ["APPROVED", "PARTIALLY_PAID"] } },
+          // Only the ones that are payables in their own right: a work order
+          // raised under the current flow is owed through its bill, and
+          // counting both would double what this consultant is owed.
+          where: { status: { in: ["APPROVED", "PARTIALLY_PAID"] }, postedOnApproval: true },
           select: { balanceDue: true, fxRate: true },
+        },
+        expenses: {
+          where: { kind: "BILL", status: { in: ["APPROVED", "PARTIALLY_PAID"] } },
+          select: { balanceDue: true, fxRate: true },
+        },
+        vendorCredits: {
+          where: { status: { not: "VOID" } },
+          select: { balance: true, fxRate: true },
         },
         user: { select: { email: true } },
       },
@@ -85,11 +96,19 @@ export default async function ConsultantsPage({
               </thead>
               <tbody>
                 {consultants.map((consultant) => {
-                  const owed = sum(
-                    consultant.workOrders.map((workOrder) =>
+                  const owed = sum([
+                    ...consultant.workOrders.map((workOrder) =>
                       money(workOrder.balanceDue).times(money(workOrder.fxRate)),
                     ),
-                  );
+                    ...consultant.expenses.map((bill) =>
+                      money(bill.balanceDue).times(money(bill.fxRate)),
+                    ),
+                    // Credit not yet set against a bill still lowers what is
+                    // owed: recording it debited payables.
+                    ...consultant.vendorCredits.map((credit) =>
+                      money(credit.balance).times(money(credit.fxRate)).negated(),
+                    ),
+                  ]);
                   const recipients = consultant.sendEmails
                     ? [consultant.email, ...consultant.ccEmails].filter(Boolean).join(", ")
                     : null;

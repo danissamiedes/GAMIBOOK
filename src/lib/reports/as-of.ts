@@ -147,7 +147,10 @@ export async function openPayablesAsOf(
   asOf: Date,
   kind: VendorKind | null,
 ): Promise<
-  (OpenDocumentRow & { type: "workOrder" | "bill"; partyKind: VendorKind })[]
+  (OpenDocumentRow & {
+    type: "workOrder" | "bill" | "credit";
+    partyKind: VendorKind;
+  })[]
 > {
   const kindFilter = kind
     ? Prisma.sql`AND v."kind" = ${kind}::"VendorKind"`
@@ -175,6 +178,10 @@ export async function openPayablesAsOf(
     LEFT JOIN "JournalEntry" rev ON rev."id" = bp."reversalEntryId"
     WHERE w."companyId" = ${companyId}
       AND w."status" <> 'DRAFT'
+      -- Only the work orders that posted on approval are payables of their
+      -- own (SPEC §8.1b); the rest are owed through the bill they became,
+      -- which the other half of this union already counts.
+      AND w."postedOnApproval" = true
       AND w."approvedAt" <= ${asOf}::date
       ${kindFilter}
       AND NOT EXISTS (
@@ -207,7 +214,15 @@ export async function openPayablesAsOf(
              CASE WHEN bp."date" <= ${asOf}::date
                    AND (rev."date" IS NULL OR rev."date" > ${asOf}::date)
                   THEN a."amountApplied" ELSE 0 END
-           ), 0) AS "balanceDue"
+           ), 0)
+           - COALESCE((
+               SELECT SUM(ca."amountApplied")
+                 FROM "VendorCreditApplication" ca
+                 JOIN "VendorCredit" c ON c."id" = ca."vendorCreditId"
+                WHERE ca."expenseId" = x."id"
+                  AND c."date" <= ${asOf}::date
+                  AND c."status" <> 'VOID'
+             ), 0) AS "balanceDue"
     FROM "Expense" x
     JOIN "Vendor" v ON v."id" = x."vendorId"
     LEFT JOIN "BillPaymentApplication" a ON a."expenseId" = x."id"
@@ -230,7 +245,49 @@ export async function openPayablesAsOf(
              CASE WHEN bp."date" <= ${asOf}::date
                    AND (rev."date" IS NULL OR rev."date" > ${asOf}::date)
                   THEN a."amountApplied" ELSE 0 END
-           ), 0) > 0
+           ), 0)
+           - COALESCE((
+               SELECT SUM(ca."amountApplied")
+                 FROM "VendorCreditApplication" ca
+                 JOIN "VendorCredit" c ON c."id" = ca."vendorCreditId"
+                WHERE ca."expenseId" = x."id"
+                  AND c."date" <= ${asOf}::date
+                  AND c."status" <> 'VOID'
+             ), 0) > 0
+
+    UNION ALL
+
+    -- Credit a party has given that is not yet set against any bill
+    -- (SPEC §8.5). Recording it debited payables, so what is owed is lower
+    -- by this much whether or not anybody has decided which bill it answers.
+    -- Negative, so it nets against that party's bills rather than needing a
+    -- second place to be remembered.
+    SELECT c."id",
+           'credit' AS "type",
+           c."vendorId" AS "partyId",
+           v."name"     AS "partyName",
+           v."kind"     AS "partyKind",
+           c."reference" AS "label",
+           c."date"      AS "dueDate",
+           c."currency",
+           c."fxRate",
+           -(c."amount" - COALESCE(SUM(ca."amountApplied"), 0)) AS "balanceDue"
+    FROM "VendorCredit" c
+    JOIN "Vendor" v ON v."id" = c."vendorId"
+    LEFT JOIN "VendorCreditApplication" ca ON ca."vendorCreditId" = c."id"
+    WHERE c."companyId" = ${companyId}
+      AND c."date" <= ${asOf}::date
+      ${kindFilter}
+      AND NOT EXISTS (
+        SELECT 1 FROM "JournalEntry" e
+        JOIN "JournalEntry" vr ON vr."id" = e."reversedByEntryId"
+        WHERE e."companyId" = c."companyId"
+          AND e."sourceType" = 'VENDOR_CREDIT'
+          AND e."sourceId" = c."id"
+          AND vr."date" <= ${asOf}::date
+      )
+    GROUP BY c."id", v."name", v."kind"
+    HAVING c."amount" - COALESCE(SUM(ca."amountApplied"), 0) > 0
 
     ORDER BY "dueDate" ASC
   `;

@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { issueInvoice, voidInvoice } from "@/lib/invoices/service";
 import { recordPayment, reversePayment } from "@/lib/invoices/payments";
-import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { recordBillPayment } from "@/lib/payables/bill-payments";
 import { arAging } from "@/lib/invoices/aging";
 import { apAging } from "@/lib/payables/aging";
@@ -11,8 +10,7 @@ import {
   makeDraftInvoice,
   makeVendor,
   prisma,
-  resetDatabase,
-} from "./helpers";
+  resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
@@ -259,11 +257,7 @@ describe("aging as at a past date", () => {
         },
       },
     });
-    await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: workOrder.id,
-      role: "OWNER",
-    });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id, { role: "OWNER" });
     await recordBillPayment({
       companyId: fixture.company.id,
       vendorId: consultant.id,
@@ -318,12 +312,7 @@ describe("aging as at a past date", () => {
         },
       },
     });
-    await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: workOrder.id,
-      approvedAt: at(2026, 8, 1),
-      role: "OWNER",
-    });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id, { approvedAt: at(2026, 8, 1), role: "OWNER" });
 
     const july = await apAging({
       companyId: fixture.company.id,

@@ -5,12 +5,11 @@ import {
   planBulkPay,
   recordBulkPay,
 } from "@/lib/payables/bulk-pay";
-import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { closeBooksThrough } from "@/lib/periods/close";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { accountBalance } from "@/lib/ledger/reports";
 import { money } from "@/lib/money";
-import { makeCompanyWithChart, makeUser, makeVendor, prisma, resetDatabase } from "./helpers";
+import { makeCompanyWithChart, makeUser, makeVendor, prisma, resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
@@ -68,7 +67,7 @@ describe("paying work orders in bulk", () => {
         },
       },
     });
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: created.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, created.id);
     return prisma.workOrder.findFirstOrThrow({ where: { id: created.id } });
   };
 

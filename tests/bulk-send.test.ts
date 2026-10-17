@@ -11,9 +11,8 @@ import {
   retryFailed,
   unfinishedBatches,
 } from "@/lib/email/bulk-send";
-import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { resetStorage } from "@/lib/storage";
-import { makeCompanyWithChart, makeVendor, prisma, resetDatabase } from "./helpers";
+import { makeCompanyWithChart, makeVendor, prisma, resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
@@ -75,7 +74,7 @@ describe("bulk work order send", () => {
       },
     });
     if (approve) {
-      await approveWorkOrder({ companyId: fixture.company.id, workOrderId: created.id });
+      await approveAsLegacyWorkOrder(fixture.company.id, created.id);
     }
     return created;
   };

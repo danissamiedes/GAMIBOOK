@@ -70,6 +70,9 @@ export async function payableWorkOrders(options: {
   return prisma.workOrder.findMany({
     where: {
       companyId: options.companyId,
+      // Settled through their bill now, unless they posted on approval under
+      // the old flow (SPEC §8.1b).
+      postedOnApproval: true,
       status: { in: ["APPROVED", "PARTIALLY_PAID"] },
       balanceDue: { gt: 0 },
       ...(options.consultantId ? { vendorId: options.consultantId } : {}),

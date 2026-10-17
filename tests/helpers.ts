@@ -169,3 +169,85 @@ export async function makeVendor(
     },
   });
 }
+
+/**
+ * A work order as the old flow left it: approved **and posted** to accounts
+ * payable, settled by paying the work order itself (SPEC §8.1b).
+ *
+ * Live books are full of these, and they keep working, so the tests that
+ * cover them have to be able to make one. Nothing in the app posts this way
+ * any more — approval commits, the bill posts — which is why this lives here
+ * rather than in the library.
+ */
+export async function approveAsLegacyWorkOrder(
+  companyId: string,
+  workOrderId: string,
+  options: { approvedAt?: Date | null; userId?: string | null; role?: Role | null } = {},
+) {
+  const { approveWorkOrder } = await import("@/lib/payables/work-orders");
+  const { postJournalEntry } = await import("@/lib/ledger/post");
+  const { systemAccount } = await import("@/lib/ledger/chart");
+  const { SYSTEM_ACCOUNTS } = await import("@/lib/ledger/accounts");
+  const { money, sum, toCents } = await import("@/lib/money");
+
+  const { workOrder } = await approveWorkOrder({
+    companyId,
+    workOrderId,
+    approvedAt: options.approvedAt,
+    userId: options.userId,
+    role: options.role,
+  });
+  const fresh = await prisma.workOrder.findUniqueOrThrow({
+    where: { id: workOrderId },
+    include: { lines: { orderBy: { lineNumber: "asc" } } },
+  });
+  const rate = money(fresh.fxRate);
+  const baseTotal = toCents(money(fresh.total).times(rate));
+  const baseLines = fresh.lines.map((line) => ({
+    line,
+    baseAmount: toCents(money(line.amount).times(rate)),
+  }));
+  const residual = baseTotal.minus(sum(baseLines.map((entry) => entry.baseAmount)));
+
+  const payable = await systemAccount(companyId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, prisma);
+  const lines = baseLines.map((entry) => ({
+    accountId: entry.line.accountId,
+    debit: entry.baseAmount.isNegative() ? undefined : entry.baseAmount,
+    credit: entry.baseAmount.isNegative() ? entry.baseAmount.abs() : undefined,
+    description: entry.line.description,
+    vendorId: fresh.vendorId,
+  }));
+  lines.push({
+    accountId: payable.id,
+    credit: baseTotal,
+    description: `Work order ${fresh.workOrderNumber}`,
+    vendorId: fresh.vendorId,
+  } as (typeof lines)[number]);
+  if (!residual.isZero()) {
+    const rounding = await systemAccount(companyId, SYSTEM_ACCOUNTS.FX_ROUNDING_DIFFERENCE, prisma);
+    lines.push({
+      accountId: rounding.id,
+      debit: residual.isPositive() ? residual : undefined,
+      credit: residual.isNegative() ? residual.abs() : undefined,
+      description: "FX rounding difference",
+    } as (typeof lines)[number]);
+  }
+
+  const entry = await postJournalEntry({
+    companyId,
+    date: fresh.approvedAt ?? fresh.issueDate,
+    memo: `Work order ${fresh.workOrderNumber}`,
+    sourceType: "WORK_ORDER",
+    sourceId: fresh.id,
+    userId: options.userId,
+    role: options.role,
+    lines,
+  });
+
+  await prisma.workOrder.update({
+    where: { id: fresh.id },
+    data: { postedOnApproval: true, baseTotal },
+  });
+
+  return { workOrder, entry };
+}

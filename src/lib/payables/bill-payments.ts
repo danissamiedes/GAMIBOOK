@@ -124,7 +124,15 @@ async function loadDocument(
 export async function openDocumentsForVendor(companyId: string, vendorId: string) {
   const [workOrders, bills] = await Promise.all([
     prisma.workOrder.findMany({
-      where: { companyId, vendorId, status: { in: ["APPROVED", "PARTIALLY_PAID"] } },
+      // Only the work orders that posted on approval are payables of their
+      // own (SPEC §8.1b). Everything approved since is settled through the
+      // bill it becomes, and would otherwise be offered for payment twice.
+      where: {
+        companyId,
+        vendorId,
+        postedOnApproval: true,
+        status: { in: ["APPROVED", "PARTIALLY_PAID"] },
+      },
       orderBy: { dueDate: "asc" },
     }),
     prisma.expense.findMany({
@@ -252,10 +260,17 @@ async function applyBillPayment(
       });
       await recalculateWorkOrder(document.id, tx);
     } else {
-      const paidNow = money(document.total)
-        .minus(money(document.balanceDue))
-        .plus(applicationAmount);
-      const balance = money(document.total).minus(paidNow);
+      // Paid plus this payment, and the balance is what is left after both
+      // the money and any credit notes set against it (SPEC §8.5) — computed
+      // from amountPaid rather than from the balance, which credits move.
+      const existing = await tx.expense.findUniqueOrThrow({
+        where: { id: document.id },
+        select: { amountPaid: true, creditedAmount: true },
+      });
+      const paidNow = money(existing.amountPaid).plus(applicationAmount);
+      const balance = money(document.total)
+        .minus(paidNow)
+        .minus(money(existing.creditedAmount));
       await tx.expense.update({
         where: { id: document.id },
         data: {
@@ -441,14 +456,22 @@ async function restoreDocuments(
           );
       const restoredBase = money(expense.baseRelieved).minus(share);
       const paid = money(expense.amountPaid).minus(money(application.amountApplied));
-      const balance = money(expense.amount).minus(paid);
+      // Credits stay where they are: this is a payment coming back, not one.
+      const balance = money(expense.amount)
+        .minus(paid.isNegative() ? money(0) : paid)
+        .minus(money(expense.creditedAmount));
       await tx.expense.update({
         where: { id: expense.id },
         data: {
           baseRelieved: restoredBase.isNegative() ? money(0) : restoredBase,
           amountPaid: paid.isNegative() ? money(0) : paid,
           balanceDue: balance,
-          status: paid.lessThanOrEqualTo(0) ? "APPROVED" : "PARTIALLY_PAID",
+          // A bill with a credit still on it is not back to square one.
+          status: balance.lessThanOrEqualTo(0)
+            ? "PAID"
+            : paid.greaterThan(0) || money(expense.creditedAmount).greaterThan(0)
+              ? "PARTIALLY_PAID"
+              : "APPROVED",
         },
       });
     }

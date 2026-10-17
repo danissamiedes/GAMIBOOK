@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { approveWorkOrder, computeWorkOrderLine } from "@/lib/payables/work-orders";
+import { computeWorkOrderLine } from "@/lib/payables/work-orders";
 import {
   deleteBillPayment,
   recordBillPayment,
@@ -9,7 +9,7 @@ import {
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
 import { accountBalance } from "@/lib/ledger/reports";
 import { money } from "@/lib/money";
-import { makeCompanyWithChart, makeUser, makeVendor, prisma, resetDatabase } from "./helpers";
+import { makeCompanyWithChart, makeUser, makeVendor, prisma, resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
@@ -53,7 +53,7 @@ describe("deleting a bill payment recorded by mistake", () => {
         },
       },
     });
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
     return workOrder;
   }
 

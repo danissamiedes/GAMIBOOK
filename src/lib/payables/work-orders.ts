@@ -170,28 +170,18 @@ export async function approveWorkOrder(input: {
     if (workOrder.lines.length === 0) throw new PostingError("A work order needs at least one line");
 
     const { formatted } = await allocateNumber(tx, input.companyId, "WORK_ORDER");
-    const { lines, baseTotal, fresh } = await workOrderPostingLines(
+
+    // Approving commits to the work and gives the document its number. It
+    // posts nothing (SPEC §8.1b): the cost reaches accounts payable when the
+    // work order is turned into a bill, and the bill is what gets paid. The
+    // figures are still computed here so the document and the PDF agree.
+    const { baseTotal, fresh } = await workOrderPostingLines(
       tx,
       input.companyId,
       workOrder.id,
       formatted,
     );
-
     const approvedAt = accountingDate(input.approvedAt ?? fresh.issueDate);
-
-    const entry = await postJournalEntry(
-      {
-        companyId: input.companyId,
-        date: approvedAt,
-        memo: `Work order ${formatted}`,
-        sourceType: "WORK_ORDER",
-        sourceId: fresh.id,
-        userId: input.userId,
-        role: input.role,
-        lines,
-      },
-      tx,
-    );
 
     const updated = await tx.workOrder.update({
       where: { id: fresh.id },
@@ -205,7 +195,7 @@ export async function approveWorkOrder(input: {
       include: { lines: true },
     });
 
-    return { workOrder: updated, entry };
+    return { workOrder: updated, entry: null };
   });
 }
 
@@ -224,6 +214,11 @@ export async function voidWorkOrder(input: {
     if (!workOrder) throw new PostingError("Work order not found in this company");
     if (workOrder.status === "VOID") throw new PostingError("This work order is already void");
     if (workOrder.status === "DRAFT") throw new PostingError("A draft is deleted, not voided");
+    if (workOrder.billedAt) {
+      throw new PostingError(
+        "This work order has become a bill. Void the bill instead — that is what is in the ledger.",
+      );
+    }
 
     const live = workOrder.applications.filter((a) => !a.billPayment.reversedAt);
     if (live.length > 0) {
@@ -352,7 +347,16 @@ export async function updateWorkOrder(input: {
       },
     });
 
-    if (workOrder.status === "DRAFT") {
+    // A draft, or an approved work order that never posted (SPEC §8.1b):
+    // either way there is no entry to amend, so the document simply changes.
+    // Once it has become a bill the bill is the record, and that is refused
+    // above by the payment check or below by the billed check.
+    if (workOrder.status === "DRAFT" || !workOrder.postedOnApproval) {
+      if (workOrder.billedAt) {
+        throw new PostingError(
+          "This work order has been billed. Edit the bill it became instead.",
+        );
+      }
       await recalculateWorkOrder(workOrder.id, tx);
       return tx.workOrder.findUniqueOrThrow({
         where: { id: workOrder.id },
@@ -399,6 +403,7 @@ export type WorkOrderDeletableInput = {
     voidedAt: Date | null;
     createdAt: Date;
     lastEmailedAt: Date | null;
+    billedAt: Date | null;
     applications: { billPayment: { reversedAt: Date | null } }[];
   };
   entry: {
@@ -413,6 +418,11 @@ export type WorkOrderDeletableInput = {
 export function whyNotDeletableWorkOrder(input: WorkOrderDeletableInput): string | null {
   const { workOrder } = input;
   if (workOrder.status === "DRAFT") return "A draft work order is deleted, not erased.";
+  if (workOrder.billedAt) {
+    // The bill is what is in the ledger, and it points back at this. Erasing
+    // the work order would leave the bill referring to nothing.
+    return "This work order has become a bill. Deal with the bill — that is what is in the ledger.";
+  }
 
   const live = workOrder.applications.filter((a) => !a.billPayment.reversedAt);
   return whyNotErasable({
@@ -534,5 +544,152 @@ export async function deleteWorkOrder(input: {
     });
 
     return snapshot;
+  });
+}
+
+/**
+ * Turn approved work orders into bills (SPEC §8.1b).
+ *
+ * This is the step that reaches the ledger. The bill carries the work
+ * order's own lines into the posting — each line to its own account, a
+ * negative deduction as a credit, the FX residual where it belongs — so what
+ * posts is exactly what approval used to post, only now against a document
+ * that can be paid, credited and chased like any other bill.
+ *
+ * One bill per work order, linked both ways. Several can be converted at
+ * once because a month's work orders are approved together and billed
+ * together; each is its own transaction, so one failure does not take the
+ * others with it.
+ */
+export type WorkOrderBillResult = {
+  workOrderId: string;
+  number: string | null;
+  expenseId?: string;
+  error?: string;
+};
+
+export async function convertWorkOrdersToBills(input: {
+  companyId: string;
+  workOrderIds: string[];
+  /** The bill's date. Defaults to each work order's own approval date. */
+  date?: Date | null;
+  userId?: string | null;
+  role?: Role | null;
+}): Promise<WorkOrderBillResult[]> {
+  const results: WorkOrderBillResult[] = [];
+
+  for (const workOrderId of [...new Set(input.workOrderIds)]) {
+    try {
+      const expense = await convertWorkOrderToBill({
+        companyId: input.companyId,
+        workOrderId,
+        date: input.date,
+        userId: input.userId,
+        role: input.role,
+      });
+      results.push({ workOrderId, number: expense.reference, expenseId: expense.id });
+    } catch (thrown) {
+      if (thrown instanceof PostingError) {
+        const workOrder = await prisma.workOrder.findFirst({
+          where: { id: workOrderId, companyId: input.companyId },
+          select: { workOrderNumber: true },
+        });
+        results.push({
+          workOrderId,
+          number: workOrder?.workOrderNumber ?? null,
+          error: thrown.message,
+        });
+        continue;
+      }
+      throw thrown;
+    }
+  }
+
+  return results;
+}
+
+export async function convertWorkOrderToBill(input: {
+  companyId: string;
+  workOrderId: string;
+  date?: Date | null;
+  userId?: string | null;
+  role?: Role | null;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const workOrder = await tx.workOrder.findFirst({
+      where: { id: input.workOrderId, companyId: input.companyId },
+      include: { lines: { orderBy: { lineNumber: "asc" } }, vendor: true, bill: true },
+    });
+    if (!workOrder) throw new PostingError("Work order not found in this company");
+    if (workOrder.status === "DRAFT") throw new PostingError("Approve the work order first");
+    if (workOrder.status === "VOID") throw new PostingError("A void work order cannot be billed");
+    if (workOrder.bill || workOrder.billedAt) {
+      throw new PostingError("This work order has already been billed");
+    }
+    if (workOrder.postedOnApproval) {
+      // The old flow posted on approval, so a bill would be the same cost a
+      // second time. Those work orders stay as they are and are paid as they
+      // always were.
+      throw new PostingError(
+        "This work order was approved under the old flow and is already in accounts payable — pay it directly.",
+      );
+    }
+
+    const { lines, baseTotal, fresh } = await workOrderPostingLines(
+      tx,
+      input.companyId,
+      workOrder.id,
+      workOrder.workOrderNumber ?? "draft",
+    );
+
+    const date = accountingDate(input.date ?? workOrder.approvedAt ?? fresh.issueDate);
+    // The line carrying the most is what the bill is labelled with; the
+    // posting below keeps every line's own account, so nothing is lost.
+    const principal = [...fresh.lines].sort((a, b) =>
+      money(b.amount).minus(money(a.amount)).toNumber(),
+    )[0];
+
+    const expense = await tx.expense.create({
+      data: {
+        companyId: input.companyId,
+        vendorId: workOrder.vendorId,
+        kind: "BILL",
+        date,
+        dueDate: workOrder.dueDate,
+        currency: workOrder.currency,
+        fxRate: workOrder.fxRate,
+        amount: fresh.total,
+        baseTotal,
+        balanceDue: fresh.total,
+        expenseAccountId: principal.accountId,
+        description: `Work order ${workOrder.workOrderNumber ?? ""}`.trim(),
+        // The work order's number is the bill's reference: every expense has
+        // one (SPEC §7.1), and this is the document it came from.
+        reference: workOrder.workOrderNumber,
+        status: "APPROVED",
+        workOrderId: workOrder.id,
+      },
+    });
+
+    await postJournalEntry(
+      {
+        companyId: input.companyId,
+        date,
+        memo: `Bill for work order ${workOrder.workOrderNumber ?? ""}`.trim(),
+        sourceType: "EXPENSE",
+        sourceId: expense.id,
+        userId: input.userId,
+        role: input.role,
+        lines,
+      },
+      tx,
+    );
+
+    await tx.workOrder.update({
+      where: { id: workOrder.id },
+      data: { billedAt: new Date(), baseTotal },
+    });
+
+    return expense;
   });
 }

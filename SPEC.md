@@ -604,6 +604,11 @@ place of `ISSUED` — including the direct `APPROVED → PAID` transition, deriv
 paid states, number allocation on approval, and the block on editing or voiding
 a document that has payments applied.
 
+> **Superseded.** Approval no longer posts: a work order is a commitment, and
+> the A/P entry arrives when it is converted to a bill. Work orders raised
+> under the rule below still behave exactly as described. See "A work order is
+> a commitment; the bill is the payable" in `DECISIONS.md`.
+
 `APPROVED` is what posts the A/P entry, dated `approvedAt` — which defaults to
 the work order's `issueDate`, **not** to the day the approve button is clicked.
 Approving August work in September therefore books the expense in August, where

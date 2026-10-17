@@ -1,6 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { issueInvoice } from "@/lib/invoices/service";
-import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { recordExpense } from "@/lib/payables/expenses";
 import { withCompanyScope } from "@/lib/company-scope";
 import {
@@ -18,8 +17,7 @@ import {
   makeUser,
   makeVendor,
   prisma,
-  resetDatabase,
-} from "./helpers";
+  resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
@@ -100,7 +98,7 @@ describe("tasks", () => {
         },
       },
     });
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: created.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, created.id);
     return created;
   };
 

@@ -226,6 +226,15 @@ export default async function ApAgingPage({
                               >
                                 {document.label}
                               </Link>
+                            ) : document.type === "credit" ? (
+                              // Credit the party has given and nothing has
+                              // been set against yet: it lowers what is owed.
+                              <Link
+                                className="underline"
+                                href={`/vendor-credits/${document.id}`}
+                              >
+                                {document.label} (credit)
+                              </Link>
                             ) : (
                               document.label
                             )}

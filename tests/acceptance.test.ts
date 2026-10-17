@@ -2,7 +2,6 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { postJournalEntry } from "@/lib/ledger/post";
 import { issueInvoice } from "@/lib/invoices/service";
 import { recordPayment } from "@/lib/invoices/payments";
-import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { recordBillPayment } from "@/lib/payables/bill-payments";
 import { recordExpense } from "@/lib/payables/expenses";
 import { balanceSheet } from "@/lib/reports/balance-sheet";
@@ -21,8 +20,7 @@ import {
   makeDraftInvoice,
   makeVendor,
   prisma,
-  resetDatabase,
-} from "./helpers";
+  resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
@@ -234,11 +232,7 @@ describe("SPEC §15 acceptance", () => {
     expect(sent.status).toBe("SENT");
     expect((await sheet(asOf)).payable.toFixed(2)).toBe("0.00");
 
-    await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: workOrder.id,
-      role: "OWNER",
-    });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id, { role: "OWNER" });
     const approved = await prisma.workOrder.findUniqueOrThrow({
       where: { id: workOrder.id },
     });
@@ -332,11 +326,7 @@ describe("SPEC §15 acceptance", () => {
         },
       },
     });
-    await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: workOrder.id,
-      role: "OWNER",
-    });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id, { role: "OWNER" });
     await recordBillPayment({
       companyId: fixture.company.id,
       vendorId: consultant.id,

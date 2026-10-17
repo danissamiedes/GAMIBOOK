@@ -32,7 +32,7 @@ export type ApRow = ApBuckets & {
   kind: VendorKind;
   documents: {
     id: string;
-    type: "workOrder" | "bill";
+    type: "workOrder" | "bill" | "credit";
     label: string;
     dueDate: Date;
     currency: string;

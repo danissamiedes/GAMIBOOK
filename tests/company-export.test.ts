@@ -119,6 +119,9 @@ describe("full data export", () => {
       "bill-payments.csv",
       "time-entries.csv",
       "sales-orders.csv",
+      "purchase-orders.csv",
+      "purchase-order-lines.csv",
+      "vendor-credits.csv",
       "audit-log.csv",
     ]) {
       expect(Object.keys(files)).toContain(name);

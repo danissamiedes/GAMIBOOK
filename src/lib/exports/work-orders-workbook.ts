@@ -29,6 +29,14 @@ export type WorkOrderRow = {
   total: string;
   balanceDue: string;
   currency: string;
+  /** The bill it became, if it has, so the sheet says where the cost went. */
+  billedAs?: string | null;
+  /**
+   * Whether this work order is a payable in its own right. Only the ones
+   * raised under the earlier flow are; for the rest the balance belongs to
+   * their bill, and a figure here would be counted twice.
+   */
+  payable: boolean;
 };
 
 export async function buildWorkOrdersWorkbook(options: {
@@ -50,6 +58,7 @@ export async function buildWorkOrdersWorkbook(options: {
     { header: "Due", key: "due", width: 12 },
     { header: "Lines", key: "lines", width: 8 },
     { header: "Status", key: "status", width: 16 },
+    { header: "Billed as", key: "billed", width: 14 },
     { header: "Total", key: "total", width: 16 },
     { header: "Balance", key: "balance", width: 16 },
     { header: "Currency", key: "currency", width: 10 },
@@ -91,8 +100,9 @@ export async function buildWorkOrdersWorkbook(options: {
       due: row.dueDate,
       lines: row.lineCount,
       status: row.status.replace("_", " ").toLowerCase(),
+      billed: row.billedAs ?? "",
       total: Number(money(row.total).toFixed(2)),
-      balance: Number(money(row.balanceDue).toFixed(2)),
+      balance: row.payable ? Number(money(row.balanceDue).toFixed(2)) : null,
       currency: row.currency,
     });
 

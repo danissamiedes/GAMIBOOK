@@ -1,7 +1,11 @@
 import { APP_NAME } from "@/lib/brand";
 import { formatAccountingDate } from "@/lib/dates";
 import { money } from "@/lib/money";
-import type { PartyTotals, PartyTransaction } from "@/lib/parties/transactions";
+import {
+  isCreditSide,
+  type PartyTotals,
+  type PartyTransaction,
+} from "@/lib/parties/transactions";
 
 /**
  * A party's transactions as a spreadsheet — the tab, column for column.
@@ -91,10 +95,11 @@ export async function buildPartyTransactionsWorkbook(options: {
       type: row.label,
       reference: row.reference ?? "",
       description: row.description,
-      // A payment is money going the other way, and reads that way here too.
-      amount: Number(money(row.amount).toFixed(2)) * (row.kind === "PAYMENT" ? -1 : 1),
+      // A payment and a credit note both go the other way, and read that way
+      // here too.
+      amount: Number(money(row.amount).toFixed(2)) * (isCreditSide(row.kind) ? -1 : 1),
       currency: row.currency,
-      base: Number(money(row.baseAmount).toFixed(2)) * (row.kind === "PAYMENT" ? -1 : 1),
+      base: Number(money(row.baseAmount).toFixed(2)) * (isCreditSide(row.kind) ? -1 : 1),
       owed: row.outstanding ? Number(money(row.outstanding).toFixed(2)) : null,
       status: row.status,
     });

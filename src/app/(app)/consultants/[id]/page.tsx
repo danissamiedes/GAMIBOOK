@@ -84,9 +84,12 @@ export default async function ConsultantPage({
         }`}
       />
 
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap gap-2">
         <Link href="/consultants">
           <Button variant="ghost">All consultants</Button>
+        </Link>
+        <Link href={`/vendor-credits/new?party=consultant&vendor=${consultant.id}`}>
+          <Button variant="ghost">Record a credit note</Button>
         </Link>
       </div>
 

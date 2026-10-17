@@ -260,7 +260,9 @@ export default async function BulkPayPage({
 
       {workOrders.length === 0 ? (
         <EmptyState title="Nothing outstanding">
-          Every approved work order matching this filter has been paid.
+          Only work orders raised under the earlier flow are paid here — the ones that posted
+          to accounts payable on approval. A work order raised since becomes a bill first, and
+          is paid as a bill. None matching this filter is still outstanding.
         </EmptyState>
       ) : (
         <Card>

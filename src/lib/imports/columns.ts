@@ -35,7 +35,7 @@ export const WORK_ORDER_IMPORT_COLUMNS: ColumnDefinition[] = [
     header: "Work Order Date",
     required: true,
     aliases: ["date", "wo date", "workorder date", "order date", "po date"],
-    note: "The document's date. A work order's A/P entry posts on it when approved; a purchase order posts nothing.",
+    note: "The document's date. Neither a work order nor a purchase order posts on it — the bill each becomes does.",
   },
   {
     key: "consultantName",

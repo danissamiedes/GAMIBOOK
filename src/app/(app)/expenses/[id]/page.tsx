@@ -41,6 +41,7 @@ export default async function ExpensePage({
     saved?: string;
     void?: string;
     voided?: string;
+    billed?: string;
     error?: string;
     taskSaved?: string;
     taskError?: string;
@@ -56,6 +57,13 @@ export default async function ExpensePage({
     include: {
       vendor: { select: { id: true, name: true, kind: true } },
       receipt: { select: { id: true } },
+      workOrder: { select: { id: true, workOrderNumber: true } },
+      creditApplications: {
+        orderBy: { createdAt: "asc" },
+        include: {
+          vendorCredit: { select: { id: true, reference: true, status: true } },
+        },
+      },
       applications: {
         include: {
           billPayment: {
@@ -146,6 +154,11 @@ export default async function ExpensePage({
   const listHref = consultant ? "/consultant-bills" : `/expenses?tab=${bill ? "bill" : "direct"}`;
   const editHref = `/expenses/${expense.id}/edit`;
   const live = expense.applications.filter((row) => !row.billPayment.reversedAt);
+  // A credit note is not money: it settles part of the bill without anything
+  // being paid, so it is listed beside the payments rather than among them.
+  const liveCredits = expense.creditApplications.filter(
+    (row) => row.vendorCredit.status !== "VOID",
+  );
   // Offered only where it would be allowed: a paid bill must have its
   // payments reversed first, and a void expense is already void. The service
   // checks both again — this only decides whether to show the button.
@@ -196,6 +209,13 @@ export default async function ExpensePage({
       {error ? <Alert tone="error">{error}</Alert> : null}
       {taskSaved ? <Alert tone="success">Task saved.</Alert> : null}
       {taskError ? <Alert tone="error">{decodeURIComponent(taskError)}</Alert> : null}
+
+      {params_.billed && expense.workOrder ? (
+        <Alert tone="success">
+          Work order {expense.workOrder.workOrderNumber} is now a bill. It is in accounts
+          payable, and it is paid, credited and voided from here.
+        </Alert>
+      ) : null}
 
       {expense.status === "VOID" ? (
         <Alert tone="warning">
@@ -285,6 +305,16 @@ export default async function ExpensePage({
             <Row term="Date" value={formatAccountingDate(expense.date)} />
             <Row term="Description" value={expense.description} />
             <Row term="Payee" value={expense.vendor?.name ?? "—"} />
+            {expense.workOrder ? (
+              <div className="flex gap-2">
+                <dt className="w-32 shrink-0 text-slate-500">From</dt>
+                <dd className="font-medium">
+                  <Link className="underline" href={`/work-orders/${expense.workOrder.id}`}>
+                    Work order {expense.workOrder.workOrderNumber}
+                  </Link>
+                </dd>
+              </div>
+            ) : null}
             <Row
               term="Coded to"
               value={expenseAccount ? `${expenseAccount.code} ${expenseAccount.name}` : "—"}
@@ -375,6 +405,34 @@ export default async function ExpensePage({
                 </tbody>
               </DataTable>
             )
+          ) : null}
+
+          {bill && liveCredits.length > 0 ? (
+            <DataTable className="mb-4">
+              <tbody>
+                {liveCredits.map((row) => (
+                  <tr key={row.id} className="border-b border-slate-100 dark:border-slate-800/60">
+                    <td className="py-2 pr-2 whitespace-nowrap text-sm">Credit note</td>
+                    <td className="py-2 pr-2 font-mono text-xs">
+                      <Link href={`/vendor-credits/${row.vendorCredit.id}`} className="underline">
+                        {row.vendorCredit.reference}
+                      </Link>
+                    </td>
+                    <td className="py-2 text-right tabular-nums text-sm">
+                      {formatMoney(row.amountApplied.toFixed(2), expense.currency)}
+                    </td>
+                  </tr>
+                ))}
+                <tr>
+                  <td className="py-2 pr-2 text-sm font-semibold" colSpan={2}>
+                    Credited
+                  </td>
+                  <td className="py-2 text-right font-semibold tabular-nums text-sm">
+                    {formatMoney(expense.creditedAmount.toFixed(2), expense.currency)}
+                  </td>
+                </tr>
+              </tbody>
+            </DataTable>
           ) : null}
 
           {entry ? (

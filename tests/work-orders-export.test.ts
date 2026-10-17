@@ -21,9 +21,10 @@ const COL = {
   due: 4,
   lines: 5,
   status: 6,
-  total: 7,
-  balance: 8,
-  currency: 9,
+  billed: 7,
+  total: 8,
+  balance: 9,
+  currency: 10,
 } as const;
 
 const row = (over: Partial<WorkOrderRow> = {}): WorkOrderRow => ({
@@ -36,6 +37,9 @@ const row = (over: Partial<WorkOrderRow> = {}): WorkOrderRow => ({
   total: "10000.00",
   balanceDue: "10000.00",
   currency: "PHP",
+  billedAs: null,
+  // The old flow: this one is a payable in its own right.
+  payable: true,
   ...over,
 });
 

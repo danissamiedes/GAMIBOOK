@@ -2,7 +2,6 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { deleteInvoice, issueInvoice, whyNotDeletableInvoice } from "@/lib/invoices/service";
 import { deletePayment, recordPayment } from "@/lib/invoices/payments";
 import {
-  approveWorkOrder,
   computeWorkOrderLine,
   deleteWorkOrder,
 } from "@/lib/payables/work-orders";
@@ -21,8 +20,7 @@ import {
   makeUser,
   makeVendor,
   prisma,
-  resetDatabase,
-} from "./helpers";
+  resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 type Fixture = Awaited<ReturnType<typeof makeCompanyWithChart>>;
 
@@ -101,12 +99,7 @@ describe("deleting posted documents recorded by mistake", () => {
         },
       },
     });
-    await approveWorkOrder({
-      companyId: fixture.company.id,
-      workOrderId: workOrder.id,
-      userId,
-      role: "OWNER",
-    });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id, { userId, role: "OWNER" });
     return { consultant, workOrder };
   }
 

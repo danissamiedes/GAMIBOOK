@@ -13,15 +13,13 @@ import {
   workOrderRecipients,
 } from "@/lib/email/send";
 import { issueInvoice } from "@/lib/invoices/service";
-import { approveWorkOrder } from "@/lib/payables/work-orders";
 import { resetStorage } from "@/lib/storage";
 import {
   makeCompanyWithChart,
   makeDraftInvoice,
   makeVendor,
   prisma,
-  resetDatabase,
-} from "./helpers";
+  resetDatabase, approveAsLegacyWorkOrder } from "./helpers";
 
 describe("MIME building (SPEC §10)", () => {
   it("builds a plain message", () => {
@@ -231,7 +229,7 @@ describe("sending", () => {
         },
       },
     });
-    await approveWorkOrder({ companyId: fixture.company.id, workOrderId: workOrder.id });
+    await approveAsLegacyWorkOrder(fixture.company.id, workOrder.id);
 
     const email = await prepareWorkOrderEmail({
       companyId: fixture.company.id,

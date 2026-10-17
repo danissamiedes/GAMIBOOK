@@ -6,6 +6,7 @@ import { sectionScope } from "@/lib/session-scope";
 import { writeAudit } from "@/lib/audit";
 import {
   approveWorkOrder,
+  convertWorkOrderToBill,
   deleteDraftWorkOrder,
   deleteWorkOrder,
   voidWorkOrder,
@@ -39,6 +40,17 @@ export default async function WorkOrderPage({
       vendor: true,
       lines: { orderBy: { lineNumber: "asc" } },
       applications: { include: { billPayment: true } },
+      bill: {
+        select: {
+          id: true,
+          reference: true,
+          status: true,
+          amount: true,
+          amountPaid: true,
+          balanceDue: true,
+          currency: true,
+        },
+      },
     },
   });
   if (!workOrder) notFound();
@@ -111,6 +123,40 @@ export default async function WorkOrderPage({
       else throw thrown;
     }
     redirect(`/work-orders/${id}`);
+  }
+
+  /**
+   * Turn an approved work order into the bill that is actually owed
+   * (SPEC §8.1b). Approval is a commitment; this is the moment it reaches
+   * accounts payable, and from here on it is the bill that is edited, paid
+   * and voided.
+   */
+  async function convert(formData: FormData) {
+    "use server";
+    const inner = await sectionScope("CONSULTANTS");
+    let billId: string;
+    try {
+      const bill = await convertWorkOrderToBill({
+        companyId: inner.companyId,
+        workOrderId: id,
+        date: parseAccountingDate(String(formData.get("date") || "")),
+        userId: inner.userId,
+        role: inner.role,
+      });
+      billId = bill.id;
+      await writeAudit({
+        companyId: inner.companyId,
+        userId: inner.userId,
+        action: "work_order.billed",
+        entityType: "WorkOrder",
+        entityId: id,
+        summary: `Billed as ${bill.reference ?? bill.id}`,
+      });
+    } catch (thrown) {
+      if (thrown instanceof PostingError) failTo(`/work-orders/${id}`, thrown.message);
+      throw thrown;
+    }
+    redirect(`/expenses/${billId}?billed=1`);
   }
 
   async function discard() {
@@ -245,7 +291,20 @@ export default async function WorkOrderPage({
   const hasLivePayments = workOrder.applications.some(
     (application) => !application.billPayment.reversedAt,
   );
-  const isOpen = workOrder.status === "APPROVED" || workOrder.status === "PARTIALLY_PAID";
+  /**
+   * Two kinds of work order live side by side (SPEC §8.1b).
+   *
+   * `postedOnApproval` marks the ones raised under the old flow, which went
+   * straight into accounts payable and are paid as work orders. Everything
+   * raised since is a commitment that only reaches A/P when it is billed, so
+   * it is the bill — not this page — that takes a payment.
+   */
+  const legacy = workOrder.postedOnApproval;
+  const billed = Boolean(workOrder.bill);
+  const billable =
+    !legacy && !billed && !workOrder.billedAt && workOrder.status === "APPROVED";
+  const isOpen =
+    legacy && (workOrder.status === "APPROVED" || workOrder.status === "PARTIALLY_PAID");
   const foreign = workOrder.currency !== company.baseCurrency;
 
   return (
@@ -286,8 +345,30 @@ export default async function WorkOrderPage({
       ) : null}
       {isDraft ? (
         <Alert tone="warning">
-          A draft. Nothing has posted and it has no number — approving does both, dated the work
-          order date rather than today.
+          A draft. Nothing has posted and it has no number — approving gives it one. Nothing is
+          owed until the approved work order is turned into a bill.
+        </Alert>
+      ) : null}
+      {billable ? (
+        <Alert tone="info">
+          Approved, and nothing is in accounts payable yet. A work order is a commitment; turn it
+          into a bill when the work is done and the cost is real.
+        </Alert>
+      ) : null}
+      {workOrder.bill ? (
+        <Alert tone="success">
+          Billed as{" "}
+          <Link className="underline" href={`/expenses/${workOrder.bill.id}`}>
+            {workOrder.bill.reference ?? "the bill"}
+          </Link>
+          . Edit it, pay it, credit it or void it there — this page is now the record of what was
+          ordered.
+        </Alert>
+      ) : null}
+      {legacy && !isDraft ? (
+        <Alert tone="info">
+          Raised under the earlier flow: approving it posted it straight to accounts payable, so
+          it is paid here rather than billed.
         </Alert>
       ) : null}
 
@@ -335,22 +416,35 @@ export default async function WorkOrderPage({
                   {formatMoney(workOrder.total.toFixed(2), workOrder.currency)}
                 </td>
               </tr>
-              <tr>
-                <td colSpan={4} className="py-1 text-right text-slate-500">
-                  Paid
-                </td>
-                <td className="py-1 text-right tabular-nums">
-                  {formatMoney(workOrder.amountPaid.toFixed(2), workOrder.currency)}
-                </td>
-              </tr>
-              <tr className="font-semibold">
-                <td colSpan={4} className="py-1 text-right">
-                  Balance
-                </td>
-                <td className="py-1 text-right tabular-nums">
-                  {formatMoney(workOrder.balanceDue.toFixed(2), workOrder.currency)}
-                </td>
-              </tr>
+              {legacy ? (
+                <>
+                  <tr>
+                    <td colSpan={4} className="py-1 text-right text-slate-500">
+                      Paid
+                    </td>
+                    <td className="py-1 text-right tabular-nums">
+                      {formatMoney(workOrder.amountPaid.toFixed(2), workOrder.currency)}
+                    </td>
+                  </tr>
+                  <tr className="font-semibold">
+                    <td colSpan={4} className="py-1 text-right">
+                      Balance
+                    </td>
+                    <td className="py-1 text-right tabular-nums">
+                      {formatMoney(workOrder.balanceDue.toFixed(2), workOrder.currency)}
+                    </td>
+                  </tr>
+                </>
+              ) : workOrder.bill ? (
+                <tr>
+                  <td colSpan={4} className="py-1 text-right text-slate-500">
+                    Outstanding on the bill
+                  </td>
+                  <td className="py-1 text-right tabular-nums">
+                    {formatMoney(workOrder.bill.balanceDue.toFixed(2), workOrder.bill.currency)}
+                  </td>
+                </tr>
+              ) : null}
             </tfoot>
           </DataTable>
 
@@ -443,9 +537,32 @@ export default async function WorkOrderPage({
             </div>
           </Card>
 
+          {billable ? (
+            <Card>
+              <h2 className="mb-3 text-sm font-semibold">Convert to bill</h2>
+              <form action={convert} className="space-y-3">
+                <Field label="Bill date">
+                  <Input
+                    type="date"
+                    name="date"
+                    defaultValue={isoDate(workOrder.approvedAt ?? workOrder.issueDate)}
+                  />
+                </Field>
+                <Button type="submit" className="w-full">
+                  Convert to bill
+                </Button>
+              </form>
+              <p className="mt-3 text-xs text-slate-500">
+                Posts the work order&apos;s own lines to their own accounts and puts{" "}
+                {formatMoney(workOrder.total.toFixed(2), workOrder.currency)} into accounts
+                payable. The bill carries this work order&apos;s number as its reference.
+              </p>
+            </Card>
+          ) : null}
+
           <Card>
             <h2 className="mb-3 text-sm font-semibold">Actions</h2>
-              {workOrder.status !== "VOID" && !hasLivePayments ? (
+              {workOrder.status !== "VOID" && !hasLivePayments && !billed ? (
                 <Link
                   href={`/work-orders/${workOrder.id}/edit`}
                   className="mb-3 flex h-9 w-full items-center justify-center rounded-md border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -473,7 +590,7 @@ export default async function WorkOrderPage({
                   </Button>
                 </form>
               </div>
-            ) : workOrder.status !== "VOID" ? (
+            ) : workOrder.status !== "VOID" && !billed ? (
               <div className="space-y-2">
                 <form action={makeVoid} className="space-y-2">
                   <Field label="Void date">
@@ -494,6 +611,14 @@ export default async function WorkOrderPage({
                   </Link>
                 ) : null}
               </div>
+            ) : billed ? (
+              <p className="text-sm text-slate-500">
+                This work order has been billed. Edit or void it on{" "}
+                <Link className="underline" href={`/expenses/${workOrder.bill!.id}`}>
+                  the bill
+                </Link>
+                .
+              </p>
             ) : (
               <p className="text-sm text-slate-500">This work order is void.</p>
             )}

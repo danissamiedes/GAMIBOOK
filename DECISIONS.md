@@ -3083,3 +3083,71 @@ and validator read it; the party column is matched against vendors instead
 of consultants, and what comes out is a draft purchase order rather than a
 draft work order. A consultant's name in a vendors' sheet does not match —
 the two lists are kept apart, as their sections are.
+
+## A work order is a commitment; the bill is the payable
+
+SPEC §8.1 says approving a work order posts the A/P entry. The user asked for
+a different shape, and it is the right one: **approve, convert to bill, pay
+the bill.** This supersedes that paragraph of §8.1 — code comments call the
+new arrangement §8.1b, and credit notes §8.5, neither of which is in the
+spec file.
+
+**Approving now posts nothing.** It allocates the number and makes the
+document sendable, exactly as issuing a purchase order does. A work order is
+a promise about work that may not have happened yet; the cost belongs in the
+month the work did, and that is what the bill is dated.
+
+**Converting posts the work order's own lines, not one lump.** The bill is an
+`Expense` carrying a single account, but the posting behind it is built from
+the work order's lines, each to its own account — so a recovered cash advance
+coded to Advances to Consultants still lands there. The bill is labelled with
+the largest line's account, the work order's number becomes the bill's
+reference, and the two point at each other. Converting many at once works
+like bulk approve: one posting each, and one that cannot be billed names
+itself and leaves the rest billed.
+
+**Work orders raised under the old flow keep working exactly as they did.**
+The migration marks every work order that already has a posting with
+`postedOnApproval`, and everything that looks at payables — the aging, the
+open-documents list, bulk pay, the party account — asks that flag rather than
+assuming. Those orders are still paid as work orders, on their own page and
+on Pay work orders; new ones never appear there. Nothing was rewritten in the
+ledger to make the two agree, because rewriting history to simplify a code
+path is not a trade worth making.
+
+**The party account lists an unbilled work order but counts nothing for it.**
+It is part of what has been agreed with that consultant and belongs on their
+page, but adding it to spend would show the consultant owed twice over the
+moment its bill exists.
+
+## Credit notes: recording posts, applying does not
+
+A credit note from a supplier or a consultant — a returned delivery, a line
+billed twice, a discount agreed afterwards — is one document with two homes,
+living in the Vendors section or the Consultants section according to whose
+it is, exactly as their bills do.
+
+**Recording is the posting.** Accounts payable down, the cost back out of
+whichever account it went to. That is when what is owed changes, and it does
+not wait for anybody to decide which bill the credit answers.
+
+**Applying posts nothing.** Both documents are already in A/P; the
+application only says which bill stops being chased. It does move
+`creditedAmount` on the bill, which is deliberately *not* `amountPaid`: a
+bill settled by a credit note was never paid, and a cash-flow report that
+said otherwise would be lying.
+
+**The bill's base relief moves with it.** The credit's own posting has
+already debited A/P by its share, so applying it adds that share to the
+bill's `baseRelieved`. Without this a payment settling the remainder would
+relieve the whole document and leave payables with a debit balance — which
+is exactly what the first run of the tests showed.
+
+**Only within one currency.** Applying across currencies would need a rate
+and would post a gain or loss; a document whose whole point is that it posts
+nothing must not do that quietly. The credit is recorded in the bill's
+currency instead.
+
+**Voiding reverses the posting, and is refused while the credit is applied.**
+A bill relying on a voided credit would be settled by nothing. Take it off
+the bill first; the screen says so.

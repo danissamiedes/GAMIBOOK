@@ -27,6 +27,10 @@ export default async function VendorsPage({
           where: { kind: "BILL", status: { in: ["APPROVED", "PARTIALLY_PAID"] } },
           select: { balanceDue: true, fxRate: true },
         },
+        vendorCredits: {
+          where: { status: { not: "VOID" } },
+          select: { balance: true, fxRate: true },
+        },
       },
     }),
   ]);
@@ -70,9 +74,16 @@ export default async function VendorsPage({
               </thead>
               <tbody>
                 {vendors.map((vendor) => {
-                  const owed = sum(
-                    vendor.expenses.map((bill) => money(bill.balanceDue).times(money(bill.fxRate))),
-                  );
+                  const owed = sum([
+                    ...vendor.expenses.map((bill) =>
+                      money(bill.balanceDue).times(money(bill.fxRate)),
+                    ),
+                    // Credit not yet set against a bill still lowers what is
+                    // owed: recording it debited payables.
+                    ...vendor.vendorCredits.map((credit) =>
+                      money(credit.balance).times(money(credit.fxRate)).negated(),
+                    ),
+                  ]);
                   return (
                     <tr key={vendor.id} className="border-b border-slate-100 dark:border-slate-800/60">
                       <td className="py-2">

@@ -2987,3 +2987,33 @@ how they come to disagree.
 consultant bills are one model and share it; work orders and payments
 already had pages, so the transactions tab now links straight to whichever
 is right for the row.
+
+## Recording, reading and correcting are three screens
+
+The record form lived in a column beside the expenses list, and editing a row
+re-rendered that column with the row in it. So "open this transaction" meant
+a hundred other rows on the same screen, with the one being worked on in a
+narrow strip at the side — and on a phone, below all of them.
+
+**Three addresses.** `/expenses/new` records, `/expenses/<id>` reads,
+`/expenses/<id>/edit` corrects. Each is a screen with one job, and each can
+be linked to, bookmarked and returned to.
+
+**One form component behind all of them.** A direct expense, a supplier's
+bill, a consultant's bill, new or being corrected — the same fields in the
+same order. Four copies would have drifted, and a person should not have to
+find "Reference" again on each screen.
+
+**The actions moved out of the page.** They were closures on the list; they
+are now exported actions that take the section they were reached through as
+an argument rather than reading it from the form. A hidden field claiming to
+be the Consultants section would otherwise have been a way into a
+consultant's bill.
+
+**Recording lands on the document.** Not back on the list: what was just
+recorded is what somebody wants to see, and the document is where editing,
+tasks and payments now are.
+
+**The consultant bills screen got the same treatment**, because the two
+screens sit beside each other in the same app and one of them keeping a form
+in a side column would just be the old problem in a quieter place.

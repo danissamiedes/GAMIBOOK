@@ -17,14 +17,15 @@ test("a miscoded expense is found, moved, and can be moved back", async ({ page 
   await signIn(page, "owner@example.com");
 
   // ---- A posting in the wrong account ---------------------------------
-  await page.goto("/expenses?tab=direct");
+  // Recording is its own screen now.
+  await page.goto("/expenses/new?tab=direct");
   const form = page.locator("form").filter({ has: page.getByLabel("Amount") }).first();
   await form.getByLabel("Description").fill(DESCRIPTION);
   await form.getByLabel("Amount").fill("10000.00");
   await form.getByLabel("Reference").fill(`REF-${stamp}`);
   const expenseAccount = form.getByLabel("Expense account");
   const wrong = (await expenseAccount.locator("option").first().textContent())?.trim() ?? "";
-  await form.getByRole("button", { name: "Save" }).click();
+  await form.getByRole("button", { name: "Record it" }).click();
   await expect(page.getByText(DESCRIPTION).first()).toBeVisible();
 
   // ---- Find it ---------------------------------------------------------

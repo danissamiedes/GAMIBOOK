@@ -8,6 +8,10 @@ import { formatAccountingDate } from "@/lib/dates";
 import { money, sum } from "@/lib/money";
 import { linkLabel, safeExternalUrl } from "@/lib/links";
 import { Alert, Button, Card, DataTable, PageHeader } from "@/components/ui";
+import { TaskDialog } from "@/components/task-dialog";
+import { addTask } from "@/app/(app)/tasks/actions";
+import { assignableUsers } from "@/lib/tasks";
+import { isoDate, today } from "@/lib/dates";
 
 export const metadata = { title: pageTitle("Expense") };
 
@@ -25,9 +29,16 @@ export const metadata = { title: pageTitle("Expense") };
  * live in one table, and a single `sectionScope` at the top would either shut
  * out half the people entitled to read it or let the wrong half in.
  */
-export default async function ExpensePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ExpensePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ saved?: string; taskSaved?: string; taskError?: string }>;
+}) {
   const scope = await companyScope();
   const { id } = await params;
+  const { saved, taskSaved, taskError } = await searchParams;
 
   const expense = await prisma.expense.findFirst({
     where: { id, ...scope.where },
@@ -80,15 +91,14 @@ export default async function ExpensePage({ params }: { params: Promise<{ id: st
     }),
   ]);
 
+  const assignees = await assignableUsers(scope.companyId);
   const byId = new Map(accounts.map((account) => [account.id, account]));
   const expenseAccount = byId.get(expense.expenseAccountId) ?? null;
   const paymentAccount = expense.paymentAccountId ? byId.get(expense.paymentAccountId) ?? null : null;
 
   const bill = expense.kind === "BILL";
   const listHref = consultant ? "/consultant-bills" : `/expenses?tab=${bill ? "bill" : "direct"}`;
-  const editHref = consultant
-    ? `/consultant-bills?edit=${expense.id}`
-    : `/expenses?tab=${bill ? "bill" : "direct"}&edit=${expense.id}`;
+  const editHref = `/expenses/${expense.id}/edit`;
   const live = expense.applications.filter((row) => !row.billPayment.reversedAt);
   const receiptUrl = safeExternalUrl(expense.receiptUrl);
 
@@ -116,6 +126,14 @@ export default async function ExpensePage({ params }: { params: Promise<{ id: st
           </Link>
         ) : null}
       </div>
+
+      {saved ? (
+        <Alert tone="success">
+          Saved. {expense.status === "VOID" ? "" : "The entry below is what posted."}
+        </Alert>
+      ) : null}
+      {taskSaved ? <Alert tone="success">Task saved.</Alert> : null}
+      {taskError ? <Alert tone="error">{decodeURIComponent(taskError)}</Alert> : null}
 
       {expense.status === "VOID" ? (
         <Alert tone="warning">
@@ -303,6 +321,20 @@ export default async function ExpensePage({ params }: { params: Promise<{ id: st
           )}
         </Card>
       </div>
+
+      <Card className="mt-6">
+        <h2 className="mb-3 text-sm font-semibold">Follow this up</h2>
+        <TaskDialog
+          action={addTask}
+          users={assignees}
+          back={`/expenses/${expense.id}`}
+          link={{ expenseId: expense.id }}
+          defaultAssigneeId={scope.userId}
+          today={isoDate(today())}
+          label="Add a task"
+          title={`Task on ${expense.description}`}
+        />
+      </Card>
     </>
   );
 }

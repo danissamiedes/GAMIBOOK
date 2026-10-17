@@ -14,11 +14,12 @@ test("an expense cannot be recorded without a reference", async ({ page }) => {
   test.setTimeout(120_000);
   await signIn(page, "owner@example.com");
 
-  await page.goto("/expenses?tab=direct");
+  // Recording is its own screen now.
+  await page.goto("/expenses/new?tab=direct");
   const form = page.locator("form").filter({ has: page.getByLabel("Amount") }).first();
   await form.getByLabel("Description").fill(`Unreferenced ${stamp}`);
   await form.getByLabel("Amount").fill("100.00");
-  await form.getByRole("button", { name: "Save" }).click();
+  await form.getByRole("button", { name: "Record it" }).click();
 
   // Nothing is submitted, and the cursor is put where the problem is.
   await expect(form.getByLabel("Reference")).toBeFocused();
@@ -27,6 +28,8 @@ test("an expense cannot be recorded without a reference", async ({ page }) => {
 
   // With one, it records and the number is what opens it afterwards.
   await form.getByLabel("Reference").fill(`OR-${stamp}`);
-  await form.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByRole("cell", { name: `OR-${stamp}` })).toBeVisible();
+  await form.getByRole("button", { name: "Record it" }).click();
+  // Recording lands on the document itself, named by its reference.
+  await expect(page).toHaveURL(/\/expenses\/[a-z0-9]+/);
+  await expect(page.getByRole("heading", { name: `Expense OR-${stamp}` })).toBeVisible();
 });

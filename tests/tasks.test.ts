@@ -184,6 +184,70 @@ describe("tasks", () => {
       expect(await listTasks(await scopeFor(salesOnly.id))).toHaveLength(0);
     });
 
+    it("gives a consultant's bill to Consultants, not to Vendors", async () => {
+      // One table, two owners: the section that may open an expense is
+      // decided by whose bill it is, exactly as the expense's own page
+      // decides it. Treating every expense as a vendor's showed a
+      // Vendors-only bookkeeper tasks on bills they could not then open.
+      const ownerScope = await scopeFor(owner.id);
+      const consultant = await makeVendor(fixture.company.id, "CONSULTANT");
+      const { expense } = await recordExpense({
+        companyId: fixture.company.id,
+        kind: "BILL",
+        vendorId: consultant.id,
+        date: DATE,
+        amount: "4000.00",
+        currency: "PHP",
+        description: "Advance payment",
+        reference: "ADV-1",
+        expenseAccountId: fixture.code("5000").id,
+        role: "OWNER",
+      });
+      await createTask(ownerScope, { subject: "Check the advance", link: { expenseId: expense.id } });
+
+      const consultantsOnly = await makeUser("BOOKKEEPER", fixture.company.id, undefined, [
+        "CONSULTANTS",
+      ]);
+      expect(await listTasks(await scopeFor(consultantsOnly.id))).toHaveLength(1);
+
+      const vendorsOnly = await makeUser("BOOKKEEPER", fixture.company.id, undefined, ["VENDORS"]);
+      expect(await listTasks(await scopeFor(vendorsOnly.id))).toHaveLength(0);
+    });
+
+    it("lets whoever may open the bill raise the task on it, and nobody else", async () => {
+      const consultant = await makeVendor(fixture.company.id, "CONSULTANT");
+      const { expense } = await recordExpense({
+        companyId: fixture.company.id,
+        kind: "BILL",
+        vendorId: consultant.id,
+        date: DATE,
+        amount: "4000.00",
+        currency: "PHP",
+        description: "Advance payment",
+        reference: "ADV-2",
+        expenseAccountId: fixture.code("5000").id,
+        role: "OWNER",
+      });
+
+      const consultantsOnly = await makeUser("BOOKKEEPER", fixture.company.id, undefined, [
+        "CONSULTANTS",
+      ]);
+      await expect(
+        createTask(await scopeFor(consultantsOnly.id), {
+          subject: "Mine to chase",
+          link: { expenseId: expense.id },
+        }),
+      ).resolves.toBeTruthy();
+
+      const vendorsOnly = await makeUser("BOOKKEEPER", fixture.company.id, undefined, ["VENDORS"]);
+      await expect(
+        createTask(await scopeFor(vendorsOnly.id), {
+          subject: "Not mine",
+          link: { expenseId: expense.id },
+        }),
+      ).rejects.toThrow(/cannot raise a task on that document/);
+    });
+
     it("shows a standalone task to everyone, having no document to protect", async () => {
       await createTask(await scopeFor(owner.id), { subject: "Renew the permit" });
 

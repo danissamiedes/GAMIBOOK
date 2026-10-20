@@ -3254,3 +3254,24 @@ curly apostrophe was losing it the same way.
 
 This covers the report PDFs. The document PDFs — invoices, work orders,
 receipts — are drawn by a different renderer and still have the gap.
+
+## A task's "About" link opens the document
+
+Every document the task board links to opened its own page except one: an
+expense went to `/expenses?tab=bill`, the list. Clicking "Expense — Advance
+payment" landed you among two hundred other bills with no indication which
+one you had asked for. The expense got its own page earlier in this work;
+this link had simply never been moved onto it.
+
+Two more were broken in the same column and had not been noticed because
+nothing reaches them often: `/bill-payments/:id` and `/payments/:id` are not
+routes at all — a payment's screen is its edit screen — so both would have
+404'd. All three now open the document.
+
+**Which section owns an expense is a question about the party.** Fixing the
+link exposed it: `DOCUMENT_SECTIONS` said every expense belonged to Vendors,
+while the expense's own page has always asked whose bill it is. So a
+Vendors-only bookkeeper was shown tasks on consultants' bills and would now
+get a 404 on opening one, and a consultant's manager could not see a task on
+a bill they are responsible for. Both the read rule and the rule on raising a
+task now ask the vendor's kind, which is what the document itself does.

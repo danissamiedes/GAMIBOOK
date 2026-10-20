@@ -11,7 +11,14 @@ export const metadata = { title: pageTitle("Tasks") };
 
 type Task = Awaited<ReturnType<typeof listTasks>>[number];
 
-/** The document a task hangs on, as a link — or nothing, for a standalone one. */
+/**
+ * The document a task hangs on, as a link — or nothing, for a standalone one.
+ *
+ * Every one of these opens the document itself. Sending somebody to the list
+ * it happens to be on is not keeping the promise the link makes, and a list
+ * of two hundred bills is the worst place to be dropped when you were asked
+ * to look at one of them.
+ */
 function documentOf(task: Task) {
   if (task.invoice) {
     return { label: `Invoice ${task.invoice.invoiceNumber ?? "(draft)"}`, href: `/invoices/${task.invoice.id}` };
@@ -25,14 +32,22 @@ function documentOf(task: Task) {
   if (task.expense) {
     return {
       label: `${task.expense.kind === "BILL" ? "Bill" : "Expense"} — ${task.expense.description}`,
-      href: `/expenses?tab=${task.expense.kind === "BILL" ? "bill" : "direct"}`,
+      href: `/expenses/${task.expense.id}`,
     };
   }
+  // A payment's screen is its edit screen — there is no separate one to send
+  // anybody to, and `/bill-payments/:id` on its own is not a route at all.
   if (task.billPayment) {
-    return { label: `Bill payment ${formatAccountingDate(task.billPayment.date)}`, href: `/bill-payments/${task.billPayment.id}` };
+    return {
+      label: `Bill payment ${formatAccountingDate(task.billPayment.date)}`,
+      href: `/bill-payments/${task.billPayment.id}/edit`,
+    };
   }
   if (task.payment) {
-    return { label: `Customer payment ${formatAccountingDate(task.payment.date)}`, href: `/payments/${task.payment.id}` };
+    return {
+      label: `Customer payment ${formatAccountingDate(task.payment.date)}`,
+      href: `/payments/${task.payment.id}/edit`,
+    };
   }
   return null;
 }

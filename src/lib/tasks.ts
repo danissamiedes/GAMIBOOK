@@ -21,6 +21,10 @@ import type { CompanyScope } from "@/lib/company-scope";
  *
  * Bill payments are the one document with two owners: the same screen serves
  * consultants and vendors, so a task on one is visible to whoever holds either.
+ *
+ * Expenses have two owners too, but one at a time: a consultant's bill and a
+ * supplier's bill are the same table, and which section may open one depends
+ * on whose bill it is. That is asked of the party rather than the table.
  */
 
 /** Which sections may see a task hung on each kind of document. */
@@ -29,6 +33,8 @@ const DOCUMENT_SECTIONS = {
   salesOrderId: ["SALES"],
   paymentId: ["SALES"],
   workOrderId: ["CONSULTANTS"],
+  // Overridden below by the party on the expense; named here so the type,
+  // the labels and the link list stay complete.
   expenseId: ["VENDORS"],
   // A consultant's work order and a supplier's bill are settled on one screen
   // by whoever holds either section (SPEC §6).
@@ -57,9 +63,28 @@ export const DOCUMENT_LABELS: Record<DocumentLink, string> = {
  * is the safe direction to fail.
  */
 export function visibleTaskWhere(scope: CompanyScope): Prisma.TaskWhereInput {
-  const readable = DOCUMENT_LINKS.filter((link) =>
-    DOCUMENT_SECTIONS[link].some((section) => scope.hasSection(section)),
+  const readable = DOCUMENT_LINKS.filter(
+    (link) =>
+      link !== "expenseId" &&
+      DOCUMENT_SECTIONS[link].some((section) => scope.hasSection(section)),
   );
+
+  /**
+   * Expenses, asked of the party rather than the table.
+   *
+   * A consultant's bill is readable by whoever holds Consultants and a
+   * supplier's by whoever holds Vendors — the same rule the expense's own
+   * page applies. Treating every expense as a vendor's showed a
+   * Vendors-only bookkeeper tasks on bills they then could not open, and
+   * hid a consultant's bill from the very person responsible for it.
+   */
+  const expenseParties: Prisma.ExpenseWhereInput[] = [];
+  if (scope.hasSection("VENDORS")) {
+    expenseParties.push({ OR: [{ vendor: { kind: "REGULAR" } }, { vendorId: null }] });
+  }
+  if (scope.hasSection("CONSULTANTS")) {
+    expenseParties.push({ vendor: { kind: "CONSULTANT" } });
+  }
 
   return {
     companyId: scope.companyId,
@@ -67,6 +92,7 @@ export function visibleTaskWhere(scope: CompanyScope): Prisma.TaskWhereInput {
       // A task with no document behind it has nothing to keep from anyone.
       { AND: DOCUMENT_LINKS.map((link) => ({ [link]: null })) },
       ...readable.map((link) => ({ [link]: { not: null } })),
+      ...(expenseParties.length > 0 ? [{ expense: { OR: expenseParties } }] : []),
     ],
   };
 }
@@ -92,20 +118,47 @@ export function whyNotATask(input: { subject: string; link?: NewTaskInput["link"
   return null;
 }
 
+/**
+ * Which sections may open this particular document, or null if it is not in
+ * this company.
+ *
+ * Particular, because an expense's answer depends on whose bill it is: a
+ * consultant's belongs to Consultants and a supplier's to Vendors, the same
+ * rule the expense's own page applies. Every other document is the same
+ * answer for every row of its kind.
+ */
+async function sectionsForDocument(
+  companyId: string,
+  field: DocumentLink,
+  id: string,
+): Promise<Section[] | null> {
+  if (field === "expenseId") {
+    const expense = await prisma.expense.findFirst({
+      where: { id, companyId },
+      select: { vendor: { select: { kind: true } } },
+    });
+    if (!expense) return null;
+    return expense.vendor?.kind === "CONSULTANT" ? ["CONSULTANTS"] : ["VENDORS"];
+  }
+
+  const exists = await documentExists(companyId, field, id);
+  return exists ? DOCUMENT_SECTIONS[field] : null;
+}
+
 /** The link a form submitted, proven to name a document in this company. */
 async function resolveLink(companyId: string, link: NewTaskInput["link"]) {
   const entries = Object.entries(link ?? {}).filter(([, id]) => Boolean(id)) as [
     DocumentLink,
     string,
   ][];
-  if (entries.length === 0) return {};
+  if (entries.length === 0) return { link: {}, sections: [] as Section[] };
 
   const [field, id] = entries[0];
   // Looked up inside the company, so a guessed id from another company's books
   // cannot be attached to a task here and read back through it.
-  const exists = await documentExists(companyId, field, id);
-  if (!exists) throw new PostingError("That document is not in this company");
-  return { [field]: id };
+  const sections = await sectionsForDocument(companyId, field, id);
+  if (!sections) throw new PostingError("That document is not in this company");
+  return { link: { [field]: id }, sections };
 }
 
 async function documentExists(companyId: string, field: DocumentLink, id: string) {
@@ -130,14 +183,12 @@ export async function createTask(scope: CompanyScope, input: NewTaskInput) {
   const refusal = whyNotATask(input);
   if (refusal) throw new PostingError(refusal);
 
-  const link = await resolveLink(scope.companyId, input.link);
+  const { link, sections } = await resolveLink(scope.companyId, input.link);
 
   // A task may only be raised against a document the raiser can open — the
   // same rule as reading one, applied at the other end.
-  for (const field of Object.keys(link) as DocumentLink[]) {
-    if (!DOCUMENT_SECTIONS[field].some((section) => scope.hasSection(section))) {
-      throw new PostingError("You cannot raise a task on that document");
-    }
+  if (sections.length > 0 && !sections.some((section) => scope.hasSection(section))) {
+    throw new PostingError("You cannot raise a task on that document");
   }
 
   const assignee = input.assignedUserId

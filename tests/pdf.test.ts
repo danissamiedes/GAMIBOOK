@@ -5,7 +5,9 @@ import path from "node:path";
 import { issueInvoice } from "@/lib/invoices/service";
 import { recordPayment } from "@/lib/invoices/payments";
 import { computeWorkOrderLine } from "@/lib/payables/work-orders";
-import { renderInvoicePdf, renderWorkOrderPdf, renderReceiptPdf, cachedPdf, slug } from "@/lib/pdf/render";
+import { renderInvoicePdf, renderWorkOrderPdf, renderReceiptPdf, cachedPdf, slug, brandingFor } from "@/lib/pdf/render";
+import { pdfSafe, renderReportPdf } from "@/lib/pdf/report";
+import { profitAndLossByMonth } from "@/lib/reports/profit-loss-by-month";
 import { resetStorage, storage, storageKeys } from "@/lib/storage";
 import {
   makeCompanyWithChart,
@@ -255,5 +257,86 @@ describe("document PDFs", () => {
     expect(slug("Cebu Retail Group")).toBe("cebu-retail-group");
     expect(slug("O'Brien & Sons, Inc.")).toBe("o-brien-sons-inc");
     expect(slug("   ")).toBe("unnamed");
+  });
+});
+
+/**
+ * SPEC §12.1: the report PDFs. The monthly P&L is the awkward one — a
+ * column per month, which is why it is the only report set sideways.
+ */
+describe("the monthly P&L as a PDF", () => {
+  let fixture: Fixture;
+
+  beforeEach(async () => {
+    await resetDatabase();
+    fixture = await makeCompanyWithChart("PDF Co", "PHP");
+  });
+
+  const isPdf = (bytes: Buffer) => bytes.subarray(0, 5).toString() === "%PDF-";
+
+  const render = async (from: Date, to: Date) => {
+    const report = await profitAndLossByMonth({ companyId: fixture.company.id, from, to });
+    const bytes = await renderReportPdf(await brandingFor(fixture.company.id), {
+      title: "Profit & Loss by month",
+      subtitle: "test",
+      landscape: true,
+      columns: [
+        { label: "Account", width: 150 },
+        ...report.months.map((month) => ({ label: month.label, align: "right" as const })),
+        { label: "Total", align: "right" as const },
+      ],
+      rows: report.sections.flatMap((section) =>
+        section.rows.map((row) => [
+          `${row.code} ${row.name}`,
+          ...row.months.map((amount) => amount.toFixed(2)),
+          row.total.toFixed(2),
+        ]),
+      ),
+      totalRow: [
+        "Net income",
+        ...report.netIncome.months.map((amount) => amount.toFixed(2)),
+        report.netIncome.total.toFixed(2),
+      ],
+    });
+    return { bytes, report };
+  };
+
+  it("renders a full year — thirteen columns — on one sideways page", async () => {
+    const { bytes, report } = await render(
+      new Date(Date.UTC(2026, 0, 1)),
+      new Date(Date.UTC(2026, 11, 31)),
+    );
+    expect(report.months).toHaveLength(12);
+    expect(isPdf(bytes)).toBe(true);
+    expect(bytes.length).toBeGreaterThan(1000);
+  });
+
+  it("renders a part month too, which is the case that breaks the arithmetic", async () => {
+    const { bytes, report } = await render(
+      new Date(Date.UTC(2026, 0, 15)),
+      new Date(Date.UTC(2026, 2, 10)),
+    );
+    expect(report.months.some((month) => !month.whole)).toBe(true);
+    expect(isPdf(bytes)).toBe(true);
+  });
+});
+
+describe("what the built-in PDF font cannot draw", () => {
+  // No font is registered, so anything outside the standard encoding is not
+  // drawn at all — silently. A part-month heading came out as
+  // "OCT 1OCT 20, 2026", its en dash simply gone.
+  it("turns the dashes and quotes a document picks up into plain ones", () => {
+    expect(pdfSafe("Oct 1\u2013Oct 20, 2026")).toBe("Oct 1-Oct 20, 2026");
+    expect(pdfSafe("\u2014 and \u2010")).toBe("- and -");
+    expect(pdfSafe("O\u2019Brien said \u201cno\u201d")).toBe(`O'Brien said "no"`);
+    expect(pdfSafe("Wait\u2026")).toBe("Wait...");
+  });
+
+  it("keeps what the font can draw, accents and the middle dot included", () => {
+    expect(pdfSafe("Ni\u00f1o \u00b7 PHP \u00a31,000")).toBe("Ni\u00f1o \u00b7 PHP \u00a31,000");
+  });
+
+  it("marks anything else rather than dropping it without trace", () => {
+    expect(pdfSafe("\u4f60\u597d")).toBe("??");
   });
 });

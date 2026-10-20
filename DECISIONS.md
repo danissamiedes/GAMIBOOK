@@ -3230,3 +3230,27 @@ and has no start, so "Last Month" means as it stood at the end of last
 month, and one As-of box replaces the two dates. A bookmarked `?asOf=` still
 wins, because it is the more specific answer — unless a period was picked on
 the screen, in which case the thing just clicked wins.
+
+## The monthly P&L prints sideways
+
+Every other report PDF is an upright page of two or three columns. This one
+is a column per month, and a year of them does not fit down A4 — so it is
+the one report set landscape, with the type wound down as the columns
+multiply and a floor below which it stops shrinking.
+
+**The figures are bare.** Thirteen columns of money only fit if they are
+numbers, so "PHP" is said once in the subtitle rather than on every cell,
+and negatives are bracketed in the accounting way. That is how a columnar
+statement is set anyway.
+
+**The built-in font cannot draw everything, and said nothing about it.** No
+font is registered, so the PDFs are set in one of the fourteen standard
+fonts — and a character outside their encoding is simply not drawn. A
+part-month heading came out as "OCT 1OCT 20, 2026" with its en dash gone.
+Report text now goes through `pdfSafe`, which turns typographic dashes,
+quotes and ellipses into plain ones and marks anything else with a question
+mark rather than leaving a hole. An account or customer written with a
+curly apostrophe was losing it the same way.
+
+This covers the report PDFs. The document PDFs — invoices, work orders,
+receipts — are drawn by a different renderer and still have the gap.

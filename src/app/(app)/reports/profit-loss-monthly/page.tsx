@@ -116,8 +116,8 @@ export default async function ProfitLossMonthlyPage({
         from={isoDate(from)}
         to={isoDate(to)}
         csvHref={`/reports/profit-loss-monthly/csv?${query}`}
-      >
-      </ReportControls>
+        pdfHref={`/reports/profit-loss-monthly/pdf?${query}`}
+      />
 
       {empty ? (
         <EmptyState title="Nothing posted in this period" />

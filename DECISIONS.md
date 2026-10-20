@@ -3275,3 +3275,26 @@ Vendors-only bookkeeper was shown tasks on consultants' bills and would now
 get a 404 on opening one, and a consultant's manager could not see a task on
 a bill they are responsible for. Both the read rule and the rule on raising a
 task now ask the vendor's kind, which is what the document itself does.
+
+## Open tasks on the dashboard
+
+The landing page showed what the business owed and was owed, and nothing
+about what anybody had to do about it. The task board existed; you had to
+remember to go and look at it.
+
+**The figure is the link.** Other tiles make the label above the number a
+link. Here the number is one too, because the number is what the eye lands
+on and the thing you want to press.
+
+**Counted with the board's own rule.** `visibleTaskWhere` decides both, so
+the tile and the list it opens can never disagree about how many there are
+— a count that said four over a list of three would make a reader distrust
+both.
+
+**It is the one tile that is not a section.** Every other is withheld
+entirely from somebody whose sections do not cover it, because a zero would
+be a claim about the business. A task is not a figure: the board already
+hides tasks about documents the reader cannot open, and a task hung on
+nothing belongs to everyone. So the tile shows for anybody — including
+somebody with no sections at all, who still sees "Nothing to show yet" for
+the figures, which is the honest pair of answers.

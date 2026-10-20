@@ -3,6 +3,7 @@ import { postJournalEntry } from "@/lib/ledger/post";
 import { issueInvoice } from "@/lib/invoices/service";
 import { withCompanyScope } from "@/lib/company-scope";
 import { dashboard, trailingMonths } from "@/lib/reports/dashboard";
+import { createTask, setTaskStatus } from "@/lib/tasks";
 import {
   makeCompanyWithChart,
   makeCustomer,
@@ -219,6 +220,75 @@ describe("dashboard", () => {
     expect(view.clockedIn).toHaveLength(1);
     expect(view.clockedIn?.[0].name).toBe("Abigail");
     expect(view.clockedIn?.[0].minutes).toBe(210);
+  });
+
+  describe("open tasks", () => {
+    it("counts the open ones, and says how many are past due", async () => {
+      const scope = await ownerScope();
+      await createTask(scope, { subject: "No due date" });
+      await createTask(scope, {
+        subject: "Due later",
+        dueDate: new Date(Date.UTC(2026, 6, 15)),
+      });
+      await createTask(scope, {
+        subject: "Overdue",
+        dueDate: new Date(Date.UTC(2026, 4, 1)),
+      });
+      const done = await createTask(scope, { subject: "Already dealt with" });
+      await setTaskStatus(scope, done.id, "COMPLETED");
+
+      const view = await dashboard({ scope, asOf, baseCurrency: "PHP", now: asOf });
+
+      // Three open; the completed one is not one of them.
+      expect(view.tasks.open).toBe(3);
+      expect(view.tasks.overdue).toBe(1);
+    });
+
+    it("counts only the tasks that person could open", async () => {
+      // The tile has to agree with the board it links to, and the board
+      // hides tasks about documents the reader cannot reach.
+      const owner = await ownerScope();
+      const customer = await makeCustomer(fixture.company.id);
+      const invoice = await makeDraftInvoice({
+        companyId: fixture.company.id,
+        customerId: customer.id,
+        currency: "PHP",
+        lines: [
+          {
+            description: "Consulting",
+            quantity: "1",
+            rate: "5000.00",
+            incomeAccountId: fixture.code("4000").id,
+          },
+        ],
+      });
+      await createTask(owner, { subject: "Chase the invoice", link: { invoiceId: invoice.id } });
+      await createTask(owner, { subject: "Belongs to nobody in particular" });
+
+      const vendorsOnly = await makeUser("BOOKKEEPER", fixture.company.id, undefined, ["VENDORS"]);
+      const view = await dashboard({
+        scope: await withCompanyScope(vendorsOnly.id, fixture.company.id),
+        asOf,
+        baseCurrency: "PHP",
+        now: asOf,
+      });
+
+      // The standalone one only: the invoice task is not theirs to see.
+      expect(view.tasks.open).toBe(1);
+    });
+
+    it("is there even for somebody with no sections at all", async () => {
+      // Every other tile is a section. This one is not: a task hung on
+      // nothing is everybody's, and an empty dashboard should still say so.
+      const noSections = await makeUser("BOOKKEEPER", fixture.company.id, undefined, []);
+      const scope = await withCompanyScope(noSections.id, fixture.company.id);
+      await createTask(scope, { subject: "Renew the permit" });
+
+      const view = await dashboard({ scope, asOf, baseCurrency: "PHP", now: asOf });
+      expect(view.tasks.open).toBe(1);
+      // Still "nothing to show": a task carries no figure.
+      expect(view.empty).toBe(true);
+    });
   });
 
   it("withholds a tile the user's sections do not cover", async () => {

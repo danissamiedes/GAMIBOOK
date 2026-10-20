@@ -5,6 +5,7 @@ import { balancesByAccount } from "./balances";
 import { arAging } from "@/lib/invoices/aging";
 import { apAging } from "@/lib/payables/aging";
 import type { CompanyScope } from "@/lib/company-scope";
+import { visibleTaskWhere } from "@/lib/tasks";
 import { minutesBetween } from "@/lib/time/zone";
 
 /**
@@ -59,6 +60,12 @@ export type BankTile = {
   oldest: Date | null;
 };
 
+export type TasksTile = {
+  open: number;
+  /** Open, dated, and that date is past. */
+  overdue: number;
+};
+
 export type Dashboard = {
   asOf: Date;
   baseCurrency: string;
@@ -68,7 +75,13 @@ export type Dashboard = {
   payables: PayablesTile | null;
   clockedIn: ClockedInRow[] | null;
   bank: BankTile | null;
-  /** True when no section this user holds produces a tile. */
+  /**
+   * Never null. A task is the one thing on this page that is not gated by a
+   * section — the board already hides tasks about documents the reader
+   * cannot open, and a task hung on nothing is everybody's.
+   */
+  tasks: TasksTile;
+  /** True when no section this user holds produces a figure. */
   empty: boolean;
 };
 
@@ -184,7 +197,11 @@ export async function dashboard(options: {
 
   const months = trailingMonths(asOf, monthCount);
 
-  const [cashRows, trendRows, ar, apParts, openEntries, oldestUnmatched] =
+  // Counted with the board's own rule, so the tile and the list it links to
+  // can never disagree about how many there are.
+  const taskWhere = visibleTaskWhere(scope);
+
+  const [cashRows, trendRows, ar, apParts, openEntries, oldestUnmatched, openTasks, overdueTasks] =
     await Promise.all([
       seesFinancials
         ? balancesByAccount({
@@ -224,6 +241,10 @@ export async function dashboard(options: {
             select: { date: true },
           })
         : null,
+      prisma.task.count({ where: { ...taskWhere, status: "OPEN" } }),
+      prisma.task.count({
+        where: { ...taskWhere, status: "OPEN", dueDate: { lt: asOf } },
+      }),
     ]);
 
   const cash: CashTile | null = cashRows
@@ -338,6 +359,10 @@ export async function dashboard(options: {
     payables,
     clockedIn,
     bank,
+    tasks: { open: openTasks, overdue: overdueTasks },
+    // Tasks are deliberately not counted here: the message this turns on
+    // says the account holds no section that carries figures, and a task
+    // carries none.
     empty: !cash && !trend && !receivables && !payables && !clockedIn && !bank,
   };
 }

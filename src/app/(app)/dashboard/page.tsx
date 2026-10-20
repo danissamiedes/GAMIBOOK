@@ -153,6 +153,26 @@ export default async function DashboardPage() {
           </Card>
         ) : null}
 
+        <Card>
+          <Tile label="Open tasks" href="/tasks" />
+          {/* The figure is the link as well as the label: the number is what
+              the eye lands on, and it is the thing you want to act on. */}
+          <Link href="/tasks" className="mt-1 block text-2xl font-semibold tabular-nums hover:underline">
+            {view.tasks.open}
+          </Link>
+          {view.tasks.open === 0 ? (
+            <p className="mt-3 text-sm text-slate-500">Nothing outstanding.</p>
+          ) : view.tasks.overdue > 0 ? (
+            <p className="mt-3 text-sm font-medium text-red-700 dark:text-red-300">
+              {view.tasks.overdue} past their due date
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
+              None past their due date.
+            </p>
+          )}
+        </Card>
+
         {view.clockedIn ? (
           <Card>
             <Tile label="Clocked in now" href="/timesheets" />

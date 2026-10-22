@@ -340,6 +340,17 @@ model Company {
   /// SPEC §8.4. Auto-link only, which posts nothing and unmatches cleanly.
   bankAutoLinkEnabled     Boolean      @default(false)
 
+  /// SPEC §8.2 extension. The address bills for this book are forwarded to,
+  /// such as `docs+kasagami@bookkeepingpoint.com`. One login keeps several
+  /// books; this is how a forwarded bill knows which one it belongs to, and
+  /// mail reaches all of them through the one connected mailbox because
+  /// Gmail delivers every `docs+anything@` to `docs@`. Empty means this book
+  /// does not take bills by email, and nothing is polled for it.
+  inboxAddress            String?
+  /// The Drive folder forwarded attachments are filed in, created on the
+  /// first one and remembered so they stay together.
+  inboxDriveFolderId      String?
+
   /// How this company signs its outgoing documents (SPEC §10).
   ///
   /// The address mail is *sent from* is the connected Google mailbox and
@@ -411,6 +422,7 @@ model Company {
   recurringBillTemplates    RecurringBillTemplate[]
   bankReconciliations       BankReconciliation[]
   receiptUploads            ReceiptUpload[]
+  inboxMessages             InboxMessage[]
   tasks                     Task[]
   partyNotes                PartyNote[]
   purchaseOrders            PurchaseOrder[]
@@ -1004,6 +1016,7 @@ model Expense {
   applications       BillPaymentApplication[]
   creditApplications VendorCreditApplication[]
   receipt            ReceiptUpload?
+  inboxMessage       InboxMessage?
   /// Set when this expense was recorded by a recurring template (SPEC §8.2a).
   recurringRun       RecurringBillRun?
   tasks              Task[]
@@ -1673,6 +1686,80 @@ model RateLimit {
 /// Deliberately its own table rather than a draft Expense: a photo somebody
 /// snapped is not an accounting record and must never appear in a report,
 /// however incomplete. It becomes one only when a person approves it.
+/// A bill that arrived by email (SPEC §8.2 extension).
+///
+/// Forwarded to the address a book publishes — `docs+kasagami@…` — found by
+/// the hourly poll of the connected mailbox, and listed until somebody turns
+/// it into a bill or a direct expense. Nothing here is in the books.
+///
+/// The message itself is not copied into the database: the subject, the
+/// sender and the date are what the list needs, and the attachments go to
+/// Drive. What is stored is enough to show the row and to open the file.
+model InboxMessage {
+  id        String @id @default(cuid())
+  companyId String
+
+  /// Gmail's own message id. Unique per company, which is what stops one
+  /// message being filed twice however often the poll runs.
+  providerId  String
+  /// When the message was sent, as the mailbox reports it — the date the
+  /// list shows, because "when it was forwarded" is what the reader means.
+  receivedAt  DateTime
+  fromAddress String
+  subject     String
+  /// The address it was delivered to: how it found this book rather than
+  /// another, and worth showing when somebody asks why it is here.
+  deliveredTo String?
+  /// Gmail's own one-line preview, for a row whose subject says little.
+  snippet     String?
+
+  status InboxStatus @default(WAITING)
+
+  /// Set once recorded — the expense it became.
+  expenseId       String?   @unique
+  dismissedAt     DateTime?
+  dismissedReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  expense     Expense?          @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  attachments InboxAttachment[]
+
+  /// One message, filed once. The poll leans on this rather than on having
+  /// labelled the message, because a label can be removed by hand.
+  @@unique([companyId, providerId])
+  @@index([companyId, status, receivedAt])
+}
+
+/// One file off a forwarded email, parked in Drive (SPEC §8.2 extension).
+///
+/// The bytes are never kept here or on the server: they go straight from the
+/// mailbox to the company's Drive folder, and what is stored is the link
+/// that opens them.
+model InboxAttachment {
+  id        String @id @default(cuid())
+  messageId String
+
+  filename String
+  mimeType String
+  byteSize Int
+
+  /// Drive's file id, and the link that opens it in a browser.
+  driveFileId String?
+  viewUrl     String?
+  /// Why the upload failed, when it did. The row is still listed: knowing a
+  /// bill arrived and could not be filed beats not knowing it arrived.
+  uploadError String?
+
+  createdAt DateTime @default(now())
+
+  message InboxMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
 model ReceiptUpload {
   id        String @id @default(cuid())
   companyId String
@@ -1712,6 +1799,17 @@ model ReceiptUpload {
   expense    Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
 
   @@index([companyId, status, createdAt])
+}
+
+/// SPEC §8.2 extension. A bill forwarded by email, before anybody has
+/// decided what it is.
+enum InboxStatus {
+  /// Filed from the mailbox, waiting for somebody to record or discard it.
+  WAITING
+  /// Recorded as a bill or a direct expense.
+  RECORDED
+  /// Not a bill — kept, but out of the way.
+  DISMISSED
 }
 
 enum ReceiptStatus {

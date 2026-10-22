@@ -152,6 +152,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         // it too — but a link that leads to a refusal is worse than no link.
         scope.role === "OWNER" &&
           scope.hasSection("VENDORS") && { href: "/receipts", label: "Receipt inbox" },
+        // Where a book's forwarding address is set (SPEC §8.2 extension).
+        scope.role === "OWNER" &&
+          scope.hasSection("VENDORS") && { href: "/receipts/settings", label: "Bills by email" },
       ]),
     },
     scope.hasSection("BOOKINGS") && {

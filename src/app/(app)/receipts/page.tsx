@@ -12,6 +12,7 @@ import {
   restoreReceipt,
   uploadReceipt,
 } from "@/lib/receipts/service";
+import { dismissInboxMessage, restoreInboxMessage } from "@/lib/receipts/inbox";
 import { money, parseMoney } from "@/lib/money";
 import { formatMoney, SUPPORTED_CURRENCIES } from "@/lib/currency";
 import { formatAccountingDate, isoDate, parseAccountingDate, today } from "@/lib/dates";
@@ -21,6 +22,7 @@ import {
   Alert,
   Button,
   Card,
+  DataTable,
   EmptyState,
   Field,
   Input,
@@ -41,7 +43,13 @@ export const metadata = { title: pageTitle("Receipt inbox") };
 export default async function ReceiptsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; saved?: string; show?: string; open?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    saved?: string;
+    show?: string;
+    open?: string;
+    tab?: string;
+  }>;
 }) {
   const scope = await sectionScope("VENDORS");
   // The nav hides this from a bookkeeper; this is what actually stops them.
@@ -49,6 +57,10 @@ export default async function ReceiptsPage({
   scope.requireRole("OWNER");
   const params = await searchParams;
   const showDismissed = params.show === "dismissed";
+  // Two ways paperwork arrives — photographed, or forwarded by email — and
+  // they are different enough to deserve their own list rather than one
+  // mixed queue sorted by an accident of how it got here.
+  const tab = params.tab === "email" ? "email" : "photos";
 
   const [company, receipts, vendors, expenseAccounts, paymentAccounts] = await Promise.all([
     prisma.company.findFirstOrThrow({ where: { id: scope.companyId } }),
@@ -73,6 +85,22 @@ export default async function ReceiptsPage({
       where: { ...scope.where, isActive: true, subtype: { in: ["CASH", "CREDIT_CARD"] } },
       orderBy: { code: "asc" },
     }),
+  ]);
+
+  const [forwarded, waitingByEmail] = await Promise.all([
+    prisma.inboxMessage.findMany({
+      where: {
+        ...scope.where,
+        status: showDismissed ? "DISMISSED" : { in: ["WAITING", "RECORDED"] },
+      },
+      include: {
+        attachments: { orderBy: { createdAt: "asc" } },
+        expense: { select: { id: true, kind: true, reference: true, description: true } },
+      },
+      orderBy: { receivedAt: "desc" },
+      take: 100,
+    }),
+    prisma.inboxMessage.count({ where: { ...scope.where, status: "WAITING" } }),
   ]);
 
   const open = params.open ? (receipts.find((r) => r.id === params.open) ?? null) : null;
@@ -197,6 +225,32 @@ export default async function ReceiptsPage({
     redirect("/receipts");
   }
 
+  async function dismissForwarded(formData: FormData) {
+    "use server";
+    const inner = await sectionScope("VENDORS");
+    inner.requireRole("OWNER");
+    try {
+      await dismissInboxMessage({
+        companyId: inner.companyId,
+        messageId: String(formData.get("messageId") || ""),
+        reason: String(formData.get("reason") || ""),
+        userId: inner.userId,
+      });
+    } catch (thrown) {
+      if (thrown instanceof PostingError) failTo("/receipts?tab=email", thrown.message);
+      throw thrown;
+    }
+    redirect("/receipts?tab=email");
+  }
+
+  async function restoreForwarded(formData: FormData) {
+    "use server";
+    const inner = await sectionScope("VENDORS");
+    inner.requireRole("OWNER");
+    await restoreInboxMessage(inner.companyId, String(formData.get("messageId") || ""));
+    redirect("/receipts?tab=email&show=dismissed");
+  }
+
   async function restore(formData: FormData) {
     "use server";
     const inner = await sectionScope("VENDORS");
@@ -206,19 +260,58 @@ export default async function ReceiptsPage({
 
   return (
     <>
-      <PageHeader
-        title="Receipt inbox"
-        description="Photograph a receipt, check what was read off it, and enter it as a bill or a direct expense. Nothing here is in the books until you approve it."
-      />
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <PageHeader
+          title="Receipt inbox"
+          description="Paperwork waiting to be entered — photographed here, or forwarded by email. Nothing is in the books until you record it."
+        />
+        <Link href="/receipts/settings">
+          <Button variant="secondary">Bills by email</Button>
+        </Link>
+      </div>
+
+      <div className="mb-4 flex gap-1 border-b border-slate-200 dark:border-slate-800">
+        {[
+          { key: "photos", label: "Photos", href: "/receipts" },
+          {
+            key: "email",
+            label: `Forwarded by email${waitingByEmail > 0 ? ` (${waitingByEmail})` : ""}`,
+            href: "/receipts?tab=email",
+          },
+        ].map((entry) => (
+          <Link
+            key={entry.key}
+            href={entry.href}
+            aria-current={tab === entry.key ? "page" : undefined}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
+              tab === entry.key
+                ? "border-brand-600 text-brand-700 dark:text-brand-300"
+                : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+            }`}
+          >
+            {entry.label}
+          </Link>
+        ))}
+      </div>
+
       {params.error ? <Alert tone="error">{params.error}</Alert> : null}
       {params.saved ? <Alert tone="success">Done.</Alert> : null}
-      {pendingCount > 0 ? (
+      {tab === "photos" && pendingCount > 0 ? (
         <Alert tone="info">
           {pendingCount} photo{pendingCount === 1 ? " has" : "s have"} not been read yet — use
           Read on the row, or fill the fields in by hand.
         </Alert>
       ) : null}
 
+      {tab === "email" ? (
+        <ForwardedList
+          rows={forwarded}
+          showDismissed={showDismissed}
+          inboxAddress={company.inboxAddress}
+          dismiss={dismissForwarded}
+          restore={restoreForwarded}
+        />
+      ) : (
       <div className="mt-4 grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card>
           <div className="mb-3 flex items-center justify-between">
@@ -496,6 +589,193 @@ export default async function ReceiptsPage({
           </p>
         </Card>
       </div>
+      )}
     </>
+  );
+}
+
+type ForwardedRow = {
+  id: string;
+  receivedAt: Date;
+  subject: string;
+  fromAddress: string;
+  deliveredTo: string | null;
+  snippet: string | null;
+  status: "WAITING" | "RECORDED" | "DISMISSED";
+  dismissedReason: string | null;
+  attachments: {
+    id: string;
+    filename: string;
+    viewUrl: string | null;
+    uploadError: string | null;
+  }[];
+  expense: { id: string; kind: string; reference: string | null; description: string } | null;
+};
+
+/**
+ * Bills that arrived by email (SPEC §8.2 extension).
+ *
+ * A table rather than the card list the photos use, because every row here
+ * answers the same four questions — when it came, what it says it is, where
+ * the file is, and what you are going to do about it — and a table is how
+ * you read forty of those.
+ *
+ * The two buttons are links into the ordinary expense screens rather than a
+ * form of their own. A bill entered from a forwarded email is an ordinary
+ * bill: it should be checked, coded and posted by the same screen as every
+ * other, with the subject and the Drive link carried over as a starting
+ * point.
+ */
+function ForwardedList({
+  rows,
+  showDismissed,
+  inboxAddress,
+  dismiss,
+  restore,
+}: {
+  rows: ForwardedRow[];
+  showDismissed: boolean;
+  inboxAddress: string | null;
+  dismiss: (formData: FormData) => Promise<void>;
+  restore: (formData: FormData) => Promise<void>;
+}) {
+  const record = (row: ForwardedRow, kind: "direct" | "bill") => {
+    const query = new URLSearchParams({ inbox: row.id });
+    if (kind === "bill") query.set("tab", "bill");
+    return `/expenses/new?${query.toString()}`;
+  };
+
+  return (
+    <Card>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold">{showDismissed ? "Dismissed" : "Waiting"}</h2>
+        <Link
+          className="text-xs underline"
+          href={showDismissed ? "/receipts?tab=email" : "/receipts?tab=email&show=dismissed"}
+        >
+          {showDismissed ? "Back to the queue" : "Show dismissed"}
+        </Link>
+      </div>
+
+      {!inboxAddress ? (
+        <Alert tone="info">
+          This book has no forwarding address yet, so nothing can arrive. Set
+          one under{" "}
+          <Link className="underline" href="/receipts/settings">
+            Bills by email
+          </Link>
+          .
+        </Alert>
+      ) : null}
+
+      {rows.length === 0 ? (
+        <EmptyState title={showDismissed ? "Nothing dismissed" : "Nothing forwarded yet"}>
+          {showDismissed
+            ? "Messages you set aside show up here, and can be put back."
+            : inboxAddress
+              ? `Forward a bill to ${inboxAddress} and it will appear here within the hour, with its attachments filed in Drive.`
+              : "Once this book has an address, anything forwarded to it lands here."}
+        </EmptyState>
+      ) : (
+        <DataTable>
+          <thead>
+            <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
+              <th className="py-2">Forwarded</th>
+              <th className="py-2">Subject</th>
+              <th className="py-2">File</th>
+              <th className="py-2 text-right">Record as</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className="border-b border-slate-100 align-top dark:border-slate-800/60">
+                <td className="whitespace-nowrap py-2 text-sm">
+                  {formatAccountingDate(row.receivedAt)}
+                </td>
+                <td className="py-2 text-sm">
+                  <div className="font-medium">{row.subject}</div>
+                  <div className="text-xs text-slate-500">
+                    {row.fromAddress}
+                    {row.deliveredTo ? ` · to ${row.deliveredTo}` : ""}
+                  </div>
+                  {row.snippet ? (
+                    <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{row.snippet}</p>
+                  ) : null}
+                  {row.dismissedReason ? (
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Dismissed: {row.dismissedReason}
+                    </p>
+                  ) : null}
+                </td>
+                <td className="py-2 text-sm">
+                  {row.attachments.length === 0 ? (
+                    // Worth saying rather than leaving blank: a bill in the
+                    // body of an email is still a bill, and the reader needs
+                    // to know there is nothing to open.
+                    <span className="text-xs text-slate-400">Nothing attached</span>
+                  ) : (
+                    <ul className="space-y-0.5">
+                      {row.attachments.map((file) => (
+                        <li key={file.id}>
+                          {file.viewUrl ? (
+                            <a
+                              className="text-xs underline"
+                              href={file.viewUrl}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                            >
+                              {file.filename}
+                            </a>
+                          ) : (
+                            <span
+                              className="text-xs text-amber-700 dark:text-amber-400"
+                              title={file.uploadError ?? undefined}
+                            >
+                              {file.filename} — not filed
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </td>
+                <td className="py-2 text-right">
+                  {row.status === "RECORDED" && row.expense ? (
+                    <Link className="text-sm underline" href={`/expenses/${row.expense.id}`}>
+                      {row.expense.kind === "BILL" ? "Bill" : "Expense"}{" "}
+                      {row.expense.reference ?? "recorded"}
+                    </Link>
+                  ) : showDismissed ? (
+                    <form action={restore}>
+                      <input type="hidden" name="messageId" value={row.id} />
+                      <Button variant="ghost" type="submit">
+                        Put back
+                      </Button>
+                    </form>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-end gap-1">
+                      <Link href={record(row, "direct")}>
+                        <Button variant="secondary" type="button">
+                          Direct expense
+                        </Button>
+                      </Link>
+                      <Link href={record(row, "bill")}>
+                        <Button type="button">Bill</Button>
+                      </Link>
+                      <form action={dismiss}>
+                        <input type="hidden" name="messageId" value={row.id} />
+                        <Button variant="ghost" type="submit">
+                          Dismiss
+                        </Button>
+                      </form>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      )}
+    </Card>
   );
 }

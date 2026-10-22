@@ -3298,3 +3298,62 @@ hides tasks about documents the reader cannot open, and a task hung on
 nothing belongs to everyone. So the tile shows for anybody — including
 somebody with no sections at all, who still sees "Nothing to show yet" for
 the figures, which is the honest pair of answers.
+
+## Bills forwarded by email
+
+Paperwork arrives as email more often than as a photograph. A bill forwarded
+to a book's own address now turns up in the receipt inbox with its
+attachments filed in Drive, ready to be recorded — and recording it is still
+a deliberate act.
+
+**The mailbox is read, not an inbound-mail supplier.** The alternative was
+pointing MX records at Mailgun or Postmark and taking a webhook. Reading the
+Google account that is already connected needs no DNS change, no third
+party and no monthly bill, and `docs+anything@` already reaches `docs@`.
+The cost is honest and was weighed: this app asked only for `gmail.send`
+and said in as many words that a read scope granted speculatively would be a
+poor trade. That still holds — which is why the wider scope is asked for
+only when a book turns the inbox on, never at the first connection.
+
+**`gmail.modify`, not `gmail.readonly`.** The poll labels what it has taken
+`GAMIBOOK/Filed`, so the mailbox itself tells you what the app has seen.
+`modify` cannot delete mail; that needs the full scope, which is not asked
+for.
+
+**The label is a courtesy; the unique index is the guarantee.** One message
+is filed once because `(companyId, providerId)` says so. A label somebody
+removes by hand, or a label call that failed, cannot produce a duplicate —
+which is why failing to label is logged and otherwise ignored rather than
+failing the pass.
+
+**An address per book.** One login keeps several books and a forwarded bill
+has to find the right one. Each book publishes its own plus-address, which
+is a setting rather than a mailbox to create. Two books cannot share one:
+that is refused at the point of saving, because whichever polled first would
+win and the other would silently never see its post.
+
+**Drive, at `drive.file`.** The bytes go from the mailbox to the company's
+own Drive and are never written to this server — which is what was asked
+for, and also means the file outlives the email and can be opened or shared
+like anything else they own. `drive.file` is the narrow scope: the app can
+only see files it created itself, so the rest of the Drive stays invisible
+to it. The folder is remembered by id, so renaming or moving it by hand is
+fine, and a folder somebody deletes is simply made again.
+
+**Only bill-shaped attachments.** PDFs, and images over 10 kB. A forwarded
+email carries a signature logo and sometimes a vCard, and filing those would
+turn the Drive folder into noise within a week. A message whose attachments
+were all furniture is still listed: a bill pasted into the body is a bill,
+and "nothing attached" is a far better answer than silence.
+
+**Recording goes through the ordinary expense screen.** The two buttons are
+links to `/expenses/new`, carrying the subject as the description and the
+Drive link as the file link. A bill that arrived by email is an ordinary
+bill and should be coded and posted by the same screen as every other, with
+the same rules — a bill still needs a vendor. Nothing is read off the
+attachment, and the form says so.
+
+**Crossing the row off happens after the posting, not inside it.** The inbox
+is a queue of paperwork, not part of the ledger. A failure to mark a message
+recorded is logged and the expense stands; rolling back a correctly posted
+bill because a queue could not be tidied would be the wrong way round.

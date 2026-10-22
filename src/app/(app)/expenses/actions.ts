@@ -9,6 +9,7 @@ import { recordExpense, updateExpense } from "@/lib/payables/expenses";
 import { parseMoney } from "@/lib/money";
 import { parseAccountingDate, today } from "@/lib/dates";
 import { safeExternalUrl } from "@/lib/links";
+import { markInboxRecorded } from "@/lib/receipts/inbox";
 import { PostingError } from "@/lib/errors";
 
 /**
@@ -39,6 +40,8 @@ function readForm(formData: FormData) {
     description: String(formData.get("description") || "").trim(),
     reference: String(formData.get("reference") || "").trim() || null,
     receiptUrl: safeExternalUrl(String(formData.get("fileUrl") || "")),
+    /** Set when this was started from a forwarded email (SPEC §8.2 ext). */
+    inboxMessageId: String(formData.get("inboxMessageId") || "") || null,
   };
 }
 
@@ -97,6 +100,22 @@ async function create(section: Section, kind: "DIRECT" | "BILL", formData: FormD
   } catch (thrown) {
     if (thrown instanceof PostingError) failTo(back, thrown.message);
     throw thrown;
+  }
+
+  // Tick the forwarded email off, after the posting rather than inside it:
+  // the inbox is a queue of paperwork, and failing to cross a row out must
+  // never undo a bill that is correctly in the books.
+  if (form.inboxMessageId) {
+    try {
+      await markInboxRecorded({
+        companyId: scope.companyId,
+        messageId: form.inboxMessageId,
+        expenseId,
+        userId: scope.userId,
+      });
+    } catch (error) {
+      console.error("[inbox] recorded the expense but could not mark the message", error);
+    }
   }
   // Onto the document itself: what was just recorded is what somebody wants
   // to see, and it is where editing, tasks and payments are from now on.

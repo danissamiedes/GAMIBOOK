@@ -17,7 +17,7 @@ export const metadata = { title: pageTitle("Record an expense") };
 export default async function NewExpensePage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; error?: string }>;
+  searchParams: Promise<{ tab?: string; error?: string; inbox?: string }>;
 }) {
   const scope = await sectionScope("VENDORS");
   const params = await searchParams;
@@ -45,7 +45,18 @@ export default async function NewExpensePage({
     }),
   ]);
 
-  const back = `/expenses?tab=${bill ? "bill" : "direct"}`;
+  // Started from a forwarded email, if the inbox sent us here. Read inside
+  // this company's scope: an id in the address proves nothing.
+  const fromInbox = params.inbox
+    ? await prisma.inboxMessage.findFirst({
+        where: { id: params.inbox, ...scope.where, status: "WAITING" },
+        include: { attachments: { orderBy: { createdAt: "asc" } } },
+      })
+    : null;
+
+  const back = params.inbox
+    ? "/receipts?tab=email"
+    : `/expenses?tab=${bill ? "bill" : "direct"}`;
 
   return (
     <>
@@ -76,6 +87,16 @@ export default async function NewExpensePage({
         paymentAccounts={paymentAccounts}
         baseCurrency={company.baseCurrency}
         cancelHref={back}
+        startingFrom={
+          fromInbox
+            ? {
+                messageId: fromInbox.id,
+                subject: fromInbox.subject,
+                from: fromInbox.fromAddress,
+                fileUrl: fromInbox.attachments.find((file) => file.viewUrl)?.viewUrl ?? null,
+              }
+            : null
+        }
       />
     </>
   );

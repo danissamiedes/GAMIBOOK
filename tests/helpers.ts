@@ -22,6 +22,7 @@ export async function resetDatabase() {
       "TimeEntry", "EmailBatchItem", "EmailBatch",
       "EmailLog", "EmailTemplate", "EmailConnection",
       "ImportRow", "ImportBatch",
+      "InboxAttachment", "InboxMessage",
       "ReclassificationLine", "Reclassification",
       "JournalLine", "JournalEntry", "Account", "AuditLog",
       "PasswordResetToken", "Invitation", "NumberSequence",

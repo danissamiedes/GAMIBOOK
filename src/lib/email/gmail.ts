@@ -6,12 +6,36 @@ import { decryptSecret, encryptSecret } from "./crypto";
  * lands in their Sent folder and replies come back to a person rather than to
  * a no-reply address.
  *
- * Only `gmail.send` is requested — the narrowest scope that works. This app
- * cannot read anyone's mail, and asking for a read scope to make some future
- * feature easier would be a poor trade.
+ * Only `gmail.send` is requested — the narrowest scope that works — unless
+ * a company turns on the receipt inbox (SPEC §8.2 extension), which cannot
+ * be done without reading the mailbox. That is asked for when the feature is
+ * switched on and not before: a read scope granted speculatively, to make
+ * some future feature easier, would still be a poor trade.
  */
 
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+/**
+ * Read and label, for the receipt inbox. `modify` rather than `readonly`
+ * because the poll marks what it has filed, which is how the mailbox itself
+ * tells you what GAMIBOOK has taken. It cannot delete anything: that needs
+ * `gmail.modify`'s absent sibling, the full mail scope.
+ */
+export const GMAIL_INBOX_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
+/**
+ * Drive, at its narrowest: an app with `drive.file` can only see and touch
+ * the files it created itself. Forwarded attachments go into a folder this
+ * app makes, and the rest of the Drive stays invisible to it.
+ */
+export const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+
+/** The scopes a company needs granted before its inbox can be polled. */
+export const INBOX_SCOPES = [GMAIL_INBOX_SCOPE, DRIVE_FILE_SCOPE];
+
+/** Whether a stored grant covers reading the mailbox and filing to Drive. */
+export function hasInboxScopes(scope: string | null | undefined): boolean {
+  const granted = new Set((scope ?? "").split(/\s+/).filter(Boolean));
+  return INBOX_SCOPES.every((needed) => granted.has(needed));
+}
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const SEND_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 const USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v3/userinfo";
@@ -47,12 +71,23 @@ export function oauthRedirectUri(origin: string): string {
 }
 
 /** The consent URL. `prompt=consent` so a refresh token always comes back. */
-export function authorizationUrl(options: { origin: string; state: string }): string {
+export function authorizationUrl(options: {
+  origin: string;
+  state: string;
+  /** Also ask for the inbox scopes, when the company is turning that on. */
+  inbox?: boolean;
+}): string {
+  const scopes = [
+    GMAIL_SEND_SCOPE,
+    ...(options.inbox ? INBOX_SCOPES : []),
+    "openid",
+    "email",
+  ];
   const params = new URLSearchParams({
     client_id: process.env.AUTH_GOOGLE_ID ?? "",
     redirect_uri: oauthRedirectUri(options.origin),
     response_type: "code",
-    scope: `${GMAIL_SEND_SCOPE} openid email`,
+    scope: scopes.join(" "),
     access_type: "offline",
     prompt: "consent",
     include_granted_scopes: "true",
@@ -220,6 +255,19 @@ export async function sendViaGmail(options: {
 
   const json = (await response.json()) as { id?: string };
   return { gmailMessageId: json.id ?? "unknown", from };
+}
+
+/**
+ * An access token for this company's Google account, for the callers that
+ * are not sending mail — the inbox poll and the Drive upload.
+ *
+ * Exported rather than duplicated: the refresh, the decryption and the
+ * "mark it as needing a reconnect" behaviour are the same whichever API is
+ * being called, and two copies of that would drift.
+ */
+export async function googleAccessToken(companyId: string): Promise<string> {
+  const { token } = await accessTokenFor(companyId);
+  return token;
 }
 
 /** The address mail would go out from, for previews. */

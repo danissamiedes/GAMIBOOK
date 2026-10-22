@@ -45,6 +45,7 @@ export function ExpenseForm({
   baseCurrency,
   cancelHref,
   showFileLink = true,
+  startingFrom,
 }: {
   action: (formData: FormData) => void;
   kind: "DIRECT" | "BILL";
@@ -57,6 +58,18 @@ export function ExpenseForm({
   baseCurrency: string;
   cancelHref: string;
   showFileLink?: boolean;
+  /**
+   * A forwarded email this is being entered from (SPEC §8.2 extension).
+   * Its subject and Drive link fill the form in as a starting point, and
+   * its id rides along so the inbox row is crossed off on save. Everything
+   * remains editable: what arrived by email is a claim, not a figure.
+   */
+  startingFrom?: {
+    messageId: string;
+    subject: string;
+    fileUrl: string | null;
+    from: string;
+  } | null;
 }) {
   const currencies = [...new Set([baseCurrency, ...parties.map((party) => party.defaultCurrency)])];
 
@@ -69,9 +82,34 @@ export function ExpenseForm({
         </p>
       ) : null}
 
+      {startingFrom ? (
+        <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+          From the email <span className="font-medium">{startingFrom.subject}</span>, forwarded
+          by {startingFrom.from}. Check every figure against the attachment — nothing was read
+          off it.
+          {startingFrom.fileUrl ? (
+            <>
+              {" "}
+              <a
+                className="underline"
+                href={startingFrom.fileUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                Open the file
+              </a>
+              .
+            </>
+          ) : null}
+        </p>
+      ) : null}
+
       <form action={action} className="space-y-4">
         <input type="hidden" name="kind" value={kind} />
         {editing ? <input type="hidden" name="expenseId" value={editing.id} /> : null}
+        {startingFrom ? (
+          <input type="hidden" name="inboxMessageId" value={startingFrom.messageId} />
+        ) : null}
 
         {/* What and when, who, what it was, what it cost, where it lands,
             then the currency pair. Currency and its rate share a row because
@@ -111,7 +149,11 @@ export function ExpenseForm({
 
           <div className="sm:col-span-2">
             <Field label="Description">
-              <Input name="description" required defaultValue={editing?.description ?? ""} />
+              <Input
+                name="description"
+                required
+                defaultValue={editing?.description ?? startingFrom?.subject ?? ""}
+              />
             </Field>
           </div>
 
@@ -177,7 +219,7 @@ export function ExpenseForm({
                   type="url"
                   inputMode="url"
                   placeholder="https://drive.google.com/…"
-                  defaultValue={editing?.receiptUrl ?? ""}
+                  defaultValue={editing?.receiptUrl ?? startingFrom?.fileUrl ?? ""}
                 />
               </Field>
             </div>

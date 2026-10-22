@@ -2,6 +2,7 @@ import { autoCloseStaleEntries } from "@/lib/time/clock";
 import { runRecurringInvoices } from "@/lib/invoices/recurring";
 import { runRecurringBills } from "@/lib/payables/recurring-bills";
 import { runBankAutoLink } from "@/lib/bank/auto-link";
+import { runInboxPoll } from "@/lib/receipts/inbox";
 import { pruneRateLimits } from "@/lib/rate-limit";
 import { expireStaleHolds } from "@/lib/bookings/expire";
 
@@ -52,6 +53,15 @@ export const JOBS: Job[] = [
     name: "recurring-bills",
     everyMinutes: 60,
     run: () => runRecurringBills(),
+  },
+  {
+    // Bills forwarded to a book's own address (SPEC §8.2 extension). Hourly
+    // because mail is not urgent and a mailbox read on a timer is a mailbox
+    // read: the less often, the better. Nothing posts, so a late pass only
+    // means a bill waits an hour longer to be looked at.
+    name: "receipt-inbox-poll",
+    everyMinutes: 60,
+    run: () => runInboxPoll(),
   },
   {
     // Only the LINK outcome, only where exactly one payment can be meant.

@@ -1,9 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
   MAX_BULK_PAYMENTS,
-  payableWorkOrders,
+  payableConsultantDocuments,
   planBulkPay,
   recordBulkPay,
+  type BulkPayLine,
 } from "@/lib/payables/bulk-pay";
 import { closeBooksThrough } from "@/lib/periods/close";
 import { SYSTEM_ACCOUNTS } from "@/lib/ledger/accounts";
@@ -18,14 +19,19 @@ const PAID_ON = new Date(Date.UTC(2026, 7, 28));
 const AS_OF = new Date(Date.UTC(2026, 11, 31));
 
 /**
- * SPEC §6: settling many work orders in one action.
+ * SPEC §6: settling what several consultants are owed in one action.
  *
  * The point of these tests is the seam a bulk action introduces — that the
  * selection becomes one payment per consultant, that a run which cannot finish
  * says who it could not pay rather than unwinding what it could, and that the
  * ledger lands exactly where eighteen separate payments would have left it.
+ *
+ * Most of them are written against work orders raised under the earlier flow,
+ * which posted on approval and are payable in their own right. They are the
+ * awkward case and they still have to work; bills, which are the ordinary
+ * case now, get their own section at the end.
  */
-describe("paying work orders in bulk", () => {
+describe("paying consultants in bulk", () => {
   let fixture: Fixture;
   let owner: Awaited<ReturnType<typeof makeUser>>;
 
@@ -72,7 +78,7 @@ describe("paying work orders in bulk", () => {
   };
 
   const run = (
-    lines: { workOrderId: string; amount: string }[],
+    lines: BulkPayLine[],
     overrides: Partial<Parameters<typeof recordBulkPay>[0]> = {},
   ) =>
     recordBulkPay({
@@ -85,10 +91,15 @@ describe("paying work orders in bulk", () => {
       ...overrides,
     });
 
-  const whole = (orders: { id: string; balanceDue: unknown }[]) =>
-    orders.map((order) => ({
-      workOrderId: order.id,
-      amount: money(order.balanceDue as never).toFixed(2),
+  /** Every one of these, paid in full. */
+  const whole = (
+    documents: { id: string; balanceDue: unknown }[],
+    kind: "workOrder" | "bill" = "workOrder",
+  ): BulkPayLine[] =>
+    documents.map((document) => ({
+      kind,
+      documentId: document.id,
+      amount: money(document.balanceDue as never).toFixed(2),
     }));
 
   it("lists only work orders with something still owing", async () => {
@@ -97,8 +108,8 @@ describe("paying work orders in bulk", () => {
     const settled = await workOrder(abigail.id, "5000.00");
     await run(whole([settled]));
 
-    const payable = await payableWorkOrders({ companyId: fixture.company.id });
-    expect(payable.map((order) => order.id)).toEqual([open.id]);
+    const payable = await payableConsultantDocuments({ companyId: fixture.company.id });
+    expect(payable.map((document) => document.id)).toEqual([open.id]);
   });
 
   it("makes one payment per consultant, not one for the run", async () => {
@@ -162,14 +173,14 @@ describe("paying work orders in bulk", () => {
     const abigail = await consultant("Abigail Bautista");
     const order = await workOrder(abigail.id, "10000.00");
 
-    await run([{ workOrderId: order.id, amount: "4000.00" }]);
+    await run([{ kind: "workOrder" as const, documentId: order.id, amount: "4000.00" }]);
 
     const after = await prisma.workOrder.findFirstOrThrow({ where: { id: order.id } });
     expect(after.status).toBe("PARTIALLY_PAID");
     expect(money(after.balanceDue).toFixed(2)).toBe("6000.00");
 
     // Still listed, for the rest of it.
-    const payable = await payableWorkOrders({ companyId: fixture.company.id });
+    const payable = await payableConsultantDocuments({ companyId: fixture.company.id });
     expect(payable.map((entry) => entry.id)).toEqual([order.id]);
   });
 
@@ -179,14 +190,14 @@ describe("paying work orders in bulk", () => {
 
     const plan = await planBulkPay({
       companyId: fixture.company.id,
-      lines: [{ workOrderId: order.id, amount: "5000.00" }],
+      lines: [{ kind: "workOrder" as const, documentId: order.id, amount: "5000.00" }],
     });
 
     expect(plan.payable).toHaveLength(0);
     expect(plan.excluded[0].excludedReason).toMatch(/only owed 1000\.00/);
-    await expect(run([{ workOrderId: order.id, amount: "5000.00" }])).rejects.toThrow(
-      /None of the selected work orders can be paid/,
-    );
+    await expect(
+      run([{ kind: "workOrder" as const, documentId: order.id, amount: "5000.00" }]),
+    ).rejects.toThrow(/None of the selected documents can be paid/);
     expect(await prisma.billPayment.count()).toBe(0);
   });
 
@@ -256,7 +267,7 @@ describe("paying work orders in bulk", () => {
     await run(whole([order]), { reference: "Payroll 28 Aug" });
 
     const audit = await prisma.auditLog.findFirstOrThrow({
-      where: { action: "work_order.bulk_paid" },
+      where: { action: "consultant_bill.bulk_paid" },
     });
     const data = audit.data as { paid: { consultant: string }[]; reference: string };
     expect(data.paid[0].consultant).toBe("Abigail Bautista");
@@ -278,12 +289,155 @@ describe("paying work orders in bulk", () => {
         userId: owner.id,
         role: "OWNER",
       }),
-    ).rejects.toThrow(/No work orders selected/);
+    ).rejects.toThrow(/Nothing selected is still outstanding/);
     expect(await prisma.billPayment.count()).toBe(0);
   });
 
+  describe("consultant bills, which is what is normally being paid", () => {
+    const bill = async (vendorId: string, total = "7000.00", reference = "CB-1") => {
+      const { recordExpense } = await import("@/lib/payables/expenses");
+      const { expense } = await recordExpense({
+        companyId: fixture.company.id,
+        kind: "BILL",
+        vendorId,
+        date: DATE,
+        dueDate: DATE,
+        currency: "PHP",
+        amount: total,
+        expenseAccountId: fixture.code("5000").id,
+        description: "Agreed cost",
+        reference,
+        userId: owner.id,
+        role: "OWNER",
+      });
+      return expense;
+    };
+
+    it("lists a consultant's open bills and leaves a supplier's alone", async () => {
+      const abigail = await consultant("Abigail Bautista");
+      const theirs = await bill(abigail.id);
+
+      // A regular vendor's bill is the Vendors section's business and is
+      // settled on its own screen; it must not turn up in a consultant run.
+      const supplier = await makeVendor(fixture.company.id, "REGULAR", { name: "DAVAO LIGHT" });
+      const { recordExpense } = await import("@/lib/payables/expenses");
+      await recordExpense({
+        companyId: fixture.company.id,
+        kind: "BILL",
+        vendorId: supplier.id,
+        date: DATE,
+        dueDate: DATE,
+        currency: "PHP",
+        amount: "2500.00",
+        expenseAccountId: fixture.code("6100").id,
+        description: "Power",
+        reference: "DL-1",
+      });
+
+      const payable = await payableConsultantDocuments({ companyId: fixture.company.id });
+      expect(payable.map((document) => document.id)).toEqual([theirs.id]);
+      expect(payable[0].kind).toBe("bill");
+      expect(payable[0].label).toBe("CB-1");
+    });
+
+    it("pays a bill and clears it from accounts payable", async () => {
+      const abigail = await consultant("Abigail Bautista");
+      const theirs = await bill(abigail.id, "7000.00");
+
+      const result = await run(whole([theirs], "bill"));
+      expect(result.paid).toHaveLength(1);
+
+      const settled = await prisma.expense.findFirstOrThrow({ where: { id: theirs.id } });
+      expect(settled.status).toBe("PAID");
+      expect(money(settled.balanceDue).toFixed(2)).toBe("0.00");
+      expect(
+        money(
+          await accountBalance({
+            companyId: fixture.company.id,
+            accountId: fixture.system(SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE).id,
+            asOf: AS_OF,
+          }),
+        ).toFixed(2),
+      ).toBe("0.00");
+    });
+
+    it("settles a bill and an old work order for one consultant in one payment", async () => {
+      // The reason both kinds share a screen: a consultant owed on each gets
+      // one cheque, not two.
+      const abigail = await consultant("Abigail Bautista");
+      const order = await workOrder(abigail.id, "9000.00");
+      const theirs = await bill(abigail.id, "1000.00", "CB-2");
+
+      const result = await run([...whole([order]), ...whole([theirs], "bill")]);
+      expect(result.paid).toHaveLength(1);
+
+      const payments = await prisma.billPayment.findMany({ include: { applications: true } });
+      expect(payments).toHaveLength(1);
+      expect(money(payments[0].amount).toFixed(2)).toBe("10000.00");
+      // One payment, two applications — one against each kind of document.
+      expect(payments[0].applications).toHaveLength(2);
+      expect(payments[0].applications.filter((row) => row.expenseId)).toHaveLength(1);
+      expect(payments[0].applications.filter((row) => row.workOrderId)).toHaveLength(1);
+    });
+
+    it("part-pays a bill, and keeps the rest on the list", async () => {
+      const abigail = await consultant("Abigail Bautista");
+      const theirs = await bill(abigail.id, "7000.00");
+
+      await run([{ kind: "bill", documentId: theirs.id, amount: "3000.00" }]);
+
+      const after = await prisma.expense.findFirstOrThrow({ where: { id: theirs.id } });
+      expect(after.status).toBe("PARTIALLY_PAID");
+      expect(money(after.balanceDue).toFixed(2)).toBe("4000.00");
+
+      const payable = await payableConsultantDocuments({ companyId: fixture.company.id });
+      expect(payable.map((entry) => entry.id)).toEqual([theirs.id]);
+      expect(money(payable[0].balanceDue).toFixed(2)).toBe("4000.00");
+    });
+
+    it("leaves out a work order that has already become a bill", async () => {
+      // Converting posts the cost once, on the bill. Offering the work order
+      // as well would invite paying the same work twice.
+      const { approveWorkOrder, convertWorkOrderToBill } = await import(
+        "@/lib/payables/work-orders"
+      );
+      const abigail = await consultant("Abigail Bautista");
+      const draft = await prisma.workOrder.create({
+        data: {
+          companyId: fixture.company.id,
+          vendorId: abigail.id,
+          issueDate: DATE,
+          dueDate: DATE,
+          currency: "PHP",
+          lines: {
+            create: [
+              {
+                lineNumber: 1,
+                description: "Site work",
+                quantity: "1",
+                rate: "4000.00",
+                amount: "4000.00",
+                accountId: fixture.code("5000").id,
+              },
+            ],
+          },
+        },
+      });
+      await approveWorkOrder({ companyId: fixture.company.id, workOrderId: draft.id });
+
+      // Approved and unbilled: nothing has posted, so nothing is owed yet.
+      expect(await payableConsultantDocuments({ companyId: fixture.company.id })).toHaveLength(0);
+
+      await convertWorkOrderToBill({ companyId: fixture.company.id, workOrderId: draft.id });
+
+      const payable = await payableConsultantDocuments({ companyId: fixture.company.id });
+      expect(payable).toHaveLength(1);
+      expect(payable[0].kind).toBe("bill");
+    });
+  });
+
   it("refuses an empty selection, and caps how big one run can be", async () => {
-    await expect(run([])).rejects.toThrow(/No work orders selected/);
+    await expect(run([])).rejects.toThrow(/Nothing selected/);
     expect(MAX_BULK_PAYMENTS).toBe(100);
   });
 });

@@ -3357,3 +3357,34 @@ attachment, and the form says so.
 is a queue of paperwork, not part of the ledger. A failure to mark a message
 recorded is logged and the expense stands; rolling back a correctly posted
 bill because a queue could not be tidied would be the wrong way round.
+
+## Paying a consultant moved to their bills
+
+"Pay work orders" was built when approving a work order posted it to
+accounts payable. It does not any more: a work order is a commitment, the
+bill is the payable, and the screen had been left settling the one kind of
+document that is no longer the normal one.
+
+**One screen for everything owed to a consultant.** It lists their bills and
+— still — any work order raised under the earlier flow that is carrying a
+balance, each row saying which it is. Those posted on approval and are
+payable in their own right; dropping them would have left no way to settle
+them in a run at all, for the sake of a tidier screen. A consultant owed on
+both gets one payment, not two, which is the whole reason the two kinds
+share a queue rather than a tab each.
+
+**A work order that has become a bill is not listed.** Converting posts the
+cost once, on the bill. Offering the work order as well would invite paying
+the same work twice, which is why `postedOnApproval` is asked rather than
+assumed.
+
+**The old address redirects rather than 404s.** `/work-orders/pay` worked
+yesterday and somebody has it bookmarked. Left alone it would not even have
+given a clean 404: the path falls through to `/work-orders/[id]` and reads
+as a missing work order, which explains nothing.
+
+**The width went on the wrapper, not the input.** The amount box carried
+`w-28` while `Input` carries `w-full` in its own base classes, and two width
+utilities on one element are settled by stylesheet order rather than by
+which was written last — so the box stretched across the Outstanding column
+beside it. The same trap the company switcher documents.

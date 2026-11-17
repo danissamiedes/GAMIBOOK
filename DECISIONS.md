@@ -3429,3 +3429,33 @@ will keep paying, and a bill cannot post without one, so these rows are held
 back with `code: "unknownConsultant"` — counted as ready, not as broken, with
 every new name and its row count listed next to the box, because the common
 reason not to tick it is a typo that would have made a second consultant.
+
+## "Review payments" came back to the same screen
+
+Reported from a real book: a consultant filtered down to two bills, both
+ticked, and the review step landed back on the selection screen having done
+nothing.
+
+**The list was read twice, and the second read was capped.** The screen's
+read is filtered — by consultant, by date — and the planner's read was not,
+but both stopped at five hundred rows of each kind. In a book with more open
+consultant bills than that, a row found under a filter was not necessarily in
+the unfiltered five hundred, so the plan came back "nothing selected is still
+outstanding" for a selection that was perfectly good. The cap had no `orderBy`
+either, so which five hundred it was could change between page loads.
+
+**A ticked row is now fetched by name.** `payableConsultantDocuments` takes
+`only`, a list of `kind:id` pairs, and the cap does not apply to it. Browsing
+is a different question from paying: the screen may reasonably show the oldest
+five hundred, but a document somebody has selected has to be found whether or
+not it was among them. The browse query is ordered oldest-first so what the
+cap cuts is the far end rather than an arbitrary slice, and the screen says
+when it has cut anything.
+
+**The refusal is shown instead of swallowed.** The page planned inside
+`.catch(() => null)`. A swallowed refusal here is worse than no refusal: the
+browser goes to a new address, the same screen comes back, and the only honest
+reading is that the page did not load — which is exactly how it was reported.
+Anything the planner refuses is now an error banner, and anything that is not
+a refusal is allowed to raise rather than being quietly turned into an empty
+result.

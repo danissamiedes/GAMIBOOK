@@ -59,3 +59,26 @@ test("the run becomes one payment per consultant before anything posts", async (
   await expect(page.getByRole("columnheader", { name: "Settles" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Record \d+ payments?/ })).toBeVisible();
 });
+
+test("a review that cannot be planned says so instead of looking like a dead page", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await signIn(page, "owner@example.com");
+  await page.goto("/consultant-bills/pay");
+
+  const rows = page.locator("tbody tr");
+  test.skip((await rows.count()) === 0, "Nothing outstanding in this book");
+
+  // Untick everything, then review. The browser goes to a new address and the
+  // same screen comes back, which is indistinguishable from a page that never
+  // loaded — unless the screen says what happened.
+  const boxes = page.locator('tbody input[type="checkbox"]');
+  for (let index = 0; index < (await boxes.count()); index++) {
+    await boxes.nth(index).uncheck();
+  }
+  await page.getByRole("button", { name: "Review payments" }).click();
+
+  await expect(page).toHaveURL(/confirm=1/);
+  await expect(page.getByText(/nothing to review/i)).toBeVisible();
+});

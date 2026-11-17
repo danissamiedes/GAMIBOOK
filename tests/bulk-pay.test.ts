@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  BROWSE_LIMIT,
   MAX_BULK_PAYMENTS,
   payableConsultantDocuments,
   planBulkPay,
@@ -433,6 +434,103 @@ describe("paying consultants in bulk", () => {
       const payable = await payableConsultantDocuments({ companyId: fixture.company.id });
       expect(payable).toHaveLength(1);
       expect(payable[0].kind).toBe("bill");
+    });
+  });
+
+  describe("when the books hold more documents than one screen lists", () => {
+    /**
+     * The failure this guards against was reported from a real book: a
+     * consultant filtered down to two bills, ticked, and "Review payments"
+     * landed back on the same screen having done nothing.
+     *
+     * The list was read twice — once filtered, to draw the screen, and once
+     * unfiltered, to plan the run — and the second read was capped at five
+     * hundred rows of each kind. A book with more open bills than that lost
+     * whichever rows fell outside the cap, so a perfectly good selection
+     * planned as "nothing selected is still outstanding", and the page
+     * swallowed the refusal.
+     *
+     * Rows are written straight in rather than posted: this is about which
+     * documents the query can find, and five hundred journal entries would
+     * only make the test slow.
+     */
+    const rawBills = async (vendorId: string, count: number) =>
+      prisma.expense.createMany({
+        data: Array.from({ length: count }, (_, index) => ({
+          companyId: fixture.company.id,
+          kind: "BILL" as const,
+          vendorId,
+          date: new Date(Date.UTC(2026, 0, 1 + (index % 28))),
+          dueDate: DATE,
+          currency: "PHP",
+          amount: "5025.00",
+          balanceDue: "5025.00",
+          status: "APPROVED" as const,
+          description: `Agreed cost ${index + 1}`,
+          reference: `CB-${index + 1}`,
+          expenseAccountId: fixture.code("5000").id,
+        })),
+      });
+
+    it("plans a bill that falls outside the browsing cap", async () => {
+      const abigail = await consultant("Abigail Bautista");
+      await rawBills(abigail.id, BROWSE_LIMIT + 40);
+
+      // The last one by date — the far end of the list, and so the row the
+      // cap used to cut off.
+      const late = await prisma.expense.findFirstOrThrow({
+        where: { companyId: fixture.company.id, kind: "BILL" },
+        orderBy: [{ date: "desc" }, { id: "desc" }],
+      });
+
+      const plan = await planBulkPay({
+        companyId: fixture.company.id,
+        lines: [{ kind: "bill", documentId: late.id, amount: "5025.00" }],
+      });
+
+      expect(plan.payable).toHaveLength(1);
+      expect(plan.payable[0].lines.map((line) => line.documentId)).toEqual([late.id]);
+      expect(money(plan.total).toFixed(2)).toBe("5025.00");
+    });
+
+    it("still refuses a document that is genuinely not outstanding", async () => {
+      // The cap was lifted for a ticked row, not the check behind it: a bill
+      // that has been settled since the screen was drawn is still refused.
+      const abigail = await consultant("Abigail Bautista");
+      const theirs = await prisma.expense.create({
+        data: {
+          companyId: fixture.company.id,
+          kind: "BILL",
+          vendorId: abigail.id,
+          date: DATE,
+          currency: "PHP",
+          amount: "1000.00",
+          balanceDue: "0",
+          status: "PAID",
+          description: "Already settled",
+          reference: "CB-SETTLED",
+          expenseAccountId: fixture.code("5000").id,
+        },
+      });
+
+      await expect(
+        planBulkPay({
+          companyId: fixture.company.id,
+          lines: [{ kind: "bill", documentId: theirs.id, amount: "1000.00" }],
+        }),
+      ).rejects.toThrow(/still outstanding/);
+    });
+
+    it("keeps the browsing list to the cap, oldest first", async () => {
+      const abigail = await consultant("Abigail Bautista");
+      await rawBills(abigail.id, BROWSE_LIMIT + 40);
+
+      const listed = await payableConsultantDocuments({ companyId: fixture.company.id });
+      expect(listed).toHaveLength(BROWSE_LIMIT);
+      // Oldest first, so what the cap cuts is the far end rather than an
+      // arbitrary five hundred that changes between page loads.
+      const dates = listed.map((document) => document.date.getTime());
+      expect([...dates].sort((a, b) => a - b)).toEqual(dates);
     });
   });
 

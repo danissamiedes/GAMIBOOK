@@ -89,58 +89,90 @@ type Filter = {
   consultantId?: string | null;
   from?: Date | null;
   to?: Date | null;
+  /**
+   * Exactly these documents, whatever the other filters and however many
+   * there are. The screen browses a capped list; a selection made from it is
+   * then read back by name, which is not the same question (SPEC §6).
+   */
+  only?: { kind: PayableKind; id: string }[] | null;
 };
+
+/** How many of each kind the browsing list shows before it is cut short. */
+export const BROWSE_LIMIT = 500;
 
 /**
  * Everything owed to a consultant that is still open, oldest first.
  *
  * Both kinds in one list, sorted as a person reads a payment run: by whom,
  * then by how long it has been waiting.
+ *
+ * The cap is on browsing, not on paying. `only` lifts it, because a document
+ * somebody has ticked has to be found whether or not it was in the first five
+ * hundred — and until it was asked for by id, a selection made under a filter
+ * could vanish when the unfiltered list was read back.
  */
 export async function payableConsultantDocuments(options: Filter): Promise<PayableDocument[]> {
+  const billIds = options.only
+    ? options.only.filter((entry) => entry.kind === "bill").map((entry) => entry.id)
+    : null;
+  const workOrderIds = options.only
+    ? options.only.filter((entry) => entry.kind === "workOrder").map((entry) => entry.id)
+    : null;
+
   const [bills, workOrders] = await Promise.all([
-    prisma.expense.findMany({
-      where: {
-        companyId: options.companyId,
-        kind: "BILL",
-        vendor: { kind: "CONSULTANT" },
-        status: { in: ["APPROVED", "PARTIALLY_PAID"] },
-        balanceDue: { gt: 0 },
-        ...(options.consultantId ? { vendorId: options.consultantId } : {}),
-        ...(options.from || options.to
-          ? {
-              date: {
-                ...(options.from ? { gte: options.from } : {}),
-                ...(options.to ? { lte: options.to } : {}),
-              },
-            }
-          : {}),
-      },
-      include: { vendor: { select: { id: true, name: true } } },
-      take: 500,
-    }),
-    prisma.workOrder.findMany({
-      where: {
-        companyId: options.companyId,
-        // Only the ones that are payables in their own right. Everything
-        // raised since is owed through the bill it became, and would
-        // otherwise be offered for payment twice (SPEC §8.1b).
-        postedOnApproval: true,
-        status: { in: ["APPROVED", "PARTIALLY_PAID"] },
-        balanceDue: { gt: 0 },
-        ...(options.consultantId ? { vendorId: options.consultantId } : {}),
-        ...(options.from || options.to
-          ? {
-              issueDate: {
-                ...(options.from ? { gte: options.from } : {}),
-                ...(options.to ? { lte: options.to } : {}),
-              },
-            }
-          : {}),
-      },
-      include: { vendor: { select: { id: true, name: true } } },
-      take: 500,
-    }),
+    billIds && billIds.length === 0
+      ? []
+      : prisma.expense.findMany({
+          where: {
+            companyId: options.companyId,
+            kind: "BILL",
+            vendor: { kind: "CONSULTANT" },
+            status: { in: ["APPROVED", "PARTIALLY_PAID"] },
+            balanceDue: { gt: 0 },
+            ...(billIds ? { id: { in: billIds } } : {}),
+            ...(options.consultantId ? { vendorId: options.consultantId } : {}),
+            ...(options.from || options.to
+              ? {
+                  date: {
+                    ...(options.from ? { gte: options.from } : {}),
+                    ...(options.to ? { lte: options.to } : {}),
+                  },
+                }
+              : {}),
+          },
+          include: { vendor: { select: { id: true, name: true } } },
+          // Oldest first, and by id after that: a cap that cuts an arbitrary
+          // five hundred is a cap that cuts a different five hundred on the
+          // next page load.
+          orderBy: [{ date: "asc" }, { id: "asc" }],
+          ...(billIds ? {} : { take: BROWSE_LIMIT }),
+        }),
+    workOrderIds && workOrderIds.length === 0
+      ? []
+      : prisma.workOrder.findMany({
+          where: {
+            companyId: options.companyId,
+            // Only the ones that are payables in their own right. Everything
+            // raised since is owed through the bill it became, and would
+            // otherwise be offered for payment twice (SPEC §8.1b).
+            postedOnApproval: true,
+            status: { in: ["APPROVED", "PARTIALLY_PAID"] },
+            balanceDue: { gt: 0 },
+            ...(workOrderIds ? { id: { in: workOrderIds } } : {}),
+            ...(options.consultantId ? { vendorId: options.consultantId } : {}),
+            ...(options.from || options.to
+              ? {
+                  issueDate: {
+                    ...(options.from ? { gte: options.from } : {}),
+                    ...(options.to ? { lte: options.to } : {}),
+                  },
+                }
+              : {}),
+          },
+          include: { vendor: { select: { id: true, name: true } } },
+          orderBy: [{ issueDate: "asc" }, { id: "asc" }],
+          ...(workOrderIds ? {} : { take: BROWSE_LIMIT }),
+        }),
   ]);
 
   const documents: PayableDocument[] = [
@@ -190,9 +222,10 @@ export async function planBulkPay(options: {
   // can move while a screen is open, and the figure that matters is the one
   // that is true now.
   const wanted = new Map(options.lines.map((line) => [`${line.kind}:${line.documentId}`, line]));
-  const documents = (
-    await payableConsultantDocuments({ companyId: options.companyId })
-  ).filter((document) => wanted.has(`${document.kind}:${document.id}`));
+  const documents = await payableConsultantDocuments({
+    companyId: options.companyId,
+    only: options.lines.map((line) => ({ kind: line.kind, id: line.documentId })),
+  });
 
   if (documents.length === 0) throw new PostingError("Nothing selected is still outstanding");
 

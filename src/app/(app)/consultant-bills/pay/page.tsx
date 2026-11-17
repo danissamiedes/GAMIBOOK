@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import {
+  BROWSE_LIMIT,
   MAX_BULK_PAYMENTS,
   payableConsultantDocuments,
   planBulkPay,
@@ -105,10 +106,27 @@ export default async function PayConsultantBillsPage({
     };
   });
 
-  const plan =
-    params.confirm === "1" && lines.length > 0
-      ? await planBulkPay({ companyId: scope.companyId, lines }).catch(() => null)
-      : null;
+  /**
+   * The confirmation, or why there isn't one.
+   *
+   * A swallowed refusal here is worse than useless: the browser goes to a new
+   * address, the same screen comes back, and the only honest reading is that
+   * the page did not load. Whatever the planner refuses is said out loud.
+   */
+  let plan: Awaited<ReturnType<typeof planBulkPay>> | null = null;
+  let planError: string | null = null;
+  if (params.confirm === "1") {
+    if (lines.length === 0) {
+      planError = "Nothing was ticked, so there is nothing to review.";
+    } else {
+      try {
+        plan = await planBulkPay({ companyId: scope.companyId, lines });
+      } catch (error) {
+        if (!(error instanceof PostingError)) throw error;
+        planError = error.message;
+      }
+    }
+  }
 
   async function pay(formData: FormData) {
     "use server";
@@ -152,6 +170,14 @@ export default async function PayConsultantBillsPage({
   }
 
   const legacyCount = documents.filter((document) => document.kind === "workOrder").length;
+  /**
+   * The list is capped, so a book with hundreds open shows the oldest and
+   * stops. Said out loud rather than left to be noticed: a payment run that
+   * silently omits what is owed is the one mistake this screen must not make.
+   */
+  const truncated =
+    documents.filter((document) => document.kind === "bill").length >= BROWSE_LIMIT ||
+    legacyCount >= BROWSE_LIMIT;
 
   return (
     <>
@@ -171,6 +197,7 @@ export default async function PayConsultantBillsPage({
 
       {params.error ? <Alert tone="error">{decodeURIComponent(params.error)}</Alert> : null}
       {params.paid ? <Alert tone="success">{decodeURIComponent(params.paid)}</Alert> : null}
+      {planError ? <Alert tone="error">{planError}</Alert> : null}
 
       {plan ? (
         <Card className="mb-4">
@@ -390,6 +417,12 @@ export default async function PayConsultantBillsPage({
             </DataTable>
 
             <Button type="submit">Review payments</Button>
+            {truncated ? (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Showing the oldest {BROWSE_LIMIT}. There is more outstanding than fits on one
+                screen — filter by consultant or by date to reach the rest.
+              </p>
+            ) : null}
             <p className="text-xs text-slate-500">
               Up to {MAX_BULK_PAYMENTS} consultants in one run. Books are {company.baseCurrency};
               each document is paid in its own currency.

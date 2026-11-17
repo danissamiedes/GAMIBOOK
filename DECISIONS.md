@@ -3388,3 +3388,44 @@ as a missing work order, which explains nothing.
 utilities on one element are settled by stylesheet order rather than by
 which was written last — so the box stretched across the Outstanding column
 beside it. The same trap the company switcher documents.
+
+## Importing a month of consultant bills
+
+The expense importer, pointed at the other kind of document. Upload, map the
+sheet's categories once, review, commit in resumable chunks — all of it the
+same engine, and each row posts through the same `recordExpense` the manual
+screen uses, so there is no faster path that could drift from the ledger's
+own rules.
+
+**Its own batch kind, not `EXPENSE`.** `CONSULTANT_BILL` is a new value on
+`ImportBatchKind`. Reusing `EXPENSE` would have put a consultant's payables
+in the Vendors section's list of recent imports and let a scope that holds
+only Vendors open them, which is exactly the mismatch the section scoping
+exists to prevent. It also keeps "import this again" warnings honest: the
+same file hash means something different in each queue.
+
+**A CONSULTANT column that cannot be left out.** It is required at the
+upload, not row by row at the commit, because a sheet with no such column is
+not a sheet of bills — a bill has to say who is owed. The expense import can
+afford `NAME` to be optional: a paid expense with no vendor still balances.
+
+**No "paid from" account.** The expense panel asks for one because every row
+there posts as paid. A bill is owed; the money leaving is a separate decision
+taken afterwards on Pay consultant bills, and the commit's success banner
+says so rather than leaving somebody to wonder whether the cash moved.
+
+**DUE DATE falls back to the consultant's terms.** The column is optional.
+Where it is blank the date is the billed date plus the consultant's
+`paymentTermsDays` — thirty where the consultant does not exist yet — and the
+preview labels those rows "from terms" so a reader can see which dates the
+sheet gave and which the system worked out. A due date before the billed date
+is a warning, not a refusal: odd sheets happen, and A/P aging already treats
+such a bill as due on day one.
+
+**Creating consultants is off until ticked.** The expense import creates
+vendors by default, because an expense with no vendor still posts and a
+vendor is little more than a label on it. A consultant is a party the books
+will keep paying, and a bill cannot post without one, so these rows are held
+back with `code: "unknownConsultant"` — counted as ready, not as broken, with
+every new name and its row count listed next to the box, because the common
+reason not to tick it is a typo that would have made a second consultant.

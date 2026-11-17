@@ -92,6 +92,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         consultants && { href: "/work-orders", label: "Work orders" },
         consultants && { href: "/work-orders/send", label: "Send" },
         consultants && { href: "/consultant-bills", label: "Consultant bills" },
+        consultants && { href: "/consultant-bills/import", label: "Import consultant bills" },
         // Paying is a payables act, so it needs both sections — but what is
         // paid is a consultant's bill, which is why it sits under them.
         consultants &&

@@ -127,6 +127,9 @@ export default async function ConsultantBillsPage({
         <Link href="/consultant-bills/new">
           <Button>Record a consultant bill</Button>
         </Link>
+        <Link href="/consultant-bills/import">
+          <Button variant="secondary">Import from spreadsheet</Button>
+        </Link>
         <Link href="/consultant-bills/pay">
           <Button variant="secondary">Pay in bulk</Button>
         </Link>

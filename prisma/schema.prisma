@@ -131,6 +131,8 @@ enum ImportBatchKind {
   MIGRATION
   EXPENSE
   PURCHASE_ORDER
+  /// A month of consultant bills from a spreadsheet (SPEC §8.3).
+  CONSULTANT_BILL
 }
 
 /// SPEC §8.3. Upload never writes documents directly: rows are staged,

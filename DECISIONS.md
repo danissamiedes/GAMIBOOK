@@ -3459,3 +3459,41 @@ reading is that the page did not load — which is exactly how it was reported.
 Anything the planner refuses is now an error banner, and anything that is not
 a refusal is allowed to raise rather than being quietly turned into an empty
 result.
+
+## A payment run is posted in chunks
+
+Reported from a real book: paying a year of consultant bills ended on the
+app's own "something went wrong". It was not a fault in the posting — it was
+the clock. Each payment is a transaction of its own (read the documents,
+write the payment, post the journal, update every balance), and on a managed
+database each of those steps is a round trip. Sixty consultants is comfortably
+more than the sixty seconds a serverless function gets, and being killed told
+the reader nothing about what had been paid.
+
+**The run is a loop of chunks, like the imports.** `recordBulkPay` takes a
+limit and a time budget, posts what it can, and says what is left; the screen
+keeps calling until it is done and shows how far it has got. The chunking is
+optional — without a run id the whole selection posts at once, as it always
+did, which is what the unit tests and any other caller still do.
+
+**A run id is what makes repeating a chunk safe.** Most resumability here is
+free: a settled bill is no longer outstanding, so it drops out of the next
+chunk's plan on its own. Part-payment is the exception — paying less than the
+balance leaves the document on the list — so each payment is stamped with its
+run, and a consultant already paid under that run is skipped. The id guards a
+run, not a document: a deliberate second run finishes what a part-payment
+started, which is how somebody settles the rest. Without it there is no second
+call to be safe about, so the column stays null.
+
+**The selection moved into the page rather than the URL.** The confirmation
+was a page reached by GET with every ticked document named in the query
+string. A request line runs out around sixteen kilobytes — a few hundred rows
+— so a year of bills could not have been confirmed at all, whatever the
+posting did. The selection is now state in the browser, the confirmation is a
+request, and neither grows a URL.
+
+**Amounts are keyed by document, not by position.** The old form matched the
+`amount` boxes to the ticked rows by their order on screen, and an unticked
+row left its box behind — so unticking one row shifted every amount below it
+onto the wrong document. It was found while fixing the rest; it had no symptom
+until somebody edited an amount and unticked a row in the same run.

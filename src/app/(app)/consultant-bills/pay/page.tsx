@@ -1,32 +1,16 @@
 import { pageTitle } from "@/lib/brand";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { sectionScope } from "@/lib/session-scope";
 import {
   BROWSE_LIMIT,
   MAX_BULK_PAYMENTS,
   payableConsultantDocuments,
-  planBulkPay,
-  recordBulkPay,
-  type BulkPayLine,
-  type PayableKind,
 } from "@/lib/payables/bulk-pay";
-import { PostingError } from "@/lib/errors";
 import { formatAccountingDate, isoDate, today } from "@/lib/dates";
-import { formatMoney } from "@/lib/currency";
 import { money } from "@/lib/money";
-import {
-  Alert,
-  Button,
-  Card,
-  DataTable,
-  EmptyState,
-  Field,
-  Input,
-  PageHeader,
-  Select,
-} from "@/components/ui";
+import { Alert, Button, Card, EmptyState, Field, Input, PageHeader, Select } from "@/components/ui";
+import { PayPanel, type PayableRow } from "./pay-panel";
 
 export const metadata = { title: pageTitle("Pay consultant bills") };
 
@@ -46,6 +30,10 @@ export const metadata = { title: pageTitle("Pay consultant bills") };
  * marked as what they are. They posted to accounts payable on approval and so
  * are payable in their own right; leaving them out would have meant no way to
  * settle them in a run at all.
+ *
+ * This page reads the list and draws the filter; the selection, the
+ * confirmation and the run itself belong to the panel, because a run of any
+ * size has to be posted in chunks and a loop needs somebody to run it.
  */
 export default async function PayConsultantBillsPage({
   searchParams,
@@ -54,21 +42,10 @@ export default async function PayConsultantBillsPage({
     consultant?: string;
     from?: string;
     to?: string;
-    selected?: string | string[];
-    amount?: string | string[];
-    date?: string;
-    paymentAccountId?: string;
-    reference?: string;
-    confirm?: string;
-    error?: string;
-    paid?: string;
   }>;
 }) {
   const scope = await sectionScope("CONSULTANTS");
   const params = await searchParams;
-
-  const asList = (value: string | string[] | undefined) =>
-    Array.isArray(value) ? value : value ? [value] : [];
 
   const [company, consultants, paymentAccounts, documents] = await Promise.all([
     prisma.company.findFirstOrThrow({ where: { id: scope.companyId } }),
@@ -89,86 +66,6 @@ export default async function PayConsultantBillsPage({
     }),
   ]);
 
-  /**
-   * A ticked row travels as `kind:id`, so one parameter carries both which
-   * table it is in and which row. The amounts ride alongside in the order the
-   * boxes were shown — unticking a row leaves its amount box behind, which is
-   * why the two are matched by position rather than by name.
-   */
-  const selected = asList(params.selected);
-  const amounts = asList(params.amount);
-  const lines: BulkPayLine[] = selected.map((token, index) => {
-    const [kind, documentId] = token.split(":");
-    return {
-      kind: (kind === "workOrder" ? "workOrder" : "bill") as PayableKind,
-      documentId: documentId ?? "",
-      amount: amounts[index] ?? "0",
-    };
-  });
-
-  /**
-   * The confirmation, or why there isn't one.
-   *
-   * A swallowed refusal here is worse than useless: the browser goes to a new
-   * address, the same screen comes back, and the only honest reading is that
-   * the page did not load. Whatever the planner refuses is said out loud.
-   */
-  let plan: Awaited<ReturnType<typeof planBulkPay>> | null = null;
-  let planError: string | null = null;
-  if (params.confirm === "1") {
-    if (lines.length === 0) {
-      planError = "Nothing was ticked, so there is nothing to review.";
-    } else {
-      try {
-        plan = await planBulkPay({ companyId: scope.companyId, lines });
-      } catch (error) {
-        if (!(error instanceof PostingError)) throw error;
-        planError = error.message;
-      }
-    }
-  }
-
-  async function pay(formData: FormData) {
-    "use server";
-    const inner = await sectionScope("CONSULTANTS");
-
-    const tokens = formData.getAll("document").map(String);
-    const values = formData.getAll("amount").map(String);
-    const paying: BulkPayLine[] = tokens.map((token, index) => {
-      const [kind, documentId] = token.split(":");
-      return {
-        kind: (kind === "workOrder" ? "workOrder" : "bill") as PayableKind,
-        documentId: documentId ?? "",
-        amount: values[index] ?? "0",
-      };
-    });
-
-    try {
-      const result = await recordBulkPay({
-        companyId: inner.companyId,
-        lines: paying,
-        date: new Date(`${String(formData.get("date"))}T00:00:00Z`),
-        paymentAccountId: String(formData.get("paymentAccountId")),
-        reference: String(formData.get("reference") ?? "").trim() || null,
-        userId: inner.userId,
-        role: inner.role,
-      });
-
-      const note =
-        result.failed.length > 0
-          ? `${result.paid.length} paid. Could not pay: ${result.failed
-              .map((entry) => `${entry.consultantName} — ${entry.reason}`)
-              .join("; ")}`
-          : `${result.paid.length} consultant${result.paid.length === 1 ? "" : "s"} paid.`;
-      redirect(`/consultant-bills/pay?paid=${encodeURIComponent(note)}`);
-    } catch (error) {
-      if (error instanceof PostingError) {
-        redirect(`/consultant-bills/pay?error=${encodeURIComponent(error.message)}`);
-      }
-      throw error;
-    }
-  }
-
   const legacyCount = documents.filter((document) => document.kind === "workOrder").length;
   /**
    * The list is capped, so a book with hundreds open shows the oldest and
@@ -178,6 +75,18 @@ export default async function PayConsultantBillsPage({
   const truncated =
     documents.filter((document) => document.kind === "bill").length >= BROWSE_LIMIT ||
     legacyCount >= BROWSE_LIMIT;
+
+  const rows: PayableRow[] = documents.map((document) => ({
+    kind: document.kind,
+    id: document.id,
+    consultantName: document.consultantName,
+    label: document.label,
+    date: formatAccountingDate(document.date),
+    dueDate: document.dueDate ? formatAccountingDate(document.dueDate) : null,
+    currency: document.currency,
+    balanceDue: money(document.balanceDue).toFixed(2),
+    href: document.kind === "bill" ? `/expenses/${document.id}` : `/work-orders/${document.id}`,
+  }));
 
   return (
     <>
@@ -195,100 +104,14 @@ export default async function PayConsultantBillsPage({
         </Link>
       </div>
 
-      {params.error ? <Alert tone="error">{decodeURIComponent(params.error)}</Alert> : null}
-      {params.paid ? <Alert tone="success">{decodeURIComponent(params.paid)}</Alert> : null}
-      {planError ? <Alert tone="error">{planError}</Alert> : null}
-
-      {plan ? (
-        <Card className="mb-4">
-          <h2 className="mb-1 text-sm font-semibold">
-            {plan.payable.length} payment{plan.payable.length === 1 ? "" : "s"} to record
-          </h2>
-          <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
-            One per consultant.{" "}
-            {plan.currency ? (
-              <>Total {formatMoney(money(plan.total).toFixed(2), plan.currency)}.</>
-            ) : (
-              <>The selection spans more than one currency, so there is no single total.</>
-            )}
-          </p>
-
-          {plan.excluded.length > 0 ? (
-            <Alert tone="warning">
-              <strong>
-                {plan.excluded.length} consultant{plan.excluded.length === 1 ? "" : "s"} left out:
-              </strong>
-              <ul className="ml-4 mt-1 list-disc">
-                {plan.excluded.map((payment) => (
-                  <li key={payment.vendorId}>{payment.excludedReason}</li>
-                ))}
-              </ul>
-            </Alert>
-          ) : null}
-
-          <form action={pay} className="mt-3 space-y-3">
-            <DataTable>
-              <thead className="border-b border-slate-200 text-left dark:border-slate-700">
-                <tr>
-                  <th className="py-2">Consultant</th>
-                  <th className="py-2">Settles</th>
-                  <th className="py-2 text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.payable.map((payment) => (
-                  <tr
-                    key={payment.vendorId}
-                    className="border-b border-slate-100 dark:border-slate-800"
-                  >
-                    <td className="py-2">{payment.consultantName}</td>
-                    <td className="py-2">{payment.lines.map((line) => line.label).join(", ")}</td>
-                    <td className="py-2 text-right">
-                      {formatMoney(money(payment.total).toFixed(2), payment.currency)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </DataTable>
-
-            {plan.payable.flatMap((payment) =>
-              payment.lines.map((line) => (
-                <div key={`${line.kind}:${line.documentId}`}>
-                  <input
-                    type="hidden"
-                    name="document"
-                    value={`${line.kind}:${line.documentId}`}
-                  />
-                  <input type="hidden" name="amount" value={money(line.amount).toFixed(2)} />
-                </div>
-              )),
-            )}
-
-            <div className="flex flex-wrap gap-3">
-              <Field label="Payment date">
-                <Input type="date" name="date" defaultValue={isoDate(today())} required />
-              </Field>
-              <Field label="Paid from">
-                <Select name="paymentAccountId" defaultValue={paymentAccounts[0]?.id} required>
-                  {paymentAccounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.code} — {account.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Reference" hint="Optional — the same on every payment in this run.">
-                <Input name="reference" placeholder="e.g. Payroll 28 Aug" />
-              </Field>
-            </div>
-
-            <div className="flex gap-2">
-              <Button type="submit" disabled={plan.payable.length === 0}>
-                Record {plan.payable.length} payment{plan.payable.length === 1 ? "" : "s"}
-              </Button>
-            </div>
-          </form>
-        </Card>
+      {paymentAccounts.length === 0 ? (
+        <Alert tone="error">
+          There is no cash or card account to pay from. Add one in the{" "}
+          <Link className="underline" href="/accounts">
+            chart of accounts
+          </Link>{" "}
+          first.
+        </Alert>
       ) : null}
 
       <Card className="mb-4">
@@ -326,115 +149,20 @@ export default async function PayConsultantBillsPage({
         </EmptyState>
       ) : (
         <Card>
-          <form method="get" action="/consultant-bills/pay" className="space-y-3">
-            <input type="hidden" name="confirm" value="1" />
-            {params.consultant ? (
-              <input type="hidden" name="consultant" value={params.consultant} />
-            ) : null}
-            {params.from ? <input type="hidden" name="from" value={params.from} /> : null}
-            {params.to ? <input type="hidden" name="to" value={params.to} /> : null}
-
-            <DataTable>
-              <thead className="border-b border-slate-200 text-left dark:border-slate-700">
-                <tr>
-                  <th className="w-8 py-2" />
-                  <th className="py-2">Document</th>
-                  <th className="py-2">Consultant</th>
-                  <th className="py-2">Dated</th>
-                  <th className="py-2">Due</th>
-                  <th className="py-2 text-right">Outstanding</th>
-                  <th className="py-2 text-right">Paying</th>
-                </tr>
-              </thead>
-              <tbody>
-                {documents.map((document) => (
-                  <tr
-                    key={`${document.kind}:${document.id}`}
-                    className="border-b border-slate-100 dark:border-slate-800"
-                  >
-                    <td className="py-2">
-                      <input
-                        type="checkbox"
-                        name="selected"
-                        value={`${document.kind}:${document.id}`}
-                        defaultChecked
-                        aria-label={`Pay ${document.label}`}
-                        className="h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-600"
-                      />
-                    </td>
-                    <td className="py-2">
-                      <Link
-                        className="underline decoration-dotted underline-offset-2"
-                        href={
-                          document.kind === "bill"
-                            ? `/expenses/${document.id}`
-                            : `/work-orders/${document.id}`
-                        }
-                      >
-                        {document.label}
-                      </Link>
-                      {document.kind === "workOrder" ? (
-                        // Said on the row rather than in a note nobody reads:
-                        // these are the ones that posted on approval, and a
-                        // reader needs to know why a work order is here at all.
-                        <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                          work order
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="py-2">{document.consultantName}</td>
-                    <td className="py-2">{formatAccountingDate(document.date)}</td>
-                    <td className="py-2 text-slate-500">
-                      {document.dueDate ? formatAccountingDate(document.dueDate) : "—"}
-                    </td>
-                    <td className="py-2 text-right">
-                      {formatMoney(money(document.balanceDue).toFixed(2), document.currency)}
-                    </td>
-                    <td className="py-2 text-right">
-                      {/* Defaults to the whole balance; type less to part-pay.
-                          Unticking the row leaves this box behind, which is
-                          why the service matches rows to amounts by position.
-
-                          The width lives on the wrapper, not on the Input:
-                          `Input` carries w-full in its own base classes, and
-                          two width utilities on one element are settled by
-                          stylesheet order rather than by which was written
-                          last — so a w-28 here loses and the box stretches
-                          across the column beside it. */}
-                      <div className="ml-auto w-28">
-                        <Input
-                          name="amount"
-                          inputMode="decimal"
-                          defaultValue={money(document.balanceDue).toFixed(2)}
-                          aria-label={`Amount for ${document.label}`}
-                          className="text-right"
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </DataTable>
-
-            <Button type="submit">Review payments</Button>
-            {truncated ? (
-              <p className="text-xs text-amber-700 dark:text-amber-400">
-                Showing the oldest {BROWSE_LIMIT}. There is more outstanding than fits on one
-                screen — filter by consultant or by date to reach the rest.
-              </p>
-            ) : null}
-            <p className="text-xs text-slate-500">
-              Up to {MAX_BULK_PAYMENTS} consultants in one run. Books are {company.baseCurrency};
-              each document is paid in its own currency.
-              {legacyCount > 0
-                ? ` ${legacyCount} work order${
-                    legacyCount === 1 ? "" : "s"
-                  } raised under the earlier flow ${
-                    legacyCount === 1 ? "is" : "are"
-                  } listed too — those posted on approval and are paid directly.`
-                : ""}
-            </p>
-          </form>
+          <PayPanel
+            rows={rows}
+            paymentAccounts={paymentAccounts.map((account) => ({
+              id: account.id,
+              code: account.code,
+              name: account.name,
+            }))}
+            today={isoDate(today())}
+            maxConsultants={MAX_BULK_PAYMENTS}
+            truncated={truncated}
+            browseLimit={BROWSE_LIMIT}
+            baseCurrency={company.baseCurrency}
+            legacyCount={legacyCount}
+          />
         </Card>
       )}
     </>

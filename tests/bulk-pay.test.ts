@@ -534,6 +534,123 @@ describe("paying consultants in bulk", () => {
     });
   });
 
+  describe("a run too big for one request", () => {
+    /**
+     * Reported from a real book: paying a year of consultant bills ended on
+     * the app's own fault page. Each payment is its own transaction and
+     * several round trips to the database, so sixty consultants is more than
+     * the sixty seconds a serverless function gets — and being killed told
+     * the reader nothing about what had been paid.
+     *
+     * So a run is posted in chunks. What these guard is the part that makes
+     * that safe: calling again continues the run rather than repeating it.
+     */
+    it("pays a chunk at a time and says what is left", async () => {
+      const names = ["Abigail", "Benjie", "Carmen", "Dindo"];
+      const lines: BulkPayLine[] = [];
+      for (const name of names) {
+        const who = await consultant(name);
+        lines.push(...whole([await workOrder(who.id, "1000.00")]));
+      }
+
+      const first = await run(lines, { runId: "run-1", limit: 2 });
+      expect(first.paid).toHaveLength(2);
+      expect(first.remaining).toBe(2);
+      expect(first.done).toBe(false);
+
+      // The same selection again: the two already paid drop out because
+      // nothing is outstanding on them any more.
+      const second = await run(lines, { runId: "run-1", limit: 2 });
+      expect(second.paid).toHaveLength(2);
+      expect(second.done).toBe(true);
+
+      expect(await prisma.billPayment.count()).toBe(4);
+      expect(await payableConsultantDocuments({ companyId: fixture.company.id })).toHaveLength(0);
+    });
+
+    it("does not pay a part-paid consultant twice when the chunk is repeated", async () => {
+      // The dangerous case. Paying less than the balance leaves the document
+      // outstanding, so it is still in the selection on the next chunk — and
+      // only the run id stops it being paid again.
+      const abigail = await consultant("Abigail Bautista");
+      const order = await workOrder(abigail.id, "10000.00");
+      const lines: BulkPayLine[] = [
+        { kind: "workOrder", documentId: order.id, amount: "4000.00" },
+      ];
+
+      const first = await run(lines, { runId: "run-2" });
+      expect(first.paid).toHaveLength(1);
+
+      // The browser lost the answer and asked again with the same run.
+      const again = await run(lines, { runId: "run-2" });
+      expect(again.paid).toHaveLength(0);
+      expect(again.done).toBe(true);
+
+      expect(await prisma.billPayment.count()).toBe(1);
+      const after = await prisma.workOrder.findFirstOrThrow({ where: { id: order.id } });
+      expect(money(after.balanceDue).toFixed(2)).toBe("6000.00");
+    });
+
+    it("treats a new run as a new decision", async () => {
+      // The run id guards a run, not the document. Asking again deliberately,
+      // as a fresh run, pays the rest — which is how somebody finishes
+      // settling a bill they part-paid earlier.
+      const abigail = await consultant("Abigail Bautista");
+      const order = await workOrder(abigail.id, "10000.00");
+
+      await run([{ kind: "workOrder", documentId: order.id, amount: "4000.00" }], {
+        runId: "run-3",
+      });
+      await run([{ kind: "workOrder", documentId: order.id, amount: "6000.00" }], {
+        runId: "run-4",
+      });
+
+      const after = await prisma.workOrder.findFirstOrThrow({ where: { id: order.id } });
+      expect(money(after.balanceDue).toFixed(2)).toBe("0.00");
+      expect(after.status).toBe("PAID");
+    });
+
+    it("posts at least one consultant however small the budget", async () => {
+      // A budget too small for a single payment must not leave the caller
+      // looping over a run that never advances.
+      const abigail = await consultant("Abigail Bautista");
+      const benjie = await consultant("Benjie Cruz");
+      const lines = [
+        ...whole([await workOrder(abigail.id, "1000.00")]),
+        ...whole([await workOrder(benjie.id, "1000.00")]),
+      ];
+
+      const result = await run(lines, { runId: "run-5", budgetMs: 0 });
+      expect(result.paid).toHaveLength(1);
+      expect(result.remaining).toBe(1);
+      expect(result.done).toBe(false);
+    });
+
+    it("stamps each payment with the run that made it", async () => {
+      const abigail = await consultant("Abigail Bautista");
+      await run(whole([await workOrder(abigail.id, "1000.00")]), { runId: "run-6" });
+
+      const payment = await prisma.billPayment.findFirstOrThrow({});
+      expect(payment.bulkRunId).toBe("run-6");
+    });
+
+    it("leaves a one-off payment unstamped and unchunked", async () => {
+      // No run id means no second call to be safe about: the whole selection
+      // posts at once, exactly as it did before chunking existed.
+      const abigail = await consultant("Abigail Bautista");
+      const benjie = await consultant("Benjie Cruz");
+      const result = await run([
+        ...whole([await workOrder(abigail.id, "1000.00")]),
+        ...whole([await workOrder(benjie.id, "1000.00")]),
+      ]);
+
+      expect(result.paid).toHaveLength(2);
+      expect(result.done).toBe(true);
+      const payments = await prisma.billPayment.findMany({});
+      expect(payments.every((payment) => payment.bulkRunId === null)).toBe(true);
+    });
+  });
+
   it("refuses an empty selection, and caps how big one run can be", async () => {
     await expect(run([])).rejects.toThrow(/Nothing selected/);
     expect(MAX_BULK_PAYMENTS).toBe(100);

@@ -327,6 +327,8 @@ export async function recordBillPayment(input: {
   reference?: string | null;
   notes?: string | null;
   applications: BillApplicationInput[];
+  /** The bulk run that recorded this, if one did (SPEC §6). */
+  bulkRunId?: string | null;
   userId?: string | null;
   role?: Role | null;
 }) {
@@ -379,6 +381,7 @@ export async function recordBillPayment(input: {
         method: input.method ?? "BANK_TRANSFER",
         reference: input.reference ?? null,
         notes: input.notes ?? null,
+        bulkRunId: input.bulkRunId ?? null,
       },
     });
 

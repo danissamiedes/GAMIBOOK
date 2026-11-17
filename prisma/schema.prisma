@@ -1046,6 +1046,10 @@ model BillPayment {
   reversedAt      DateTime?
   reversalEntryId String?
 
+  /// Which bulk run recorded this, if one did (SPEC §6). A run is posted in
+  /// chunks, so this is what stops a resumed chunk paying a consultant twice.
+  bulkRunId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1057,6 +1061,7 @@ model BillPayment {
 
   @@index([companyId, date])
   @@index([companyId, vendorId])
+  @@index([companyId, bulkRunId])
 }
 
 /// Points at a work order or an expense recorded as a bill — exactly one.

@@ -288,7 +288,30 @@ export type BulkPayResult = {
   paid: { vendorId: string; consultantName: string; billPaymentId: string; total: string }[];
   failed: { vendorId: string; consultantName: string; reason: string }[];
   skipped: PlannedPayment[];
+  /** Consultants in this run still waiting to be paid when the call handed back. */
+  remaining: number;
+  /** True when nothing is left: the caller can stop asking. */
+  done: boolean;
 };
+
+/**
+ * How many consultants one request posts before handing back.
+ *
+ * A payment is a transaction of its own — read the bills, write the payment,
+ * post the journal, update each balance — and on a managed database every one
+ * of those is a round trip. Sixty consultants is comfortably more than the
+ * sixty seconds a serverless function gets, and what the reader saw when it
+ * ran out was the app's own "something went wrong".
+ */
+export const RUN_CHUNK = 20;
+
+/**
+ * Stop posting with time in hand rather than being killed mid-run. The
+ * reasoning, and the number, are the import's: nothing is lost either way,
+ * because each payment is its own transaction and its run is stamped on it,
+ * but being killed costs a round trip and shows the reader a fault.
+ */
+export const RUN_BUDGET_MS = 45_000;
 
 /**
  * Record the run: one payment per consultant, each on its own.
@@ -297,6 +320,15 @@ export type BulkPayResult = {
  * transaction means the eighteenth failing silently unwinds the seventeen that
  * were right, and a payment run half-recorded is easier to finish than one that
  * vanished. So each consultant stands alone and the failures are named.
+ *
+ * For the same reason it is not one *request* either. The caller keeps calling
+ * until `done`, and each call picks up where the last stopped. Two things make
+ * that safe to repeat. A bill that has been settled is no longer outstanding,
+ * so it drops out of the plan on its own; and where it has only been
+ * part-settled — paying less than the balance leaves it on the list — the
+ * payments already made under this `runId` name their consultants, who are
+ * skipped. Without a `runId` there is no second call to be safe about: the
+ * whole run happens at once, as it did before.
  */
 export async function recordBulkPay(options: {
   companyId: string;
@@ -306,10 +338,32 @@ export async function recordBulkPay(options: {
   reference?: string | null;
   userId?: string | null;
   role?: Role | null;
+  /** Identifies one run across its chunks, and keeps a resumed one honest. */
+  runId?: string | null;
+  /** Consultants to pay in this call. Defaults to all of them. */
+  limit?: number;
+  /** Hand back after this long, whatever is left. */
+  budgetMs?: number;
 }): Promise<BulkPayResult> {
+  const startedAt = Date.now();
   const plan = await planBulkPay({ companyId: options.companyId, lines: options.lines });
 
-  if (plan.payable.length === 0) {
+  // Consultants this run has already paid. A chunk that was interrupted after
+  // posting but before answering would otherwise be repeated by the retry.
+  const alreadyPaid = options.runId
+    ? new Set(
+        (
+          await prisma.billPayment.findMany({
+            where: { companyId: options.companyId, bulkRunId: options.runId },
+            select: { vendorId: true },
+          })
+        ).map((payment) => payment.vendorId),
+      )
+    : new Set<string>();
+
+  const outstanding = plan.payable.filter((payment) => !alreadyPaid.has(payment.vendorId));
+
+  if (plan.payable.length === 0 && alreadyPaid.size === 0) {
     throw new PostingError("None of the selected documents can be paid — see the reasons listed");
   }
   if (plan.payable.length > MAX_BULK_PAYMENTS) {
@@ -320,8 +374,15 @@ export async function recordBulkPay(options: {
 
   const paid: BulkPayResult["paid"] = [];
   const failed: BulkPayResult["failed"] = [];
+  const limit = options.limit ?? Number.POSITIVE_INFINITY;
+  const budgetMs = options.budgetMs ?? Number.POSITIVE_INFINITY;
+  let attempted = 0;
 
-  for (const payment of plan.payable) {
+  for (const payment of outstanding) {
+    // Always post at least one, so a budget too small for a single payment
+    // cannot leave the caller looping over a run that never advances.
+    if (attempted > 0 && (attempted >= limit || Date.now() - startedAt >= budgetMs)) break;
+    attempted++;
     try {
       const recorded = await recordBillPayment({
         companyId: options.companyId,
@@ -336,6 +397,7 @@ export async function recordBulkPay(options: {
             ? { expenseId: line.documentId, amountApplied: line.amount }
             : { workOrderId: line.documentId, amountApplied: line.amount },
         ),
+        bulkRunId: options.runId ?? null,
         userId: options.userId,
         role: options.role,
       });
@@ -354,19 +416,39 @@ export async function recordBulkPay(options: {
     }
   }
 
-  await writeAudit({
-    companyId: options.companyId,
-    userId: options.userId,
-    action: "consultant_bill.bulk_paid",
-    entityType: "BillPayment",
-    entityId: paid[0]?.billPaymentId ?? null,
-    summary: `${paid.length} consultant(s) paid${failed.length ? `, ${failed.length} failed` : ""}`,
-    data: {
-      paid: paid.map((entry) => ({ consultant: entry.consultantName, total: entry.total })),
-      failed,
-      reference: options.reference ?? null,
-    },
-  });
+  // Each chunk writes its own entry rather than one at the end of the run:
+  // an audit trail that only appears once the last chunk lands is no use for
+  // working out what a run that stopped halfway actually did. The run id ties
+  // them back together.
+  if (paid.length > 0 || failed.length > 0) {
+    await writeAudit({
+      companyId: options.companyId,
+      userId: options.userId,
+      action: "consultant_bill.bulk_paid",
+      entityType: "BillPayment",
+      entityId: paid[0]?.billPaymentId ?? null,
+      summary: `${paid.length} consultant(s) paid${failed.length ? `, ${failed.length} failed` : ""}`,
+      data: {
+        paid: paid.map((entry) => ({ consultant: entry.consultantName, total: entry.total })),
+        failed,
+        reference: options.reference ?? null,
+        runId: options.runId ?? null,
+      },
+    });
+  }
 
-  return { paid, failed, skipped: plan.excluded };
+  // What is left for the next call: the consultants this one did not reach.
+  // Those it tried are not among them, paid or refused alike — the caller
+  // drops a refused consultant from the next chunk, because retrying a
+  // refusal at the head of every chunk would spend the run failing the same
+  // way, which is the import's reasoning for its own refused rows.
+  const remaining = Math.max(0, outstanding.length - attempted);
+
+  return {
+    paid,
+    failed,
+    skipped: plan.excluded,
+    remaining,
+    done: remaining === 0,
+  };
 }

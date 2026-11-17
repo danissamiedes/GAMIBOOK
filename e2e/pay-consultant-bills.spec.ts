@@ -47,22 +47,42 @@ test("the run becomes one payment per consultant before anything posts", async (
   await expect(rows.first().getByRole("checkbox")).toBeChecked();
 
   await page.getByRole("button", { name: "Review payments" }).click();
-  await expect(page).toHaveURL(/confirm=1/);
 
   // The confirm step is the point: a list of documents has become a list of
-  // payments, one per consultant, and nothing has posted yet.
+  // payments, one per consultant, and nothing has posted yet. It happens in
+  // place now — the selection is too big to travel in a URL.
   await expect(page.getByRole("heading", { name: /payments? to record/ })).toBeVisible();
-  // The confirmation card renders above the selection table, which has a
-  // Consultant column of its own — hence first(). "Settles" belongs to the
-  // confirmation alone, so it needs no such qualification.
-  await expect(page.getByRole("columnheader", { name: "Consultant" }).first()).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "Settles" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Record \d+ payments?/ })).toBeVisible();
+  // Nothing has been written: the documents are still outstanding behind it.
+  await expect(page.getByRole("button", { name: "Change the selection" })).toBeVisible();
 });
 
-test("a review that cannot be planned says so instead of looking like a dead page", async ({
-  page,
-}) => {
+test("a run posts, and says what it paid", async ({ page }) => {
+  test.setTimeout(180_000);
+  await signIn(page, "owner@example.com");
+  await page.goto("/consultant-bills/pay");
+
+  const rows = page.locator("tbody tr");
+  const count = await rows.count();
+  test.skip(count === 0, "Nothing outstanding in this book");
+
+  // One row only: this is about the run completing, not about how much of
+  // the book it can swallow, and the rest should stay outstanding.
+  const boxes = page.locator('tbody input[type="checkbox"]');
+  for (let index = 1; index < count; index++) await boxes.nth(index).uncheck();
+
+  await page.getByRole("button", { name: "Review payments" }).click();
+  await expect(page.getByRole("heading", { name: /payments? to record/ })).toBeVisible();
+
+  await page.getByRole("button", { name: /Record \d+ payments?/ }).click();
+
+  // The run reports itself rather than leaving the reader to guess, which is
+  // the whole reason it posts in chunks instead of one long request.
+  await expect(page.getByText(/consultants? paid —/)).toBeVisible({ timeout: 120_000 });
+});
+
+test("nothing ticked is a button that will not run, not a dead page", async ({ page }) => {
   test.setTimeout(120_000);
   await signIn(page, "owner@example.com");
   await page.goto("/consultant-bills/pay");
@@ -70,15 +90,7 @@ test("a review that cannot be planned says so instead of looking like a dead pag
   const rows = page.locator("tbody tr");
   test.skip((await rows.count()) === 0, "Nothing outstanding in this book");
 
-  // Untick everything, then review. The browser goes to a new address and the
-  // same screen comes back, which is indistinguishable from a page that never
-  // loaded — unless the screen says what happened.
-  const boxes = page.locator('tbody input[type="checkbox"]');
-  for (let index = 0; index < (await boxes.count()); index++) {
-    await boxes.nth(index).uncheck();
-  }
-  await page.getByRole("button", { name: "Review payments" }).click();
-
-  await expect(page).toHaveURL(/confirm=1/);
-  await expect(page.getByText(/nothing to review/i)).toBeVisible();
+  await page.getByRole("button", { name: "Untick everything" }).click();
+  await expect(page.getByText(/^0 of \d+ ticked\.$/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review payments" })).toBeDisabled();
 });
